@@ -1,11 +1,12 @@
+import re
 import pandas as pd
 import streamlit as st
 import pydeck as pdk
 
-# 1. Page Configuration (Must be the first command)
+# 1. Page Configuration
 st.set_page_config(page_title="MSU Mumbai Surveillance Dashboard", page_icon="📈", layout="wide")
 
-# 2. Custom CSS for KPI Cards and UI tweaks
+# 2. Custom CSS
 st.markdown("""
 <style>
     .kpi-card {
@@ -27,65 +28,108 @@ st.markdown("""
         font-size: 24px;
         font-weight: bold;
     }
-    /* Hide default Streamlit top margin */
     .block-container {
         padding-top: 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. Header Section (Matching image_301b8c.png)
+# 3. Data Loading & Preprocessing
+DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1FMxAX2fZtzc8mqconPFzF3cznZvsozcYSwX5zlG8dIM/edit?gid=1168281274#gid=1168281274"
+
+def convert_google_sheet_url(url: str) -> str:
+    sheet_id_match = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
+    gid_match = re.search(r"[#&?]gid=([0-9]+)", url)
+    if sheet_id_match:
+        sheet_id = sheet_id_match.group(1)
+        gid = gid_match.group(1) if gid_match else "0"
+        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    return url
+
+@st.cache_data(ttl=60) # Refreshes every 60 seconds
+def load_and_clean_data(url: str) -> pd.DataFrame:
+    csv_url = convert_google_sheet_url(url)
+    try:
+        df = pd.read_csv(csv_url)
+        
+        # Standardize Ward Column
+        if "Zone/Administrative Ward Name" in df.columns:
+            df.rename(columns={"Zone/Administrative Ward Name": "Ward"}, inplace=True)
+            
+        # Classify Facility Type
+        def classify_facility(f_type):
+            f_clean = str(f_type).strip().lower()
+            if f_clean in ["private hospital", "private laboratory", "private hosp", "private lab"]:
+                return "Private"
+            return "Public"
+            
+        if "Facility Type" in df.columns:
+            df["Facility Category"] = df["Facility Type"].apply(classify_facility)
+            
+        return df
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return pd.DataFrame()
+
+raw_df = load_and_clean_data(DEFAULT_GSHEET_URL)
+
+# 4. Header Section
 header_col1, header_col2 = st.columns([2, 1])
 with header_col1:
     st.markdown("### 📈 MSU Mumbai Surveillance Dashboard")
     st.markdown("<span style='color:gray'>Municipal Surveillance Unit - Mumbai</span>", unsafe_allow_html=True)
 with header_col2:
-    st.write("") # Spacer
-    # Using columns for horizontal buttons
+    st.write("") 
     btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
     btn_col1.button("📥 Data")
-    btn_col2.button("🔄 Refresh")
+    if btn_col2.button("🔄 Refresh"):
+        st.cache_data.clear()
+        st.rerun()
     btn_col3.button("📄 PDF")
     btn_col4.button("📊 Excel")
 
 st.divider()
 
-# 4. Filter Section
+# 5. Dynamic Filters
 st.markdown("**🔽 Filters**")
-filter_row1_col1, filter_row1_col2, filter_row1_col3, filter_row1_col4 = st.columns(4)
+filtered_df = raw_df.copy()
+
+filter_row1_col1, filter_row1_col2 = st.columns(2)
+
 with filter_row1_col1:
-    st.selectbox("Year", ["2026", "2025", "2024"])
+    if "Ward" in filtered_df.columns:
+        ward_list = ["All Wards"] + sorted([str(w) for w in filtered_df["Ward"].dropna().unique()])
+        selected_ward = st.selectbox("Ward", ward_list)
+        if selected_ward != "All Wards":
+            filtered_df = filtered_df[filtered_df["Ward"] == selected_ward]
+
 with filter_row1_col2:
-    st.selectbox("Month", ["All Months", "Jan", "Feb", "Mar", "Apr", "May"])
-with filter_row1_col3:
-    st.selectbox("Week", ["All Weeks", "Week 1", "Week 2"])
-with filter_row1_col4:
-    st.selectbox("Disease", ["Dengue", "Malaria", "Chikungunya"])
+    if "Facility Category" in filtered_df.columns:
+        fac_list = ["All Facilities", "Public", "Private"]
+        selected_fac = st.selectbox("Facility Category", fac_list)
+        if selected_fac != "All Facilities":
+            filtered_df = filtered_df[filtered_df["Facility Category"] == selected_fac]
 
-filter_row2_col1, filter_row2_col2, filter_row2_col3, filter_row2_col4 = st.columns(4)
-with filter_row2_col1:
-    st.selectbox("Ward", ["All Wards", "GS", "A", "B", "C"])
-with filter_row2_col2:
-    st.selectbox("Gender", ["All Genders", "Male", "Female"])
-with filter_row2_col3:
-    st.selectbox("OPD / IPD", ["All Types", "OPD", "IPD"])
-with filter_row2_col4:
-    date_col1, date_col2 = st.columns(2)
-    date_col1.date_input("Date From")
-    date_col2.date_input("Date To")
+st.markdown(f"<p style='text-align: right; color: gray;'>{len(filtered_df):,} / {len(raw_df):,} records</p>", unsafe_allow_html=True)
 
-st.markdown("<p style='text-align: right; color: gray;'>1,810 / 38,988 records</p>", unsafe_allow_html=True)
+# 6. Dynamic KPI Calculations
+total_cases = len(filtered_df)
 
-# 5. KPI Summary Cards
-kpi_cols = st.columns(6)
+public_cases = (filtered_df["Facility Category"] == "Public").sum() if "Facility Category" in filtered_df.columns else 0
+private_cases = (filtered_df["Facility Category"] == "Private").sum() if "Facility Category" in filtered_df.columns else 0
 
+try:
+    top_ward = filtered_df["Ward"].value_counts().idxmax() if "Ward" in filtered_df.columns and not filtered_df.empty else "N/A"
+except:
+    top_ward = "N/A"
+
+# 7. Render KPI Cards
+kpi_cols = st.columns(4)
 cards_data = [
-    {"title": "👥 Total Cases", "value": "1,810"},
-    {"title": "🩺 OPD Cases", "value": "950"},
-    {"title": "🏥 IPD Cases", "value": "860"},
-    {"title": "👫 Male / Female", "value": "1,147 / 663"},
-    {"title": "🦠 Top Disease", "value": "Dengue"},
-    {"title": "📍 Top Ward", "value": "GS"}
+    {"title": "👥 Total Cases", "value": f"{total_cases:,}"},
+    {"title": "🏛️ Public Facility Cases", "value": f"{public_cases:,}"},
+    {"title": "🏥 Private Facility Cases", "value": f"{private_cases:,}"},
+    {"title": "📍 Top Ward (Max Cases)", "value": str(top_ward)}
 ]
 
 for col, data in zip(kpi_cols, cards_data):
@@ -97,51 +141,14 @@ for col, data in zip(kpi_cols, cards_data):
         </div>
         """, unsafe_allow_html=True)
 
-st.write("") # Spacer
+st.write("")
 
-# 6. Tabs Integration (Matching image_301bca.png & image_301c0d.png)
-tab1, tab2 = st.tabs(["📊 Charts & Analytics", "🗺️ Map View"])
+# 8. Tabs for Detailed Data
+tab1, tab2 = st.tabs(["📋 Data Records", "🗺️ Analytics Placeholder"])
 
 with tab1:
-    # Nested tabs for analytics
-    sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs(["🔄 Year Comparison", "📈 Trends", "🧠 Prediction", "🥧 Distribution"])
-    
-    with sub_tab1:
-        st.info("Year Comparison Charts will render here. (Integration with your Ward/Public-Private data)")
-    with sub_tab2:
-        st.info("Trend Line Charts will render here.")
-    with sub_tab3:
-        st.info("Machine Learning Predictions will render here.")
-    with sub_tab4:
-        st.info("Pie charts for demographic distribution will render here.")
+    st.markdown("**Filtered Case Records**")
+    st.dataframe(filtered_df, use_container_width=True)
 
 with tab2:
-    st.markdown("**📍 Geospatial Distribution - Ward-wise Clustering**")
-    
-    # Mock data for Mumbai Wards Map (Placeholder for actual lat/lon data)
-    map_data = pd.DataFrame({
-        "lat": [19.0760, 19.0144, 19.1136, 18.9220],
-        "lon": [72.8777, 72.8479, 72.8697, 72.8347],
-        "cases": [500, 300, 800, 210]
-    })
-    
-    # Using PyDeck for bubble clustering map
-    st.pydeck_chart(pdk.Deck(
-        map_style='mapbox://styles/mapbox/light-v9',
-        initial_view_state=pdk.ViewState(
-            latitude=19.0760,
-            longitude=72.8777,
-            zoom=10,
-            pitch=0,
-        ),
-        layers=[
-            pdk.Layer(
-                'ScatterplotLayer',
-                data=map_data,
-                get_position='[lon, lat]',
-                get_color='[200, 30, 0, 160]',
-                get_radius='cases * 5',
-                pickable=True
-            ),
-        ],
-    ))
+    st.info("Charts and Map visualizations will update here based on filtered data.")
