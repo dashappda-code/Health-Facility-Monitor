@@ -1,110 +1,147 @@
-import re
 import pandas as pd
 import streamlit as st
+import pydeck as pdk
 
-# 1. Page Configuration
-st.set_page_config(
-    page_title="Daily IHIP Defaulter Dashboard", 
-    page_icon="🏥",
-    layout="wide"
-)
+# 1. Page Configuration (Must be the first command)
+st.set_page_config(page_title="MSU Mumbai Surveillance Dashboard", page_icon="📈", layout="wide")
 
-# Default Google Sheets Link
-DEFAULT_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1FMxAX2fZtzc8mqconPFzF3cznZvsozcYSwX5zlG8dIM/edit?gid=1168281274#gid=1168281274"
+# 2. Custom CSS for KPI Cards and UI tweaks
+st.markdown("""
+<style>
+    .kpi-card {
+        background-color: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        text-align: left;
+        border: 1px solid #f0f0f0;
+    }
+    .kpi-title {
+        color: #6c757d;
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+    .kpi-value {
+        color: #212529;
+        font-size: 24px;
+        font-weight: bold;
+    }
+    /* Hide default Streamlit top margin */
+    .block-container {
+        padding-top: 2rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-def convert_google_sheet_url(url: str) -> str:
-    """Converts a standard Google Sheets URL into a direct CSV export URL."""
-    sheet_id_match = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
-    gid_match = re.search(r"[#&?]gid=([0-9]+)", url)
+# 3. Header Section (Matching image_301b8c.png)
+header_col1, header_col2 = st.columns([2, 1])
+with header_col1:
+    st.markdown("### 📈 MSU Mumbai Surveillance Dashboard")
+    st.markdown("<span style='color:gray'>Municipal Surveillance Unit - Mumbai</span>", unsafe_allow_html=True)
+with header_col2:
+    st.write("") # Spacer
+    # Using columns for horizontal buttons
+    btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
+    btn_col1.button("📥 Data")
+    btn_col2.button("🔄 Refresh")
+    btn_col3.button("📄 PDF")
+    btn_col4.button("📊 Excel")
 
-    if sheet_id_match:
-        sheet_id = sheet_id_match.group(1)
-        gid = gid_match.group(1) if gid_match else "0"
-        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    return url
+st.divider()
 
-@st.cache_data(ttl=60)
-def load_data(url: str) -> pd.DataFrame:
-    """Loads data from the Google Sheet. Refreshes automatically every 60 seconds."""
-    csv_url = convert_google_sheet_url(url)
-    df = pd.read_csv(csv_url)
-    return df
+# 4. Filter Section
+st.markdown("**🔽 Filters**")
+filter_row1_col1, filter_row1_col2, filter_row1_col3, filter_row1_col4 = st.columns(4)
+with filter_row1_col1:
+    st.selectbox("Year", ["2026", "2025", "2024"])
+with filter_row1_col2:
+    st.selectbox("Month", ["All Months", "Jan", "Feb", "Mar", "Apr", "May"])
+with filter_row1_col3:
+    st.selectbox("Week", ["All Weeks", "Week 1", "Week 2"])
+with filter_row1_col4:
+    st.selectbox("Disease", ["Dengue", "Malaria", "Chikungunya"])
 
-def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Cleans data and applies Public/Private classification rules."""
-    # Standardize Ward column name
-    if "Zone/Administrative Ward Name" in df.columns:
-        df.rename(columns={"Zone/Administrative Ward Name": "Ward"}, inplace=True)
+filter_row2_col1, filter_row2_col2, filter_row2_col3, filter_row2_col4 = st.columns(4)
+with filter_row2_col1:
+    st.selectbox("Ward", ["All Wards", "GS", "A", "B", "C"])
+with filter_row2_col2:
+    st.selectbox("Gender", ["All Genders", "Male", "Female"])
+with filter_row2_col3:
+    st.selectbox("OPD / IPD", ["All Types", "OPD", "IPD"])
+with filter_row2_col4:
+    date_col1, date_col2 = st.columns(2)
+    date_col1.date_input("Date From")
+    date_col2.date_input("Date To")
 
-    # Classify Private vs Public facilities
-    def classify_facility(f_type):
-        f_type_clean = str(f_type).strip().lower()
-        if f_type_clean in ["private hospital", "private laboratory", "private hosp", "private lab"]:
-            return "Private"
-        return "Public"
+st.markdown("<p style='text-align: right; color: gray;'>1,810 / 38,988 records</p>", unsafe_allow_html=True)
 
-    if "Facility Type" in df.columns:
-        df["Facility Category"] = df["Facility Type"].apply(classify_facility)
+# 5. KPI Summary Cards
+kpi_cols = st.columns(6)
 
-    return df
+cards_data = [
+    {"title": "👥 Total Cases", "value": "1,810"},
+    {"title": "🩺 OPD Cases", "value": "950"},
+    {"title": "🏥 IPD Cases", "value": "860"},
+    {"title": "👫 Male / Female", "value": "1,147 / 663"},
+    {"title": "🦠 Top Disease", "value": "Dengue"},
+    {"title": "📍 Top Ward", "value": "GS"}
+]
 
-# 2. Dashboard UI
-st.title("📊 IHIP Defaulter & Health Surveillance Dashboard")
+for col, data in zip(kpi_cols, cards_data):
+    with col:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <div class="kpi-title">{data['title']}</div>
+            <div class="kpi-value">{data['value']}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-# Sidebar Configuration
-st.sidebar.header("⚙️ Data Source Settings")
-sheet_url = st.sidebar.text_input("Google Sheets Link:", value=DEFAULT_GSHEET_URL)
+st.write("") # Spacer
 
-if st.sidebar.button("🔄 Force Data Refresh"):
-    st.cache_data.clear()
-    st.rerun()
+# 6. Tabs Integration (Matching image_301bca.png & image_301c0d.png)
+tab1, tab2 = st.tabs(["📊 Charts & Analytics", "🗺️ Map View"])
 
-# 3. Main Application Logic
-try:
-    with st.spinner("Fetching live data from Google Sheets..."):
-        raw_df = load_data(sheet_url)
-        df = preprocess_data(raw_df)
+with tab1:
+    # Nested tabs for analytics
+    sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs(["🔄 Year Comparison", "📈 Trends", "🧠 Prediction", "🥧 Distribution"])
+    
+    with sub_tab1:
+        st.info("Year Comparison Charts will render here. (Integration with your Ward/Public-Private data)")
+    with sub_tab2:
+        st.info("Trend Line Charts will render here.")
+    with sub_tab3:
+        st.info("Machine Learning Predictions will render here.")
+    with sub_tab4:
+        st.info("Pie charts for demographic distribution will render here.")
 
-    st.success(f"✅ Data loaded successfully! Total records: {len(df)}")
-
-    # Top KPI Cards
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Reported Cases", len(df))
-    with col2:
-        total_public = (df["Facility Category"] == "Public").sum() if "Facility Category" in df.columns else 0
-        st.metric("Public Facility Cases", total_public)
-    with col3:
-        total_private = (df["Facility Category"] == "Private").sum() if "Facility Category" in df.columns else 0
-        st.metric("Private Facility Cases", total_private)
-    with col4:
-        total_wards = df["Ward"].nunique() if "Ward" in df.columns else 0
-        st.metric("Active Wards Tracked", total_wards)
-
-    st.divider()
-
-    # Data Filters
-    st.subheader("🔍 Filter Records")
-    filter_col1, filter_col2 = st.columns(2)
-    filtered_df = df.copy()
-
-    with filter_col1:
-        if "Ward" in df.columns:
-            wards_list = ["All"] + sorted(list(df["Ward"].dropna().unique()))
-            selected_ward = st.selectbox("Filter by Ward:", wards_list)
-            if selected_ward != "All":
-                filtered_df = filtered_df[filtered_df["Ward"] == selected_ward]
-
-    with filter_col2:
-        if "Facility Category" in df.columns:
-            facility_list = ["All", "Public", "Private"]
-            selected_facility = st.selectbox("Filter by Facility Type:", facility_list)
-            if selected_facility != "All":
-                filtered_df = filtered_df[filtered_df["Facility Category"] == selected_facility]
-
-    # Display Filtered Data
-    st.subheader("📋 Detailed Case Records")
-    st.dataframe(filtered_df, use_container_width=True)
-
-except Exception as e:
-    st.error(f"⚠️ Error loading data: {e}\n\nPlease ensure your Google Sheet is set to 'Anyone with the link can view'.")
+with tab2:
+    st.markdown("**📍 Geospatial Distribution - Ward-wise Clustering**")
+    
+    # Mock data for Mumbai Wards Map (Placeholder for actual lat/lon data)
+    map_data = pd.DataFrame({
+        "lat": [19.0760, 19.0144, 19.1136, 18.9220],
+        "lon": [72.8777, 72.8479, 72.8697, 72.8347],
+        "cases": [500, 300, 800, 210]
+    })
+    
+    # Using PyDeck for bubble clustering map
+    st.pydeck_chart(pdk.Deck(
+        map_style='mapbox://styles/mapbox/light-v9',
+        initial_view_state=pdk.ViewState(
+            latitude=19.0760,
+            longitude=72.8777,
+            zoom=10,
+            pitch=0,
+        ),
+        layers=[
+            pdk.Layer(
+                'ScatterplotLayer',
+                data=map_data,
+                get_position='[lon, lat]',
+                get_color='[200, 30, 0, 160]',
+                get_radius='cases * 5',
+                pickable=True
+            ),
+        ],
+    ))
