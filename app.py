@@ -3,6 +3,7 @@ from io import StringIO
 
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import requests
 import streamlit as st
 
@@ -812,6 +813,377 @@ else:
         use_container_width=True,
         hide_index=True,
     )
+
+# ============================================================
+# CHARTS & ANALYTICS
+# ============================================================
+
+st.divider()
+
+st.subheader("📊 Charts & Analytics")
+
+if filtered_df.empty:
+
+    st.warning(
+        "No data available for charts with the selected filters."
+    )
+
+else:
+
+    # ========================================================
+    # PREPARE CHART DATA
+    # ========================================================
+
+    chart_df = filtered_df.copy()
+
+    # --------------------------------------------------------
+    # Month ordering
+    # --------------------------------------------------------
+
+    month_order = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
+
+    # ========================================================
+    # ROW 1
+    # ========================================================
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    # --------------------------------------------------------
+    # 1. YEAR COMPARISON
+    # --------------------------------------------------------
+
+    with chart_col1:
+
+        st.markdown("### 📅 Year Comparison")
+
+        if "Year" in chart_df.columns:
+
+            yearly_data = (
+                chart_df
+                .dropna(subset=["Year"])
+                .groupby("Year")
+                .size()
+                .reset_index(name="Cases")
+            )
+
+            yearly_data["Year"] = (
+                yearly_data["Year"]
+                .astype(int)
+                .astype(str)
+            )
+
+            if not yearly_data.empty:
+
+                fig_year = px.bar(
+                    yearly_data,
+                    x="Year",
+                    y="Cases",
+                    text="Cases",
+                    title="Total Cases by Year",
+                )
+
+                fig_year.update_traces(
+                    textposition="outside"
+                )
+
+                fig_year.update_layout(
+                    xaxis_title="Year",
+                    yaxis_title="Cases",
+                    height=400,
+                )
+
+                st.plotly_chart(
+                    fig_year,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No year data available."
+                )
+
+    # --------------------------------------------------------
+    # 2. MONTHLY TREND
+    # --------------------------------------------------------
+
+    with chart_col2:
+
+        st.markdown("### 📈 Monthly Trend")
+
+        if "Month" in chart_df.columns:
+
+            monthly_data = (
+                chart_df
+                .dropna(subset=["Month"])
+                .groupby(
+                    ["Year", "Month"],
+                    dropna=False,
+                )
+                .size()
+                .reset_index(name="Cases")
+            )
+
+            monthly_data["Month"] = pd.Categorical(
+                monthly_data["Month"],
+                categories=month_order,
+                ordered=True,
+            )
+
+            monthly_data = (
+                monthly_data
+                .sort_values(
+                    ["Year", "Month"]
+                )
+            )
+
+            if not monthly_data.empty:
+
+                monthly_data["Year"] = (
+                    monthly_data["Year"]
+                    .astype(str)
+                )
+
+                fig_month = px.line(
+                    monthly_data,
+                    x="Month",
+                    y="Cases",
+                    color="Year",
+                    markers=True,
+                    title="Monthly Case Trend",
+                )
+
+                fig_month.update_layout(
+                    xaxis_title="Month",
+                    yaxis_title="Cases",
+                    height=400,
+                )
+
+                st.plotly_chart(
+                    fig_month,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No monthly data available."
+                )
+
+
+    # ========================================================
+    # ROW 2
+    # ========================================================
+
+    chart_col3, chart_col4 = st.columns(2)
+
+    # --------------------------------------------------------
+    # 3. WEEKLY TREND
+    # --------------------------------------------------------
+
+    with chart_col3:
+
+        st.markdown("### 📆 Weekly Trend")
+
+        if "Week" in chart_df.columns:
+
+            weekly_data = (
+                chart_df
+                .dropna(subset=["Week"])
+                .groupby(
+                    ["Year", "Week"],
+                    dropna=False,
+                )
+                .size()
+                .reset_index(name="Cases")
+            )
+
+            # Extract week number for sorting
+            weekly_data["Week Number"] = (
+                weekly_data["Week"]
+                .astype(str)
+                .str.extract(
+                    r"(\d+)"
+                )[0]
+                .astype(float)
+            )
+
+            weekly_data = (
+                weekly_data
+                .sort_values(
+                    ["Year", "Week Number"]
+                )
+            )
+
+            weekly_data["Year"] = (
+                weekly_data["Year"]
+                .astype(str)
+            )
+
+            if not weekly_data.empty:
+
+                fig_week = px.line(
+                    weekly_data,
+                    x="Week",
+                    y="Cases",
+                    color="Year",
+                    markers=True,
+                    title="Weekly Case Trend",
+                )
+
+                fig_week.update_layout(
+                    xaxis_title="Week",
+                    yaxis_title="Cases",
+                    height=400,
+                )
+
+                st.plotly_chart(
+                    fig_week,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No weekly data available."
+                )
+
+
+    # --------------------------------------------------------
+    # 4. DISEASE DISTRIBUTION
+    # --------------------------------------------------------
+
+    with chart_col4:
+
+        st.markdown("### 🦠 Disease Distribution")
+
+        if "Confirmed Diagnosis" in chart_df.columns:
+
+            disease_data = (
+                chart_df[
+                    "Confirmed Diagnosis"
+                ]
+                .dropna()
+                .value_counts()
+                .reset_index()
+            )
+
+            disease_data.columns = [
+                "Disease",
+                "Cases",
+            ]
+
+            # Show top 15 diseases
+            disease_data = disease_data.head(15)
+
+            if not disease_data.empty:
+
+                fig_disease = px.bar(
+                    disease_data.sort_values(
+                        "Cases"
+                    ),
+                    x="Cases",
+                    y="Disease",
+                    orientation="h",
+                    text="Cases",
+                    title="Top 15 Diseases",
+                )
+
+                fig_disease.update_traces(
+                    textposition="outside"
+                )
+
+                fig_disease.update_layout(
+                    xaxis_title="Cases",
+                    yaxis_title="Disease",
+                    height=500,
+                )
+
+                st.plotly_chart(
+                    fig_disease,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No disease data available."
+                )
+
+
+    # ========================================================
+    # ROW 3
+    # ========================================================
+
+    st.markdown("### 🏙️ Ward-wise Cases")
+
+    if "Ward" in chart_df.columns:
+
+        ward_data = (
+            chart_df[
+                "Ward"
+            ]
+            .dropna()
+            .value_counts()
+            .reset_index()
+        )
+
+        ward_data.columns = [
+            "Ward",
+            "Cases",
+        ]
+
+        # Top 15 wards
+        ward_data = ward_data.head(15)
+
+        if not ward_data.empty:
+
+            fig_ward = px.bar(
+                ward_data.sort_values(
+                    "Cases"
+                ),
+                x="Cases",
+                y="Ward",
+                orientation="h",
+                text="Cases",
+                title="Top 15 Wards by Case Count",
+            )
+
+            fig_ward.update_traces(
+                textposition="outside"
+            )
+
+            fig_ward.update_layout(
+                xaxis_title="Cases",
+                yaxis_title="Ward",
+                height=550,
+            )
+
+            st.plotly_chart(
+                fig_ward,
+                use_container_width=True,
+            )
+
+        else:
+
+            st.info(
+                "No ward data available."
+            )
+
+
 
 
 # ============================================================
