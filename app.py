@@ -49,7 +49,7 @@ EXPECTED_COLUMNS = [
     "Facility Name Lform",
     "Facility Type",
     "PUBLIC / PRIVATE FACILITIES",
-    "Week.1",
+    "Week range",
 ]
 
 
