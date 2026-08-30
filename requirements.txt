@@ -2,7 +2,6 @@ streamlit
 pandas
 numpy
 plotly
+requests
 openpyxl
 xlsxwriter
-pydeck
-requests
