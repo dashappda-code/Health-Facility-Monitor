@@ -815,6 +815,407 @@ else:
     )
 
 # ============================================================
+# DEMOGRAPHICS & DISEASE ANALYTICS
+# ============================================================
+
+st.divider()
+
+st.subheader("🔬 Demographics & Disease Analytics")
+
+
+if filtered_df.empty:
+
+    st.warning(
+        "No data available for demographic and disease analytics."
+    )
+
+else:
+
+    analytics_df = filtered_df.copy()
+
+    # ========================================================
+    # CREATE AGE GROUPS
+    # ========================================================
+
+    if "Age" in analytics_df.columns:
+
+        analytics_df["Age Group"] = pd.cut(
+            analytics_df["Age"],
+            bins=[
+                -1,
+                4,
+                14,
+                24,
+                44,
+                64,
+                float("inf"),
+            ],
+            labels=[
+                "0-4",
+                "5-14",
+                "15-24",
+                "25-44",
+                "45-64",
+                "65+",
+            ],
+        )
+
+    # ========================================================
+    # ROW 1
+    # ========================================================
+
+    analytics_col1, analytics_col2 = st.columns(2)
+
+    # ========================================================
+    # 1. GENDER DISTRIBUTION
+    # ========================================================
+
+    with analytics_col1:
+
+        st.markdown("### 👥 Gender Distribution")
+
+        if "Gender" in analytics_df.columns:
+
+            gender_data = (
+                analytics_df["Gender"]
+                .dropna()
+                .value_counts()
+                .reset_index()
+            )
+
+            gender_data.columns = [
+                "Gender",
+                "Cases",
+            ]
+
+            if not gender_data.empty:
+
+                fig_gender = px.pie(
+                    gender_data,
+                    names="Gender",
+                    values="Cases",
+                    hole=0.45,
+                    title="Cases by Gender",
+                )
+
+                fig_gender.update_layout(
+                    height=420,
+                )
+
+                st.plotly_chart(
+                    fig_gender,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No gender data available."
+                )
+
+    # ========================================================
+    # 2. OPD VS IPD
+    # ========================================================
+
+    with analytics_col2:
+
+        st.markdown("### 🏥 OPD vs IPD")
+
+        if "Opd Ipd" in analytics_df.columns:
+
+            opd_ipd_data = (
+                analytics_df["Opd Ipd"]
+                .dropna()
+                .value_counts()
+                .reset_index()
+            )
+
+            opd_ipd_data.columns = [
+                "Type",
+                "Cases",
+            ]
+
+            if not opd_ipd_data.empty:
+
+                fig_opd_ipd = px.bar(
+                    opd_ipd_data,
+                    x="Type",
+                    y="Cases",
+                    text="Cases",
+                    title="OPD vs IPD Cases",
+                )
+
+                fig_opd_ipd.update_traces(
+                    textposition="outside"
+                )
+
+                fig_opd_ipd.update_layout(
+                    xaxis_title="Patient Type",
+                    yaxis_title="Cases",
+                    height=420,
+                )
+
+                st.plotly_chart(
+                    fig_opd_ipd,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No OPD/IPD data available."
+                )
+
+    # ========================================================
+    # ROW 2
+    # ========================================================
+
+    analytics_col3, analytics_col4 = st.columns(2)
+
+    # ========================================================
+    # 3. AGE GROUP DISTRIBUTION
+    # ========================================================
+
+    with analytics_col3:
+
+        st.markdown("### 🎂 Age Group Distribution")
+
+        if "Age Group" in analytics_df.columns:
+
+            age_data = (
+                analytics_df["Age Group"]
+                .dropna()
+                .value_counts()
+                .reindex(
+                    [
+                        "0-4",
+                        "5-14",
+                        "15-24",
+                        "25-44",
+                        "45-64",
+                        "65+",
+                    ],
+                    fill_value=0,
+                )
+                .reset_index()
+            )
+
+            age_data.columns = [
+                "Age Group",
+                "Cases",
+            ]
+
+            if not age_data.empty:
+
+                fig_age = px.bar(
+                    age_data,
+                    x="Age Group",
+                    y="Cases",
+                    text="Cases",
+                    title="Cases by Age Group",
+                )
+
+                fig_age.update_traces(
+                    textposition="outside"
+                )
+
+                fig_age.update_layout(
+                    xaxis_title="Age Group",
+                    yaxis_title="Cases",
+                    height=420,
+                )
+
+                st.plotly_chart(
+                    fig_age,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No age data available."
+                )
+
+    # ========================================================
+    # 4. DISEASE × GENDER
+    # ========================================================
+
+    with analytics_col4:
+
+        st.markdown("### 🦠 Disease × Gender")
+
+        if (
+            "Confirmed Diagnosis" in analytics_df.columns
+            and "Gender" in analytics_df.columns
+        ):
+
+            disease_gender = (
+                analytics_df
+                .dropna(
+                    subset=[
+                        "Confirmed Diagnosis",
+                        "Gender",
+                    ]
+                )
+                .groupby(
+                    [
+                        "Confirmed Diagnosis",
+                        "Gender",
+                    ]
+                )
+                .size()
+                .reset_index(
+                    name="Cases"
+                )
+            )
+
+            # Keep top 10 diseases
+            top_diseases = (
+                analytics_df[
+                    "Confirmed Diagnosis"
+                ]
+                .dropna()
+                .value_counts()
+                .head(10)
+                .index
+                .tolist()
+            )
+
+            disease_gender = disease_gender[
+                disease_gender[
+                    "Confirmed Diagnosis"
+                ].isin(top_diseases)
+            ]
+
+            if not disease_gender.empty:
+
+                fig_disease_gender = px.bar(
+                    disease_gender,
+                    x="Confirmed Diagnosis",
+                    y="Cases",
+                    color="Gender",
+                    barmode="group",
+                    title="Top 10 Diseases by Gender",
+                )
+
+                fig_disease_gender.update_layout(
+                    xaxis_title="Disease",
+                    yaxis_title="Cases",
+                    height=500,
+                    xaxis_tickangle=-45,
+                )
+
+                st.plotly_chart(
+                    fig_disease_gender,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.info(
+                    "No disease-gender data available."
+                )
+
+
+    # ========================================================
+    # ROW 3 — DISEASE × GENDER HEATMAP
+    # ========================================================
+
+    st.markdown(
+        "### 🌡️ Disease × Gender Heatmap"
+    )
+
+    if (
+        "Confirmed Diagnosis" in analytics_df.columns
+        and "Gender" in analytics_df.columns
+    ):
+
+        heatmap_data = (
+            analytics_df
+            .dropna(
+                subset=[
+                    "Confirmed Diagnosis",
+                    "Gender",
+                ]
+            )
+            .groupby(
+                [
+                    "Confirmed Diagnosis",
+                    "Gender",
+                ]
+            )
+            .size()
+            .reset_index(
+                name="Cases"
+            )
+        )
+
+        # Select top 15 diseases
+        top_heatmap_diseases = (
+            analytics_df[
+                "Confirmed Diagnosis"
+            ]
+            .dropna()
+            .value_counts()
+            .head(15)
+            .index
+            .tolist()
+        )
+
+        heatmap_data = heatmap_data[
+            heatmap_data[
+                "Confirmed Diagnosis"
+            ].isin(
+                top_heatmap_diseases
+            )
+        ]
+
+        if not heatmap_data.empty:
+
+            heatmap_pivot = heatmap_data.pivot(
+                index="Confirmed Diagnosis",
+                columns="Gender",
+                values="Cases",
+            ).fillna(0)
+
+            # Sort diseases by total cases
+            heatmap_pivot = heatmap_pivot.loc[
+                heatmap_pivot.sum(
+                    axis=1
+                ).sort_values(
+                    ascending=False
+                ).index
+            ]
+
+            fig_heatmap = px.imshow(
+                heatmap_pivot,
+                text_auto=True,
+                aspect="auto",
+                title="Disease and Gender Case Distribution",
+                labels={
+                    "x": "Gender",
+                    "y": "Disease",
+                    "color": "Cases",
+                },
+            )
+
+            fig_heatmap.update_layout(
+                height=600,
+            )
+
+            st.plotly_chart(
+                fig_heatmap,
+                use_container_width=True,
+            )
+
+        else:
+
+            st.info(
+                "No heatmap data available."
+            )
+
+
+# ============================================================
 # CHARTS & ANALYTICS
 # ============================================================
 
