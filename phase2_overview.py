@@ -14,12 +14,10 @@ def _unique(df, column):
 
 
 def _reset_filter_state():
-    for key in [
-        "filter_years", "filter_months", "filter_weeks",
-        "filter_diseases", "filter_wards", "filter_genders",
-        "filter_opd_ipd", "filter_date_range"
-    ]:
-        st.session_state.pop(key, None)
+    """Reset filter widgets by creating a fresh widget state namespace."""
+    st.session_state["filter_reset_version"] = (
+        st.session_state.get("filter_reset_version", 0) + 1
+    )
 
 
 def create_filters(df):
@@ -35,11 +33,15 @@ def create_filters(df):
             refresh_data()
 
     with reset_col:
-        if st.button("↩️ Reset", key="reset_filters_button",
-                     use_container_width=True,
-                     help="Clear selected filters and return to the default dashboard view"):
-            _reset_filter_state()
-            st.rerun()
+        st.button(
+            "↩️ Reset",
+            key="reset_filters_button",
+            use_container_width=True,
+            help="Clear selected filters and return to the default dashboard view",
+            on_click=_reset_filter_state,
+        )
+
+    reset_version = st.session_state.get("filter_reset_version", 0)
 
     years = sorted(_unique(df, "Year"), key=lambda x: int(x))
     months = [m for m in MONTH_ORDER if m in _unique(df, "Month")]
@@ -52,31 +54,31 @@ def create_filters(df):
     # Initial/default state: no filter is visually selected.
     # Empty selection means ALL data.
     selected_years = st.sidebar.multiselect(
-        "Year", years, default=[], key="filter_years",
+        "Year", years, default=[], key=f"filter_years_{reset_version}",
         placeholder="Select year"
     )
     selected_months = st.sidebar.multiselect(
-        "Month", months, default=[], key="filter_months",
+        "Month", months, default=[], key=f"filter_months_{reset_version}",
         placeholder="Select month"
     )
     selected_weeks = st.sidebar.multiselect(
-        "Week", weeks, default=[], key="filter_weeks",
+        "Week", weeks, default=[], key=f"filter_weeks_{reset_version}",
         placeholder="Select week"
     )
     selected_diseases = st.sidebar.multiselect(
-        "Disease", diseases, default=[], key="filter_diseases",
+        "Disease", diseases, default=[], key=f"filter_diseases_{reset_version}",
         placeholder="Select disease"
     )
     selected_wards = st.sidebar.multiselect(
-        "Ward", wards, default=[], key="filter_wards",
+        "Ward", wards, default=[], key=f"filter_wards_{reset_version}",
         placeholder="Select ward"
     )
     selected_genders = st.sidebar.multiselect(
-        "Gender", genders, default=[], key="filter_genders",
+        "Gender", genders, default=[], key=f"filter_genders_{reset_version}",
         placeholder="Select gender"
     )
     selected_opd_ipd = st.sidebar.multiselect(
-        "OPD / IPD", opd_ipd, default=[], key="filter_opd_ipd",
+        "OPD / IPD", opd_ipd, default=[], key=f"filter_opd_ipd_{reset_version}",
         placeholder="Select OPD / IPD"
     )
 
@@ -90,7 +92,7 @@ def create_filters(df):
                 value=(min_date, max_date),
                 min_value=min_date,
                 max_value=max_date,
-                key="filter_date_range",
+                key=f"filter_date_range_{reset_version}",
             )
             if isinstance(date_range, tuple):
                 if len(date_range) == 2:
