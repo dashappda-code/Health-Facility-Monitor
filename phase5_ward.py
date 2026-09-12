@@ -206,3 +206,4 @@ def render_ward_analysis(df):
             fig,
             use_container_width=True,
         )
+
