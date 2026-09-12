@@ -182,3 +182,4 @@ def render_map(df):
         fig,
         use_container_width=True,
     )
+
