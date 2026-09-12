@@ -341,3 +341,4 @@ def render_demographics(df):
             fig,
             use_container_width=True,
         )
+
