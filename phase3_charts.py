@@ -331,3 +331,4 @@ def render_charts(df):
             fig,
             use_container_width=True,
         )
+
