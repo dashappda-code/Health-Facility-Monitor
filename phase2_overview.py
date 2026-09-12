@@ -32,6 +32,9 @@ def _reset_filter_state():
     for key in filter_keys:
         st.session_state.pop(key, None)
 
+    # Mark the next render as a true initial-state reset.
+    st.session_state["filters_reset_to_initial"] = True
+
 
 def create_filters(df):
     st.sidebar.divider()
