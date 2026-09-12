@@ -3,326 +3,144 @@ import streamlit as st
 
 from phase1_data import refresh_data
 
-
-# ============================================================
-# FILTER DATA
-# ============================================================
-
-def apply_filters(
-    df,
-    selected_years,
-    selected_months,
-    selected_weeks,
-    selected_diseases,
-    selected_wards,
-    selected_genders,
-    selected_opd_ipd,
-    date_from,
-    date_to,
-):
-
-    filtered = df.copy()
-
-    if selected_years:
-
-        filtered = filtered[
-            filtered["Year"].isin(
-                selected_years
-            )
-        ]
-
-    if selected_months:
-
-        filtered = filtered[
-            filtered["Month"].isin(
-                selected_months
-            )
-        ]
-
-    if selected_weeks:
-
-        filtered = filtered[
-            filtered["Week"].isin(
-                selected_weeks
-            )
-        ]
-
-    if selected_diseases:
-
-        filtered = filtered[
-            filtered[
-                "Confirmed Diagnosis"
-            ].isin(
-                selected_diseases
-            )
-        ]
-
-    if selected_wards:
-
-        filtered = filtered[
-            filtered["Ward"].isin(
-                selected_wards
-            )
-        ]
-
-    if selected_genders:
-
-        filtered = filtered[
-            filtered["Gender"].isin(
-                selected_genders
-            )
-        ]
-
-    if selected_opd_ipd:
-
-        filtered = filtered[
-            filtered["Opd Ipd"].isin(
-                selected_opd_ipd
-            )
-        ]
-
-    if date_from is not None:
-
-        filtered = filtered[
-            filtered["Reporting Date"].dt.date
-            >= date_from
-        ]
-
-    if date_to is not None:
-
-        filtered = filtered[
-            filtered["Reporting Date"].dt.date
-            <= date_to
-        ]
-
-    return filtered
+MONTH_ORDER = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
-# ============================================================
-# SIDEBAR FILTERS
-# ============================================================
+def _unique(df, column):
+    if column not in df.columns:
+        return []
+    return sorted(
+        df[column].dropna().unique().tolist(),
+        key=str
+    )
+
+
+def _reset_filter_state():
+    """Clear all filter widget values before the next rerun."""
+    filter_keys = [
+        "filter_years",
+        "filter_months",
+        "filter_weeks",
+        "filter_diseases",
+        "filter_wards",
+        "filter_genders",
+        "filter_opd_ipd",
+        "filter_date_range",
+    ]
+
+    for key in filter_keys:
+        st.session_state.pop(key, None)
+
 
 def create_filters(df):
-
     st.sidebar.divider()
+    st.sidebar.subheader("Dashboard Controls")
 
-    if st.sidebar.button(
-        "🔄 Refresh Data",
-        use_container_width=True,
-    ):
+    refresh_col, reset_col = st.sidebar.columns(2)
 
-        refresh_data()
+    with refresh_col:
+        if st.button(
+            "🔄 Refresh",
+            key="refresh_data_button",
+            use_container_width=True,
+            help="Reload the latest data from Google Sheets",
+        ):
+            refresh_data()
 
-    st.sidebar.divider()
+    with reset_col:
+        if st.button(
+            "↩️ Reset",
+            key="reset_filters_button",
+            use_container_width=True,
+            help="Clear all selected filters",
+        ):
+            _reset_filter_state()
+            st.rerun()
 
-    # --------------------------------------------------------
-    # Year
-    # --------------------------------------------------------
-
-    years = sorted(
-        df["Year"]
-        .dropna()
-        .unique()
-        .tolist()
-    )
+    years = sorted(_unique(df, "Year"), key=lambda x: int(x))
+    months = [
+        m for m in MONTH_ORDER
+        if m in _unique(df, "Month")
+    ]
+    weeks = _unique(df, "Week")
+    diseases = _unique(df, "Confirmed Diagnosis")
+    wards = _unique(df, "Ward")
+    genders = _unique(df, "Gender")
+    opd_ipd = _unique(df, "Opd Ipd")
 
     selected_years = st.sidebar.multiselect(
         "Year",
         years,
         default=years,
+        key="filter_years",
     )
-
-    # --------------------------------------------------------
-    # Month
-    # --------------------------------------------------------
-
-    month_order = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
-
-    available_months = [
-        month
-        for month in month_order
-        if month in
-        df["Month"].dropna().unique()
-    ]
 
     selected_months = st.sidebar.multiselect(
         "Month",
-        available_months,
-        default=available_months,
-    )
-
-    # --------------------------------------------------------
-    # Week
-    # --------------------------------------------------------
-
-    week_values = (
-        df["Week"]
-        .dropna()
-        .unique()
-        .tolist()
-    )
-
-    def week_sort(value):
-
-        text = str(value)
-
-        digits = pd.Series(
-            text
-        ).str.extract(
-            r"(\d+)"
-        ).iloc[0, 0]
-
-        return (
-            int(digits)
-            if pd.notna(digits)
-            else 999
-        )
-
-    week_values = sorted(
-        week_values,
-        key=week_sort,
+        months,
+        default=months,
+        key="filter_months",
     )
 
     selected_weeks = st.sidebar.multiselect(
         "Week",
-        week_values,
-        default=week_values,
-    )
-
-    # --------------------------------------------------------
-    # Disease
-    # --------------------------------------------------------
-
-    diseases = sorted(
-        df["Confirmed Diagnosis"]
-        .dropna()
-        .unique()
-        .tolist()
+        weeks,
+        default=weeks,
+        key="filter_weeks",
     )
 
     selected_diseases = st.sidebar.multiselect(
         "Disease",
         diseases,
-    )
-
-    # --------------------------------------------------------
-    # Ward
-    # --------------------------------------------------------
-
-    wards = sorted(
-        df["Ward"]
-        .dropna()
-        .unique()
-        .tolist()
+        default=[],
+        key="filter_diseases",
     )
 
     selected_wards = st.sidebar.multiselect(
         "Ward",
         wards,
+        default=[],
+        key="filter_wards",
     )
-
-    # --------------------------------------------------------
-    # Gender
-    # --------------------------------------------------------
-
-    gender_order = [
-        "M",
-        "F",
-        "Transgender",
-    ]
-
-    genders = [
-        gender
-        for gender in gender_order
-        if gender in
-        df["Gender"].dropna().unique()
-    ]
 
     selected_genders = st.sidebar.multiselect(
         "Gender",
         genders,
+        default=[],
+        key="filter_genders",
     )
-
-    # --------------------------------------------------------
-    # OPD / IPD
-    # --------------------------------------------------------
-
-    opd_ipd = [
-        value
-        for value in [
-            "OPD",
-            "IPD",
-        ]
-        if value in
-        df["Opd Ipd"].dropna().unique()
-    ]
 
     selected_opd_ipd = st.sidebar.multiselect(
         "OPD / IPD",
         opd_ipd,
+        default=[],
+        key="filter_opd_ipd",
     )
 
-    # --------------------------------------------------------
-    # Date
-    # --------------------------------------------------------
+    date_from = None
+    date_to = None
 
-    st.sidebar.subheader(
-        "Reporting Date"
-    )
+    if "Reporting Date" in df.columns:
+        dates = df["Reporting Date"].dropna()
 
-    valid_dates = (
-        df["Reporting Date"]
-        .dropna()
-    )
+        if not dates.empty:
+            min_date = dates.min().date()
+            max_date = dates.max().date()
 
-    if not valid_dates.empty:
-
-        min_date = valid_dates.min().date()
-        max_date = valid_dates.max().date()
-
-        date_range = st.sidebar.date_input(
-            "Date range",
-            value=(
-                min_date,
-                max_date,
-            ),
-            min_value=min_date,
-            max_value=max_date,
-        )
-
-        if (
-            isinstance(
-                date_range,
-                tuple,
+            date_range = st.sidebar.date_input(
+                "Reporting Date",
+                value=(min_date, max_date),
+                min_value=min_date,
+                max_value=max_date,
+                key="filter_date_range",
             )
-            and len(date_range) == 2
-        ):
 
-            date_from = date_range[0]
-            date_to = date_range[1]
-
-        else:
-
-            date_from = min_date
-            date_to = max_date
-
-    else:
-
-        date_from = None
-        date_to = None
+            if isinstance(date_range, tuple):
+                if len(date_range) == 2:
+                    date_from, date_to = date_range
+                elif len(date_range) == 1:
+                    date_from = date_to = date_range[0]
 
     return {
         "selected_years": selected_years,
@@ -337,174 +155,142 @@ def create_filters(df):
     }
 
 
-# ============================================================
-# KPIs
-# ============================================================
+def apply_filters(
+    df,
+    selected_years,
+    selected_months,
+    selected_weeks,
+    selected_diseases,
+    selected_wards,
+    selected_genders,
+    selected_opd_ipd,
+    date_from,
+    date_to,
+):
+    out = df.copy()
+
+    filters = [
+        ("Year", selected_years),
+        ("Month", selected_months),
+        ("Week", selected_weeks),
+        ("Confirmed Diagnosis", selected_diseases),
+        ("Ward", selected_wards),
+        ("Gender", selected_genders),
+        ("Opd Ipd", selected_opd_ipd),
+    ]
+
+    for column, values in filters:
+        if values and column in out.columns:
+            out = out[out[column].isin(values)]
+
+    if date_from is not None and "Reporting Date" in out.columns:
+        out = out[
+            out["Reporting Date"].dt.date >= date_from
+        ]
+
+    if date_to is not None and "Reporting Date" in out.columns:
+        out = out[
+            out["Reporting Date"].dt.date <= date_to
+        ]
+
+    return out
+
 
 def calculate_kpis(df):
-
-    total = len(df)
-
-    opd = (
-        df["Opd Ipd"]
-        .eq("OPD")
-        .sum()
+    disease = (
+        df["Confirmed Diagnosis"].dropna().value_counts()
+        if "Confirmed Diagnosis" in df.columns
+        else pd.Series(dtype="int64")
     )
 
-    ipd = (
-        df["Opd Ipd"]
-        .eq("IPD")
-        .sum()
+    ward = (
+        df["Ward"].dropna().value_counts()
+        if "Ward" in df.columns
+        else pd.Series(dtype="int64")
     )
 
-    male = (
-        df["Gender"]
-        .eq("M")
-        .sum()
-    )
-
-    female = (
-        df["Gender"]
-        .eq("F")
-        .sum()
-    )
-
-    transgender = (
-        df["Gender"]
-        .eq("Transgender")
-        .sum()
-    )
-
-    disease_counts = (
-        df["Confirmed Diagnosis"]
-        .dropna()
-        .value_counts()
-    )
-
-    ward_counts = (
-        df["Ward"]
-        .dropna()
-        .value_counts()
+    facility = (
+        df["Facility Name Lform"].dropna().value_counts()
+        if "Facility Name Lform" in df.columns
+        else pd.Series(dtype="int64")
     )
 
     return {
-        "total": total,
-        "opd": opd,
-        "ipd": ipd,
-        "male": male,
-        "female": female,
-        "transgender": transgender,
-        "top_disease": (
-            disease_counts.index[0]
-            if not disease_counts.empty
-            else "N/A"
-        ),
-        "top_ward": (
-            ward_counts.index[0]
-            if not ward_counts.empty
-            else "N/A"
-        ),
+        "total": len(df),
+        "opd": int(df["Opd Ipd"].eq("OPD").sum())
+        if "Opd Ipd" in df.columns else 0,
+        "ipd": int(df["Opd Ipd"].eq("IPD").sum())
+        if "Opd Ipd" in df.columns else 0,
+        "male": int(df["Gender"].eq("M").sum())
+        if "Gender" in df.columns else 0,
+        "female": int(df["Gender"].eq("F").sum())
+        if "Gender" in df.columns else 0,
+        "transgender": int(df["Gender"].eq("Transgender").sum())
+        if "Gender" in df.columns else 0,
+        "top_disease": disease.index[0]
+        if len(disease) else "N/A",
+        "top_ward": ward.index[0]
+        if len(ward) else "N/A",
+        "top_facility": facility.index[0]
+        if len(facility) else "N/A",
     }
 
 
-# ============================================================
-# OVERVIEW PAGE
-# ============================================================
-
 def render_overview(df):
-
     filters = create_filters(df)
 
-    filtered_df = apply_filters(
+    filtered = apply_filters(
         df,
-        **filters,
+        **filters
     )
 
-    kpis = calculate_kpis(
-        filtered_df
-    )
+    k = calculate_kpis(filtered)
 
-    st.title(
-        "🏥 Health Facility Monitor"
-    )
-
+    st.title("🏥 Health Facility Monitor")
     st.caption(
-        "Public Health Surveillance and "
-        "Epidemiological Monitoring Dashboard"
+        "Public Health Surveillance and Management Dashboard"
     )
 
     st.info(
-        f"Showing **{len(filtered_df):,}** "
-        f"of **{len(df):,}** total records"
+        f"Showing **{len(filtered):,}** of "
+        f"**{len(df):,}** records"
     )
 
-    st.subheader(
-        "Key Indicators"
-    )
+    cols = st.columns(4)
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric(
-            "Total Cases",
-            f"{kpis['total']:,}",
+    for col, label, value in [
+        (cols[0], "Total Cases", k["total"]),
+        (cols[1], "OPD Cases", k["opd"]),
+        (cols[2], "IPD Cases", k["ipd"]),
+        (cols[3], "Top Ward", k["top_ward"]),
+    ]:
+        col.metric(
+            label,
+            f"{value:,}"
+            if isinstance(value, int)
+            else value,
         )
 
-    with col2:
-        st.metric(
-            "OPD Cases",
-            f"{kpis['opd']:,}",
-        )
+    cols = st.columns(4)
 
-    with col3:
-        st.metric(
-            "IPD Cases",
-            f"{kpis['ipd']:,}",
-        )
-
-    with col4:
-        st.metric(
-            "Male",
-            f"{kpis['male']:,}",
-        )
-
-    col5, col6, col7, col8 = st.columns(4)
-
-    with col5:
-        st.metric(
-            "Female",
-            f"{kpis['female']:,}",
-        )
-
-    with col6:
-        st.metric(
-            "Transgender",
-            f"{kpis['transgender']:,}",
-        )
-
-    with col7:
-        st.metric(
-            "Top Disease",
-            kpis["top_disease"],
-        )
-
-    with col8:
-        st.metric(
-            "Top Ward",
-            kpis["top_ward"],
+    for col, label, value in [
+        (cols[0], "Male", k["male"]),
+        (cols[1], "Female", k["female"]),
+        (cols[2], "Top Disease", k["top_disease"]),
+        (cols[3], "Top Facility", k["top_facility"]),
+    ]:
+        col.metric(
+            label,
+            f"{value:,}"
+            if isinstance(value, int)
+            else value,
         )
 
     st.divider()
-
-    st.subheader(
-        "Filtered Records"
-    )
+    st.subheader("Filtered Records")
 
     st.dataframe(
-        filtered_df.head(100),
+        filtered.head(100),
         use_container_width=True,
         hide_index=True,
     )
-
-    return filtered_df
-
