@@ -14,7 +14,7 @@ import streamlit as st
 GOOGLE_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/"
     "18qfha01Czh10i4PDRUpuumtRVwbQv7Pn09jFxGSbXHg/"
-    "edit?gid=1168281274#gid=1168281274"
+    "edit?gid=1910295094#gid=1910295094"
 )
 
 
