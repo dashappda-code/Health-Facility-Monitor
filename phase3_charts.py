@@ -445,3 +445,4 @@ def render_charts(df):
                 use_container_width=True,
                 hide_index=True,
             )
+
