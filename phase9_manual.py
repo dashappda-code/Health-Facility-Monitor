@@ -739,3 +739,4 @@ def render_help(df=None):
 
 def render_instructions(df=None):
     return render_manual(df)
+
