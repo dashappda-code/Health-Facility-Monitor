@@ -42,17 +42,15 @@ st.markdown(
         padding-bottom: 1rem;
     }
 
-    /* ======================================================
-       GLOBAL FILTER PANEL
-       ====================================================== */
+    /* Global management filter panel */
     div[data-testid="stForm"] {
         position: sticky;
-        top: 0.35rem;
+        top: 0.25rem;
         z-index: 999;
         background: rgba(255,255,255,0.98);
         border: 1px solid #d8e2ee;
         border-radius: 14px;
-        padding: 0.65rem 0.8rem 0.55rem 0.8rem;
+        padding: 0.55rem 0.75rem;
         box-shadow: 0 5px 18px rgba(30,60,90,0.10);
         margin-bottom: 0.8rem;
     }
@@ -61,7 +59,7 @@ st.markdown(
         background: linear-gradient(90deg, #eef6ff 0%, #f8fbff 100%);
         border-left: 5px solid #1769aa;
         border-radius: 10px;
-        padding: 9px 14px;
+        padding: 8px 14px;
         margin: 3px 0 7px 0;
     }
     .global-filter-title {
@@ -82,7 +80,7 @@ st.markdown(
         margin: 4px 0 2px 2px;
     }
     .filter-row-label.second {
-        margin-top: 8px;
+        margin-top: 7px;
     }
     div[data-testid="stFormSubmitButton"] button {
         border-radius: 8px;
