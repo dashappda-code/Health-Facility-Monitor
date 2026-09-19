@@ -39,11 +39,11 @@ st.markdown(
     <style>
 
     /* ======================================================
-       MAIN PAGE
+       MAIN APPLICATION
        ====================================================== */
 
     .block-container {
-        padding-top: 0.7rem;
+        padding-top: 0.65rem;
         padding-bottom: 1rem;
         max-width: 100%;
     }
@@ -59,42 +59,58 @@ st.markdown(
 
 
     /* ======================================================
-       GLOBAL FILTER PANEL
+       GLOBAL FILTER CONTAINER
        ====================================================== */
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 12px;
+        border-radius: 12px !important;
+        border: 1px solid rgba(120, 140, 160, 0.35) !important;
+        padding: 10px 12px 8px 12px !important;
+        margin-top: 4px !important;
+        margin-bottom: 12px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
     }
 
 
-    /* Filter labels */
+    /* ======================================================
+       FILTER LABELS
+       ====================================================== */
 
     div[data-testid="stMultiSelect"] label,
     div[data-testid="stDateInput"] label {
-        font-size: 12px !important;
+        font-size: 11px !important;
         font-weight: 650 !important;
+        margin-bottom: 2px !important;
     }
 
 
-    /* Compact filter controls */
+    /* ======================================================
+       FILTER BOXES
+       ====================================================== */
 
-    div[data-testid="stMultiSelect"],
-    div[data-testid="stDateInput"] {
-        margin-bottom: 0 !important;
-    }
-
-
-    /* Multiselect box */
-
-    div[data-testid="stMultiSelect"] > div {
-        min-height: 38px;
-    }
-
-
-    /* Date input */
-
+    div[data-testid="stMultiSelect"] > div,
     div[data-testid="stDateInput"] > div {
-        min-height: 38px;
+        min-height: 36px !important;
+    }
+
+
+    /* ======================================================
+       MULTISELECT INPUT
+       ====================================================== */
+
+    div[data-testid="stMultiSelect"] [data-baseweb="select"] {
+        min-height: 36px !important;
+        border-radius: 7px !important;
+    }
+
+
+    /* ======================================================
+       DATE INPUT
+       ====================================================== */
+
+    div[data-testid="stDateInput"] input {
+        min-height: 34px !important;
+        border-radius: 7px !important;
     }
 
 
@@ -103,10 +119,19 @@ st.markdown(
        ====================================================== */
 
     .st-key-global_reset_filters button {
-        min-height: 38px;
-        border-radius: 8px;
-        font-weight: 700;
-        white-space: nowrap;
+        min-height: 36px !important;
+        border-radius: 7px !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+    }
+
+
+    /* ======================================================
+       FILTER SPACING
+       ====================================================== */
+
+    div[data-testid="stHorizontalBlock"] {
+        gap: 0.55rem !important;
     }
 
 
@@ -115,7 +140,7 @@ st.markdown(
        ====================================================== */
 
     [data-testid="stMetric"] {
-        padding: 7px 10px;
+        padding: 7px 10px !important;
     }
 
 
