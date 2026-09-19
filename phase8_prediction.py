@@ -3,8 +3,6 @@ import numpy as np
 import plotly.express as px
 import streamlit as st
 
-from phase2_overview import apply_filters, create_filters
-
 
 # ============================================================
 # COMMON HELPERS
@@ -1056,30 +1054,8 @@ def render_prediction(df):
 
         return
 
-    # --------------------------------------------------------
-    # GLOBAL FILTERS
-    # --------------------------------------------------------
-
-    try:
-
-        filters = create_filters(df)
-
-        filtered_df = apply_filters(
-            df,
-            **filters
-        )
-
-    except Exception:
-
-        filtered_df = df.copy()
-
-    if filtered_df.empty:
-
-        st.warning(
-            "No records match the selected filters."
-        )
-
-        return
+    # Global dashboard filters are already applied in app.py.
+    filtered_df = df.copy()
 
     # --------------------------------------------------------
     # TABS
