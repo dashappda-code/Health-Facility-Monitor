@@ -8,6 +8,7 @@ from phase5_ward import render_ward_analysis
 from phase6_map import render_map
 from phase7_explorer import render_explorer
 from phase8_prediction import render_prediction
+from phase9_manual import render_manual
 
 
 # ============================================================
@@ -36,17 +37,47 @@ except Exception as error:
 
 
 # ============================================================
-# SIDEBAR NAVIGATION
+# SIDEBAR HEADER
 # ============================================================
 
 st.sidebar.title("🏥 Health Facility Monitor")
 
-st.sidebar.caption("Public Health Surveillance Dashboard")
+st.sidebar.caption(
+    "Public Health Surveillance Dashboard"
+)
 
 st.sidebar.divider()
 
+
+# ============================================================
+# DATA STATUS
+# ============================================================
+
+try:
+
+    total_records = len(df)
+
+    st.sidebar.success(
+        f"🟢 Data Loaded\n\n"
+        f"Records: {total_records:,}"
+    )
+
+except Exception:
+
+    st.sidebar.info(
+        "🟢 Data source connected"
+    )
+
+
+st.sidebar.divider()
+
+
+# ============================================================
+# SIDEBAR NAVIGATION
+# ============================================================
+
 page = st.sidebar.radio(
-    "Navigation",
+    "📌 Navigation",
     [
         "Overview",
         "Charts & Trends",
@@ -55,6 +86,7 @@ page = st.sidebar.radio(
         "Map View",
         "Data Explorer",
         "Prediction",
+        "📘 User Manual",
     ],
 )
 
@@ -98,14 +130,30 @@ elif page == "Prediction":
     render_prediction(df)
 
 
+elif page == "📘 User Manual":
+
+    render_manual(df)
+
+
 # ============================================================
 # FOOTER
 # ============================================================
+
+st.sidebar.divider()
+
+st.sidebar.caption(
+    "📊 Interactive Programme Monitoring System"
+)
+
+st.sidebar.caption(
+    "Data Source: Live Google Sheets"
+)
+
 
 st.divider()
 
 st.caption(
     "Health Facility Monitor | "
-    "Live Google Sheets Data Source"
+    "Live Google Sheets Data Source | "
+    "For Programme Monitoring & Management Support"
 )
-
