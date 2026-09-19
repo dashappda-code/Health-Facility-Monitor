@@ -1,656 +1,940 @@
+import io
+
 import pandas as pd
 import streamlit as st
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
-def clean_series(series):
+def _clean_series(df, column):
+    if df is None or df.empty or column not in df.columns:
+        return pd.Series(dtype="string")
 
     return (
-        series
+        df[column]
+        .fillna("")
         .astype(str)
         .str.strip()
-        .replace(
-            {
-                "": pd.NA,
-                "nan": pd.NA,
-                "None": pd.NA,
-                "NA": pd.NA,
-                "N/A": pd.NA,
-            }
-        )
     )
 
 
-def find_column(df, candidates):
+def _non_blank(df, column):
+    values = _clean_series(df, column)
 
-    normalized = {
-        str(col).strip().lower().replace(" ", "").replace("_", ""): col
-        for col in df.columns
-    }
+    return values[
+        values.ne("")
+        & values.ne("nan")
+        & values.ne("NaT")
+    ]
 
-    for candidate in candidates:
 
-        key = (
-            str(candidate)
-            .strip()
-            .lower()
-            .replace(" ", "")
-            .replace("_", "")
+def _make_excel(df):
+    output = io.BytesIO()
+
+    with pd.ExcelWriter(
+        output,
+        engine="openpyxl",
+    ) as writer:
+
+        df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Filtered Data",
         )
 
-        if key in normalized:
-            return normalized[key]
+    output.seek(0)
 
-    return None
+    return output.getvalue()
 
 
-# ============================================================
-# AGE GROUP CREATION
-# ============================================================
+def _make_csv(df):
+    return df.to_csv(
+        index=False
+    ).encode("utf-8-sig")
 
-def create_age_group(age_series):
 
-    age_numeric = pd.to_numeric(
-        age_series,
-        errors="coerce"
+def _summary_table(df, column, label):
+    if (
+        df is None
+        or df.empty
+        or column not in df.columns
+    ):
+        return pd.DataFrame(
+            columns=[
+                label,
+                "Records",
+                "Percentage",
+            ]
+        )
+
+    values = _non_blank(
+        df,
+        column,
     )
 
-    def classify(age):
+    if values.empty:
+        return pd.DataFrame(
+            columns=[
+                label,
+                "Records",
+                "Percentage",
+            ]
+        )
 
-        if pd.isna(age):
-            return "Unknown"
+    counts = (
+        values
+        .value_counts()
+        .rename_axis(label)
+        .reset_index(
+            name="Records"
+        )
+    )
 
-        if age < 1:
-            return "<1 Year"
+    total = counts["Records"].sum()
 
-        elif age <= 4:
-            return "1–4 Years"
+    if total > 0:
+        counts["Percentage"] = (
+            counts["Records"]
+            / total
+            * 100
+        ).round(2)
 
-        elif age <= 14:
-            return "5–14 Years"
+    return counts
 
-        elif age <= 24:
-            return "15–24 Years"
-
-        elif age <= 44:
-            return "25–44 Years"
-
-        elif age <= 59:
-            return "45–59 Years"
-
-        else:
-            return "60+ Years"
-
-    return age_numeric.apply(classify)
-
-
-# ============================================================
-# MAIN FUNCTION
-# ============================================================
 
 def render_drilldown_export(df):
 
-    st.title("🔎 Detailed Management Drill-down")
+    st.subheader("🔎 Drill-down & Export")
 
     st.caption(
-        "Age-wise analysis, facility × ward drill-down and "
-        "filtered data export."
+        "Detailed management-level drill-down and export "
+        "for the currently filtered dataset."
     )
+
+    # =========================================================
+    # EMPTY DATA
+    # =========================================================
 
     if df is None or df.empty:
 
-        st.warning("No data available.")
+        st.warning(
+            "No records are available for drill-down or export "
+            "under the currently selected filters."
+        )
 
         return
 
-    data = df.copy()
+    working_df = df.copy()
 
-    # --------------------------------------------------------
-    # DETECT COLUMNS
-    # --------------------------------------------------------
-
-    facility_col = find_column(
-        data,
-        [
-            "Facility Name Lform",
-            "Facility",
-            "Facility Name",
-            "Health Facility",
-            "Health Facility Name",
-        ],
+    total_records = len(
+        working_df
     )
 
-    ward_col = find_column(
-        data,
-        [
-            "Ward",
-            "Ward Name",
-            "Ward No",
-            "Ward Number",
-        ],
+    # =========================================================
+    # 1. CURRENT FILTERED DATASET SUMMARY
+    # =========================================================
+
+    st.markdown(
+        "### 📊 Current Filtered Dataset"
     )
 
-    age_col = find_column(
-        data,
-        [
-            "Age",
-            "Age Years",
-            "Age (Years)",
-        ],
-    )
+    c1, c2, c3, c4 = st.columns(4)
 
-    gender_col = find_column(
-        data,
-        [
-            "Gender",
-            "Sex",
-        ],
-    )
-
-    disease_col = find_column(
-        data,
-        [
-            "Confirmed Diagnosis",
-            "Disease",
-            "Disease Name",
-            "Diagnosis",
-        ],
-    )
-
-    month_col = find_column(
-        data,
-        [
-            "Month",
-        ],
-    )
-
-    # ========================================================
-    # MANAGEMENT FILTERS
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("🎛️ Detailed Filters")
-
-    c1, c2, c3 = st.columns(3)
-
-    # --------------------------------------------------------
-    # FACILITY
-    # --------------------------------------------------------
-
-    if facility_col:
-
-        facility_values = sorted(
-            clean_series(data[facility_col])
-            .dropna()
-            .unique()
-            .tolist()
+    with c1:
+        st.metric(
+            "Filtered Records",
+            f"{total_records:,}",
         )
 
-        selected_facility = c1.multiselect(
-            "🏥 Facility",
-            facility_values,
+    with c2:
+        if "Facility Name" in working_df.columns:
+            facilities = _non_blank(
+                working_df,
+                "Facility Name",
+            ).nunique()
+        else:
+            facilities = 0
+
+        st.metric(
+            "Facilities",
+            f"{facilities:,}",
+        )
+
+    with c3:
+        if "Ward Name" in working_df.columns:
+            wards = _non_blank(
+                working_df,
+                "Ward Name",
+            ).nunique()
+        else:
+            wards = 0
+
+        st.metric(
+            "Wards",
+            f"{wards:,}",
+        )
+
+    with c4:
+        if "Disease" in working_df.columns:
+            diseases = _non_blank(
+                working_df,
+                "Disease",
+            ).nunique()
+        else:
+            diseases = 0
+
+        st.metric(
+            "Diseases",
+            f"{diseases:,}",
+        )
+
+    # =========================================================
+    # 2. DRILL-DOWN SELECTORS
+    # =========================================================
+
+    st.markdown(
+        "### 🎯 Management Drill-down"
+    )
+
+    st.caption(
+        "These controls operate within the data already selected "
+        "by the Global Dashboard Filters."
+    )
+
+    drill1, drill2, drill3 = st.columns(
+        [1.4, 1.4, 1.4],
+        gap="small",
+    )
+
+    with drill1:
+
+        facility_options = sorted(
+            _non_blank(
+                working_df,
+                "Facility Name",
+            ).unique().tolist()
+        ) if "Facility Name" in working_df.columns else []
+
+        selected_drill_facility = st.multiselect(
+            "🏥 Drill-down Facility",
+            options=facility_options,
+            default=[],
             placeholder="All Facilities",
+            key="drilldown_facility",
         )
 
-    else:
+    with drill2:
 
-        selected_facility = []
+        ward_options = sorted(
+            _non_blank(
+                working_df,
+                "Ward Name",
+            ).unique().tolist()
+        ) if "Ward Name" in working_df.columns else []
 
-    # --------------------------------------------------------
-    # WARD
-    # --------------------------------------------------------
-
-    if ward_col:
-
-        ward_values = sorted(
-            clean_series(data[ward_col])
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        selected_ward = c2.multiselect(
-            "🗺️ Ward",
-            ward_values,
+        selected_drill_ward = st.multiselect(
+            "📍 Drill-down Ward",
+            options=ward_options,
+            default=[],
             placeholder="All Wards",
+            key="drilldown_ward",
         )
 
-    else:
+    with drill3:
 
-        selected_ward = []
+        disease_options = sorted(
+            _non_blank(
+                working_df,
+                "Disease",
+            ).unique().tolist()
+        ) if "Disease" in working_df.columns else []
 
-    # --------------------------------------------------------
-    # GENDER
-    # --------------------------------------------------------
-
-    if gender_col:
-
-        gender_values = sorted(
-            clean_series(data[gender_col])
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        selected_gender = c3.multiselect(
-            "👥 Gender",
-            gender_values,
-            placeholder="All Genders",
-        )
-
-    else:
-
-        selected_gender = []
-
-    # --------------------------------------------------------
-    # DISEASE
-    # --------------------------------------------------------
-
-    if disease_col:
-
-        disease_values = sorted(
-            clean_series(data[disease_col])
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        selected_disease = st.multiselect(
-            "🦠 Disease / Diagnosis",
-            disease_values,
+        selected_drill_disease = st.multiselect(
+            "🦠 Drill-down Disease",
+            options=disease_options,
+            default=[],
             placeholder="All Diseases",
+            key="drilldown_disease",
         )
 
-    else:
+    drill_df = working_df.copy()
 
-        selected_disease = []
+    if selected_drill_facility:
+        if "Facility Name" in drill_df.columns:
 
-    # --------------------------------------------------------
-    # APPLY FILTERS
-    # --------------------------------------------------------
+            drill_df = drill_df[
+                drill_df["Facility Name"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .isin(
+                    selected_drill_facility
+                )
+            ]
 
-    filtered = data.copy()
+    if selected_drill_ward:
+        if "Ward Name" in drill_df.columns:
 
-    if selected_facility:
+            drill_df = drill_df[
+                drill_df["Ward Name"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .isin(
+                    selected_drill_ward
+                )
+            ]
 
-        filtered = filtered[
-            clean_series(
-                filtered[facility_col]
-            ).isin(selected_facility)
-        ]
+    if selected_drill_disease:
+        if "Disease" in drill_df.columns:
 
-    if selected_ward:
+            drill_df = drill_df[
+                drill_df["Disease"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .isin(
+                    selected_drill_disease
+                )
+            ]
 
-        filtered = filtered[
-            clean_series(
-                filtered[ward_col]
-            ).isin(selected_ward)
-        ]
+    drill_df = (
+        drill_df
+        .reset_index(drop=True)
+    )
 
-    if selected_gender:
+    st.info(
+        f"Drill-down Records: "
+        f"**{len(drill_df):,}** / "
+        f"**{len(working_df):,}**"
+    )
 
-        filtered = filtered[
-            clean_series(
-                filtered[gender_col]
-            ).isin(selected_gender)
-        ]
-
-    if selected_disease:
-
-        filtered = filtered[
-            clean_series(
-                filtered[disease_col]
-            ).isin(selected_disease)
-        ]
-
-    if filtered.empty:
+    if drill_df.empty:
 
         st.warning(
-            "No records match the selected filters."
+            "No records match the selected drill-down criteria."
         )
 
         return
 
-    # ========================================================
-    # FILTERED KPI
-    # ========================================================
+    # =========================================================
+    # 3. FACILITY-WISE DRILL-DOWN
+    # =========================================================
 
-    st.divider()
-
-    st.subheader("📊 Selected Population")
-
-    k1, k2, k3, k4 = st.columns(4)
-
-    k1.metric(
-        "Records",
-        f"{len(filtered):,}",
+    st.markdown(
+        "### 🏥 Facility-wise Drill-down"
     )
 
-    k2.metric(
-        "Facilities",
-        f"{filtered[facility_col].nunique():,}"
-        if facility_col
-        else "0",
-    )
+    if "Facility Name" in drill_df.columns:
 
-    k3.metric(
-        "Wards",
-        f"{filtered[ward_col].nunique():,}"
-        if ward_col
-        else "0",
-    )
-
-    k4.metric(
-        "Diseases",
-        f"{filtered[disease_col].nunique():,}"
-        if disease_col
-        else "0",
-    )
-
-    # ========================================================
-    # AGE-WISE ANALYSIS
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("👶 Age-wise Analysis")
-
-    if age_col:
-
-        filtered["_Age_Group"] = create_age_group(
-            filtered[age_col]
+        facility_table = _summary_table(
+            drill_df,
+            "Facility Name",
+            "Facility",
         )
 
-        age_order = [
-            "<1 Year",
-            "1–4 Years",
-            "5–14 Years",
-            "15–24 Years",
-            "25–44 Years",
-            "45–59 Years",
-            "60+ Years",
-            "Unknown",
-        ]
+        if not facility_table.empty:
 
-        age_table = (
-            filtered["_Age_Group"]
-            .value_counts()
-            .reindex(
-                age_order,
-                fill_value=0
+            st.dataframe(
+                facility_table,
+                use_container_width=True,
+                hide_index=True,
             )
-            .rename_axis("Age Group")
-            .reset_index(name="Cases")
-        )
-
-        total_age_cases = age_table["Cases"].sum()
-
-        if total_age_cases > 0:
-
-            age_table["Share (%)"] = (
-                age_table["Cases"]
-                / total_age_cases
-                * 100
-            ).round(2)
 
         else:
 
-            age_table["Share (%)"] = 0
-
-        st.dataframe(
-            age_table,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.bar_chart(
-            age_table.set_index("Age Group")["Cases"]
-        )
-
-    else:
-
-        st.warning(
-            "Age column was not detected in the dataset."
-        )
-
-    # ========================================================
-    # AGE × GENDER
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("👥 Age × Gender Distribution")
-
-    if age_col and gender_col:
-
-        age_gender = (
-            filtered
-            .groupby(
-                [
-                    "_Age_Group",
-                    gender_col,
-                ],
-                dropna=False,
+            st.info(
+                "No usable facility information is available."
             )
-            .size()
-            .reset_index(name="Cases")
-        )
 
-        age_gender = age_gender.rename(
-            columns={
-                "_Age_Group": "Age Group",
-                gender_col: "Gender",
-            }
-        )
+    # =========================================================
+    # 4. WARD-WISE DRILL-DOWN
+    # =========================================================
 
-        st.dataframe(
-            age_gender,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # ========================================================
-    # FACILITY × WARD DRILL-DOWN
-    # ========================================================
-
-    st.divider()
-
-    st.subheader(
-        "🏥 Facility × 🗺️ Ward Drill-down"
+    st.markdown(
+        "### 📍 Ward-wise Drill-down"
     )
 
-    if facility_col and ward_col:
+    if "Ward Name" in drill_df.columns:
 
-        drilldown = (
-            filtered
-            .groupby(
-                [
-                    facility_col,
-                    ward_col,
-                ]
+        ward_table = _summary_table(
+            drill_df,
+            "Ward Name",
+            "Ward",
+        )
+
+        if not ward_table.empty:
+
+            st.dataframe(
+                ward_table,
+                use_container_width=True,
+                hide_index=True,
             )
-            .size()
-            .reset_index(name="Cases")
-            .sort_values(
-                "Cases",
-                ascending=False,
+
+        else:
+
+            st.info(
+                "No usable ward information is available."
             )
-        )
 
-        drilldown.insert(
-            0,
-            "Rank",
-            range(
-                1,
-                len(drilldown) + 1
-            ),
-        )
+    # =========================================================
+    # 5. DISEASE-WISE DRILL-DOWN
+    # =========================================================
 
-        st.dataframe(
-            drilldown,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    else:
-
-        st.info(
-            "Facility and Ward fields are required."
-        )
-
-    # ========================================================
-    # FACILITY × AGE
-    # ========================================================
-
-    st.divider()
-
-    st.subheader(
-        "🏥 Facility × Age Group"
+    st.markdown(
+        "### 🦠 Disease-wise Drill-down"
     )
 
-    if facility_col and age_col:
+    if "Disease" in drill_df.columns:
 
-        facility_age = (
-            filtered
-            .groupby(
-                [
-                    facility_col,
-                    "_Age_Group",
-                ]
+        disease_table = _summary_table(
+            drill_df,
+            "Disease",
+            "Disease",
+        )
+
+        if not disease_table.empty:
+
+            st.dataframe(
+                disease_table,
+                use_container_width=True,
+                hide_index=True,
             )
-            .size()
-            .reset_index(name="Cases")
-        )
 
-        facility_age = facility_age.rename(
-            columns={
-                facility_col: "Facility",
-                "_Age_Group": "Age Group",
-            }
-        )
+        else:
 
-        st.dataframe(
-            facility_age,
-            use_container_width=True,
-            hide_index=True,
-        )
+            st.info(
+                "No usable disease information is available."
+            )
 
-    # ========================================================
-    # WARD × GENDER
-    # ========================================================
+    # =========================================================
+    # 6. FACILITY × WARD
+    # =========================================================
 
-    st.divider()
-
-    st.subheader(
-        "🗺️ Ward × Gender"
+    st.markdown(
+        "### 🏥📍 Facility × Ward Analysis"
     )
 
-    if ward_col and gender_col:
-
-        ward_gender = (
-            filtered
-            .groupby(
-                [
-                    ward_col,
-                    gender_col,
-                ]
-            )
-            .size()
-            .reset_index(name="Cases")
-        )
-
-        ward_gender = ward_gender.rename(
-            columns={
-                ward_col: "Ward",
-                gender_col: "Gender",
-            }
-        )
-
-        st.dataframe(
-            ward_gender,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # ========================================================
-    # MONTH × FACILITY
-    # ========================================================
-
-    st.divider()
-
-    st.subheader(
-        "📅 Month × Facility"
-    )
-
-    if month_col and facility_col:
-
-        month_facility = (
-            filtered
-            .groupby(
-                [
-                    month_col,
-                    facility_col,
-                ]
-            )
-            .size()
-            .reset_index(name="Cases")
-        )
-
-        month_facility = month_facility.rename(
-            columns={
-                month_col: "Month",
-                facility_col: "Facility",
-            }
-        )
-
-        st.dataframe(
-            month_facility,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # ========================================================
-    # EXPORT
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("📤 Export Filtered Data")
-
-    export_df = filtered.copy()
-
-    if "_Age_Group" in export_df.columns:
-
-        export_df = export_df.drop(
-            columns=["_Age_Group"]
-        )
-
-    csv_data = export_df.to_csv(
-        index=False
-    ).encode("utf-8")
-
-    st.download_button(
-        label="⬇️ Download Filtered CSV",
-        data=csv_data,
-        file_name="filtered_management_data.csv",
-        mime="text/csv",
-    )
-
-    # ========================================================
-    # FULL DATA VIEW
-    # ========================================================
-
-    with st.expander(
-        "📋 View Filtered Records"
+    if (
+        "Facility Name" in drill_df.columns
+        and "Ward Name" in drill_df.columns
     ):
 
-        st.dataframe(
-            export_df,
-            use_container_width=True,
-            hide_index=True,
+        facility_ward = drill_df.copy()
+
+        facility_ward["Facility Name"] = (
+            facility_ward["Facility Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
         )
 
+        facility_ward["Ward Name"] = (
+            facility_ward["Ward Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        facility_ward = facility_ward[
+            facility_ward["Facility Name"].ne("")
+            & facility_ward["Ward Name"].ne("")
+        ]
+
+        if not facility_ward.empty:
+
+            facility_ward_table = (
+                facility_ward
+                .groupby(
+                    [
+                        "Facility Name",
+                        "Ward Name",
+                    ],
+                    dropna=False,
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .sort_values(
+                    "Records",
+                    ascending=False,
+                )
+                .reset_index(
+                    drop=True
+                )
+            )
+
+            st.dataframe(
+                facility_ward_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+
+            st.info(
+                "No complete Facility × Ward combinations "
+                "are available."
+            )
+
+    # =========================================================
+    # 7. FACILITY × DISEASE
+    # =========================================================
+
+    st.markdown(
+        "### 🏥🦠 Facility × Disease Analysis"
+    )
+
+    if (
+        "Facility Name" in drill_df.columns
+        and "Disease" in drill_df.columns
+    ):
+
+        facility_disease = drill_df.copy()
+
+        facility_disease["Facility Name"] = (
+            facility_disease["Facility Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        facility_disease["Disease"] = (
+            facility_disease["Disease"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        facility_disease = facility_disease[
+            facility_disease["Facility Name"].ne("")
+            & facility_disease["Disease"].ne("")
+        ]
+
+        if not facility_disease.empty:
+
+            facility_disease_table = (
+                facility_disease
+                .groupby(
+                    [
+                        "Facility Name",
+                        "Disease",
+                    ],
+                    dropna=False,
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .sort_values(
+                    "Records",
+                    ascending=False,
+                )
+                .reset_index(
+                    drop=True
+                )
+            )
+
+            st.dataframe(
+                facility_disease_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+
+            st.info(
+                "No complete Facility × Disease combinations "
+                "are available."
+            )
+
+    # =========================================================
+    # 8. WARD × DISEASE
+    # =========================================================
+
+    st.markdown(
+        "### 📍🦠 Ward × Disease Analysis"
+    )
+
+    if (
+        "Ward Name" in drill_df.columns
+        and "Disease" in drill_df.columns
+    ):
+
+        ward_disease = drill_df.copy()
+
+        ward_disease["Ward Name"] = (
+            ward_disease["Ward Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        ward_disease["Disease"] = (
+            ward_disease["Disease"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        ward_disease = ward_disease[
+            ward_disease["Ward Name"].ne("")
+            & ward_disease["Disease"].ne("")
+        ]
+
+        if not ward_disease.empty:
+
+            ward_disease_table = (
+                ward_disease
+                .groupby(
+                    [
+                        "Ward Name",
+                        "Disease",
+                    ],
+                    dropna=False,
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .sort_values(
+                    "Records",
+                    ascending=False,
+                )
+                .reset_index(
+                    drop=True
+                )
+            )
+
+            st.dataframe(
+                ward_disease_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+
+            st.info(
+                "No complete Ward × Disease combinations "
+                "are available."
+            )
+
+    # =========================================================
+    # 9. MONTH-WISE DRILL-DOWN
+    # =========================================================
+
+    st.markdown(
+        "### 🗓️ Month-wise Drill-down"
+    )
+
+    if "Month" in drill_df.columns:
+
+        month_table = _summary_table(
+            drill_df,
+            "Month",
+            "Month",
+        )
+
+        if not month_table.empty:
+
+            st.dataframe(
+                month_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # =========================================================
+    # 10. GENDER-WISE DRILL-DOWN
+    # =========================================================
+
+    st.markdown(
+        "### 👤 Gender-wise Drill-down"
+    )
+
+    if "Gender" in drill_df.columns:
+
+        gender_table = _summary_table(
+            drill_df,
+            "Gender",
+            "Gender",
+        )
+
+        if not gender_table.empty:
+
+            st.dataframe(
+                gender_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # =========================================================
+    # 11. AGE GROUP-WISE DRILL-DOWN
+    # =========================================================
+
+    st.markdown(
+        "### 🎂 Age Group-wise Drill-down"
+    )
+
+    if "Age Group" in drill_df.columns:
+
+        age_group_table = _summary_table(
+            drill_df,
+            "Age Group",
+            "Age Group",
+        )
+
+        if not age_group_table.empty:
+
+            st.dataframe(
+                age_group_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # =========================================================
+    # 12. OPD / IPD DRILL-DOWN
+    # =========================================================
+
+    st.markdown(
+        "### 🏨 OPD / IPD Drill-down"
+    )
+
+    if "OPD/IPD" in drill_df.columns:
+
+        opd_ipd_table = _summary_table(
+            drill_df,
+            "OPD/IPD",
+            "OPD / IPD",
+        )
+
+        if not opd_ipd_table.empty:
+
+            st.dataframe(
+                opd_ipd_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # =========================================================
+    # 13. RECORD-LEVEL DETAIL
+    # =========================================================
+
+    st.markdown(
+        "### 📋 Record-level Detail"
+    )
+
+    st.caption(
+        "The table below contains the records after both "
+        "Global Dashboard Filters and Drill-down Filters."
+    )
+
+    display_limit = st.selectbox(
+        "Number of records to display",
+        options=[
+            50,
+            100,
+            250,
+            500,
+            1000,
+            2500,
+        ],
+        index=1,
+        key="drilldown_display_limit",
+    )
+
+    st.dataframe(
+        drill_df.head(
+            display_limit
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        f"Showing first "
+        f"{min(display_limit, len(drill_df)):,} "
+        f"of {len(drill_df):,} drill-down records."
+    )
+
+    # =========================================================
+    # 14. COLUMN SELECTION FOR EXPORT
+    # =========================================================
+
+    st.markdown(
+        "### 📤 Export Configuration"
+    )
+
+    available_columns = (
+        drill_df.columns.tolist()
+    )
+
+    default_columns = [
+        column
+        for column in [
+            "Reporting Date",
+            "Year",
+            "Month",
+            "Week",
+            "Disease",
+            "Facility Name",
+            "Ward Name",
+            "Gender",
+            "Age",
+            "Age Group",
+            "OPD/IPD",
+            "Patient Address",
+            "Confirmed Diagnosis",
+        ]
+        if column in available_columns
+    ]
+
+    selected_columns = st.multiselect(
+        "Select columns for custom export",
+        options=available_columns,
+        default=default_columns,
+        key="drilldown_export_columns",
+    )
+
+    if not selected_columns:
+
+        st.warning(
+            "Select at least one column for custom export."
+        )
+
+    # =========================================================
+    # 15. EXPORT DATA
+    # =========================================================
+
+    st.markdown(
+        "### 💾 Download Filtered Data"
+    )
+
+    csv_data = _make_csv(
+        drill_df
+    )
+
+    excel_data = _make_excel(
+        drill_df
+    )
+
+    e1, e2 = st.columns(2)
+
+    with e1:
+
+        st.download_button(
+            label="⬇️ Download Complete CSV",
+            data=csv_data,
+            file_name="dashboard_drilldown_filtered_data.csv",
+            mime="text/csv",
+            use_container_width=True,
+            key="download_drilldown_csv",
+        )
+
+    with e2:
+
+        st.download_button(
+            label="⬇️ Download Complete Excel",
+            data=excel_data,
+            file_name="dashboard_drilldown_filtered_data.xlsx",
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            use_container_width=True,
+            key="download_drilldown_excel",
+        )
+
+    # =========================================================
+    # 16. CUSTOM COLUMN EXPORT
+    # =========================================================
+
+    if selected_columns:
+
+        custom_export_df = drill_df[
+            selected_columns
+        ].copy()
+
+        custom_csv = _make_csv(
+            custom_export_df
+        )
+
+        custom_excel = _make_excel(
+            custom_export_df
+        )
+
+        st.markdown(
+            "### 📑 Custom Column Export"
+        )
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+
+            st.download_button(
+                label="⬇️ Download Selected Columns CSV",
+                data=custom_csv,
+                file_name="dashboard_custom_columns.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="download_custom_csv",
+            )
+
+        with c2:
+
+            st.download_button(
+                label="⬇️ Download Selected Columns Excel",
+                data=custom_excel,
+                file_name="dashboard_custom_columns.xlsx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+                use_container_width=True,
+                key="download_custom_excel",
+            )
+
+    # =========================================================
+    # 17. EXPORT SCOPE INFORMATION
+    # =========================================================
+
+    st.markdown(
+        "### ℹ️ Export Scope"
+    )
+
+    st.info(
+        "Exports contain the records currently available after "
+        "the Global Dashboard Filters and the Drill-down selections. "
+        "If you need the complete dataset, reset all Global Dashboard "
+        "Filters and keep all Drill-down selectors blank before export."
+    )
+
+    # =========================================================
+    # 18. MANAGEMENT FOLLOW-UP
+    # =========================================================
+
+    st.markdown(
+        "### 📝 Management Follow-up"
+    )
+
+    st.markdown(
+        """
+        The drill-down section can be used to identify:
+
+        - Facilities contributing the highest record volume.
+        - Wards contributing the highest record volume.
+        - Disease concentration by facility.
+        - Disease concentration by ward.
+        - Facility × Ward combinations requiring review.
+        - Monthly changes within a selected facility or ward.
+        - Gender and age-group composition of selected records.
+        - OPD/IPD distribution within a selected management segment.
+
+        These outputs should be interpreted together with the
+        Validation & KPI section and the quality/completeness of
+        the underlying reporting data.
+        """
+    )
+
+    st.success(
+        "Drill-down and Export module is ready for the current "
+        "filtered dataset."
+    )
