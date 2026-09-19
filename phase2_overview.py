@@ -31,10 +31,10 @@ AGE_GROUP_ORDER = [
 
 def _unique(df, column):
 
-    if column not in df.columns:
+    if not column or column not in df.columns:
         return []
 
-    return sorted(
+    values = (
         df[column]
         .dropna()
         .astype(str)
@@ -50,9 +50,10 @@ def _unique(df, column):
         )
         .dropna()
         .unique()
-        .tolist(),
-        key=str
+        .tolist()
     )
+
+    return sorted(values, key=str)
 
 
 def _reset_filter_state():
@@ -132,7 +133,6 @@ def create_filters(df):
         ):
 
             refresh_data()
-
             st.rerun()
 
     with reset_col:
@@ -163,10 +163,15 @@ def create_filters(df):
             errors="coerce"
         ).dropna()
 
-        years = sorted(
-            year_series.astype(int).unique().tolist(),
-            reverse=True
-        )
+        if not year_series.empty:
+
+            years = sorted(
+                year_series
+                .astype(int)
+                .unique()
+                .tolist(),
+                reverse=True
+            )
 
     selected_years = st.sidebar.multiselect(
         "📅 Year",
@@ -191,11 +196,9 @@ def create_filters(df):
         if month in available_months
     ]
 
-    # Add any non-standard month values
     for month in available_months:
 
         if month not in months:
-
             months.append(month)
 
     selected_months = st.sidebar.multiselect(
@@ -342,18 +345,23 @@ def create_filters(df):
             area_column = candidate
             break
 
-    areas = _unique(
-        df,
-        area_column
-    ) if area_column else []
-
-    selected_areas = st.sidebar.multiselect(
-        "📍 Area / Location",
-        areas,
-        default=[],
-        key=f"filter_areas_{reset_version}",
-        placeholder="All Areas"
+    areas = (
+        _unique(df, area_column)
+        if area_column
+        else []
     )
+
+    selected_areas = []
+
+    if area_column:
+
+        selected_areas = st.sidebar.multiselect(
+            "📍 Area / Location",
+            areas,
+            default=[],
+            key=f"filter_areas_{reset_version}",
+            placeholder="All Areas"
+        )
 
     # ========================================================
     # STATUS
@@ -372,18 +380,23 @@ def create_filters(df):
             status_column = candidate
             break
 
-    statuses = _unique(
-        df,
-        status_column
-    ) if status_column else []
-
-    selected_status = st.sidebar.multiselect(
-        "📌 Status",
-        statuses,
-        default=[],
-        key=f"filter_status_{reset_version}",
-        placeholder="All Status"
+    statuses = (
+        _unique(df, status_column)
+        if status_column
+        else []
     )
+
+    selected_status = []
+
+    if status_column:
+
+        selected_status = st.sidebar.multiselect(
+            "📌 Status",
+            statuses,
+            default=[],
+            key=f"filter_status_{reset_version}",
+            placeholder="All Status"
+        )
 
     # ========================================================
     # REPORTING DATE
@@ -404,53 +417,117 @@ def create_filters(df):
             min_date = reporting_dates.min().date()
             max_date = reporting_dates.max().date()
 
-            date_range = st.sidebar.date_input(
-                "📅 Reporting Date",
-                value=(min_date, max_date),
-                min_value=min_date,
-                max_value=max_date,
-                key=f"filter_date_range_{reset_version}",
+            st.sidebar.markdown(
+                "### 📅 Reporting Date"
             )
 
-            if isinstance(
-                date_range,
-                tuple
+            st.sidebar.caption(
+                f"Available data: "
+                f"{min_date.strftime('%d-%m-%Y')} "
+                f"to "
+                f"{max_date.strftime('%d-%m-%Y')}"
+            )
+
+            # ------------------------------------------------
+            # START DATE
+            # ------------------------------------------------
+
+            start_date = st.sidebar.date_input(
+                "Starting Date",
+                value=None,
+                min_value=min_date,
+                max_value=max_date,
+                key=f"filter_start_date_{reset_version}",
+                help=(
+                    "Select the starting date. "
+                    "If not selected, data starts from "
+                    "the earliest available date."
+                )
+            )
+
+            # ------------------------------------------------
+            # END DATE
+            # ------------------------------------------------
+
+            end_date = st.sidebar.date_input(
+                "Ending Date",
+                value=None,
+                min_value=min_date,
+                max_value=max_date,
+                key=f"filter_end_date_{reset_version}",
+                help=(
+                    "Select the ending date. "
+                    "If not selected, data continues "
+                    "up to the latest available date."
+                )
+            )
+
+            # ------------------------------------------------
+            # DATE LOGIC
+            # ------------------------------------------------
+
+            if start_date is None:
+                date_from = min_date
+            else:
+                date_from = start_date
+
+            if end_date is None:
+                date_to = max_date
+            else:
+                date_to = end_date
+
+            # ------------------------------------------------
+            # INVALID RANGE
+            # ------------------------------------------------
+
+            if (
+                date_from is not None
+                and date_to is not None
+                and date_from > date_to
             ):
 
-                if len(date_range) == 2:
+                st.sidebar.error(
+                    "⚠️ Ending Date cannot be earlier "
+                    "than Starting Date."
+                )
 
-                    date_from = date_range[0]
-                    date_to = date_range[1]
-
-                elif len(date_range) == 1:
-
-                    date_from = date_range[0]
-                    date_to = date_range[0]
-
-            else:
-
-                date_from = date_range
-                date_to = date_range
+                date_from = None
+                date_to = None
 
     # ========================================================
     # RETURN FILTER SETTINGS
     # ========================================================
 
     return {
+
         "selected_years": selected_years,
+
         "selected_months": selected_months,
+
         "selected_weeks": selected_weeks,
+
         "selected_diseases": selected_diseases,
+
         "selected_facilities": selected_facilities,
+
         "selected_wards": selected_wards,
+
         "selected_genders": selected_genders,
+
         "selected_age_groups": selected_age_groups,
+
         "selected_opd_ipd": selected_opd_ipd,
+
         "selected_areas": selected_areas,
+
         "selected_status": selected_status,
+
         "area_column": area_column,
+
         "status_column": status_column,
+
         "date_from": date_from,
+
         "date_to": date_to,
     }
 
@@ -485,13 +562,21 @@ def apply_filters(
     # ========================================================
 
     filters = [
+
         ("Year", selected_years),
+
         ("Month", selected_months),
+
         ("Week", selected_weeks),
+
         ("Confirmed Diagnosis", selected_diseases),
+
         ("Facility Name Lform", selected_facilities),
+
         ("Ward", selected_wards),
+
         ("Gender", selected_genders),
+
         ("Opd Ipd", selected_opd_ipd),
     ]
 
@@ -528,11 +613,13 @@ def apply_filters(
 
         out = out[
             out["_Dashboard_Age_Group"]
-            .isin(selected_age_groups)
+            .isin(
+                selected_age_groups
+            )
         ]
 
     # ========================================================
-    # AREA
+    # AREA / LOCATION
     # ========================================================
 
     if (
@@ -590,7 +677,9 @@ def apply_filters(
             errors="coerce"
         )
 
-        out = out[
+        valid_date_mask = (
+            reporting_dates.notna()
+            &
             (
                 reporting_dates.dt.date
                 >= date_from
@@ -600,6 +689,10 @@ def apply_filters(
                 reporting_dates.dt.date
                 <= date_to
             )
+        )
+
+        out = out[
+            valid_date_mask
         ]
 
     return out
@@ -614,6 +707,10 @@ def calculate_kpis(df):
     disease = (
         df["Confirmed Diagnosis"]
         .dropna()
+        .astype(str)
+        .str.strip()
+        .replace("", pd.NA)
+        .dropna()
         .value_counts()
         if "Confirmed Diagnosis" in df.columns
         else pd.Series(dtype="int64")
@@ -622,6 +719,10 @@ def calculate_kpis(df):
     ward = (
         df["Ward"]
         .dropna()
+        .astype(str)
+        .str.strip()
+        .replace("", pd.NA)
+        .dropna()
         .value_counts()
         if "Ward" in df.columns
         else pd.Series(dtype="int64")
@@ -629,6 +730,10 @@ def calculate_kpis(df):
 
     facility = (
         df["Facility Name Lform"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .replace("", pd.NA)
         .dropna()
         .value_counts()
         if "Facility Name Lform" in df.columns
@@ -641,6 +746,9 @@ def calculate_kpis(df):
 
         "opd": int(
             df["Opd Ipd"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
             .eq("OPD")
             .sum()
         )
@@ -649,6 +757,9 @@ def calculate_kpis(df):
 
         "ipd": int(
             df["Opd Ipd"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
             .eq("IPD")
             .sum()
         )
@@ -657,6 +768,9 @@ def calculate_kpis(df):
 
         "male": int(
             df["Gender"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
             .eq("M")
             .sum()
         )
@@ -665,6 +779,9 @@ def calculate_kpis(df):
 
         "female": int(
             df["Gender"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
             .eq("F")
             .sum()
         )
@@ -673,7 +790,10 @@ def calculate_kpis(df):
 
         "transgender": int(
             df["Gender"]
-            .eq("Transgender")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .eq("transgender")
             .sum()
         )
         if "Gender" in df.columns
@@ -705,12 +825,15 @@ def calculate_kpis(df):
 
 def render_overview(df):
 
-    filters = create_filters(df)
+    """
+    IMPORTANT:
+    Dashboard filters are NOT created here.
 
-    filtered = apply_filters(
-        df,
-        **filters
-    )
+    app.py will create the global filters once
+    and pass the already-filtered dataframe here.
+    """
+
+    filtered = df.copy()
 
     k = calculate_kpis(
         filtered
@@ -729,19 +852,12 @@ def render_overview(df):
     # FILTER STATUS
     # ========================================================
 
-    if len(df) > 0:
+    total_records = len(filtered)
 
-        percentage = (
-            len(filtered)
-            / len(df)
-            * 100
-        )
-
-        st.info(
-            f"🎛️ Showing **{len(filtered):,}** "
-            f"of **{len(df):,}** records "
-            f"({percentage:.1f}%)"
-        )
+    st.info(
+        f"🎛️ Currently showing "
+        f"**{total_records:,}** records"
+    )
 
     # ========================================================
     # EMPTY RESULT
