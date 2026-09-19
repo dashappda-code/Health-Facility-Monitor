@@ -17,11 +17,6 @@ from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
-
-# ============================================================
-# PAGE CONFIG
-# ============================================================
-
 st.set_page_config(
     page_title="Health Programme Management Dashboard",
     page_icon="🏥",
@@ -29,101 +24,59 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
-# ============================================================
-# SIMPLE CSS - LIGHTWEIGHT
-# ============================================================
-
 st.markdown(
     """
     <style>
-    .block-container {
-        padding-top: 0.75rem;
-        padding-bottom: 1rem;
-    }
-
-    /* Global management filter panel */
-    div[data-testid="stForm"] {
-        position: sticky;
-        top: 0.25rem;
-        z-index: 999;
-        background: rgba(255,255,255,0.98);
-        border: 1px solid #d8e2ee;
-        border-radius: 14px;
-        padding: 0.55rem 0.75rem;
-        box-shadow: 0 5px 18px rgba(30,60,90,0.10);
-        margin-bottom: 0.8rem;
-    }
+    .block-container { padding-top: 0.8rem; padding-bottom: 1rem; }
 
     .global-filter-heading {
-        background: linear-gradient(90deg, #eef6ff 0%, #f8fbff 100%);
+        background: linear-gradient(90deg, #eaf4ff, #f8fbff);
+        border: 1px solid #c9dced;
         border-left: 5px solid #1769aa;
-        border-radius: 10px;
-        padding: 8px 14px;
-        margin: 3px 0 7px 0;
+        border-radius: 12px;
+        padding: 9px 14px;
+        margin: 8px 0 8px 0;
     }
-    .global-filter-title {
-        font-size: 20px;
-        font-weight: 700;
-        color: #123b5d;
+    .global-filter-title { font-size: 19px; font-weight: 750; color: #123b5d; }
+    .global-filter-subtitle { font-size: 12px; color: #607080; margin-top: 2px; }
+
+    /* Keep the filter form visually prominent while scrolling. */
+    div[data-testid="stForm"] {
+        border: 1px solid #d7e3ef;
+        border-radius: 12px;
+        padding: 7px 9px 9px 9px;
+        background: rgba(255,255,255,0.98);
+        box-shadow: 0 3px 12px rgba(30,60,90,0.08);
     }
-    .global-filter-subtitle {
-        font-size: 12px;
-        color: #5d6b78;
-        margin-top: 2px;
-    }
-    .filter-row-label {
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        color: #60788e;
-        margin: 4px 0 2px 2px;
-    }
-    .filter-row-label.second {
-        margin-top: 7px;
-    }
+
     div[data-testid="stFormSubmitButton"] button {
         border-radius: 8px;
         font-weight: 700;
     }
+
     div[data-testid="stMultiSelect"] label,
     div[data-testid="stDateInput"] label {
         font-size: 12px;
         font-weight: 650;
-        color: #314b61;
     }
 
-    [data-testid="stMetric"] {
-        padding: 8px 10px;
-    }
-
-    section[data-testid="stSidebar"] {
-        width: 250px;
-    }
+    [data-testid="stMetric"] { padding: 7px 10px; }
+    section[data-testid="stSidebar"] { width: 250px; }
 
     .dashboard-footer {
-        text-align:center;
-        color:#777;
-        font-size:12px;
-        padding-top:20px;
+        text-align: center;
+        color: #777;
+        font-size: 12px;
+        padding-top: 18px;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-# ============================================================
-# HEADER
-# ============================================================
-
 st.title("🏥 Health Programme Management Dashboard")
 st.caption("Live Google Sheet Based Programme Monitoring System")
 
-
-# ============================================================
-# LOAD DATA
-# ============================================================
 
 @st.cache_data(ttl=60, show_spinner="Loading programme data...")
 def get_data():
@@ -131,11 +84,6 @@ def get_data():
 
 
 df = get_data()
-
-
-# ============================================================
-# DATA CHECK
-# ============================================================
 
 if df is None or df.empty:
     st.error("No data available from the Google Sheet.")
@@ -145,11 +93,10 @@ if df is None or df.empty:
     )
     st.stop()
 
-
-# ============================================================
-# SIDEBAR NAVIGATION
-# ============================================================
-
+# ------------------------------------------------------------
+# Sidebar navigation only. Filters are handled once globally
+# by phase2_overview.create_filters().
+# ------------------------------------------------------------
 st.sidebar.title("📌 Dashboard Menu")
 
 page = st.sidebar.radio(
@@ -169,154 +116,59 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.divider()
-
 st.sidebar.caption(f"Records loaded: {len(df):,}")
 
-
-# ============================================================
-# GLOBAL DASHBOARD CONTROL
-# ============================================================
-
+# ------------------------------------------------------------
+# ONE global filter -> ONE filtered dataframe
+# ------------------------------------------------------------
 filter_values = create_filters(df)
 
+filtered_df = apply_filters(df=df, **filter_values)
 
-# ============================================================
-# EXTRACT FILTER VALUES
-# ============================================================
+st.caption(f"📊 Filtered Records: **{len(filtered_df):,}** / **{len(df):,}**")
 
-selected_years = filter_values.get("selected_years", [])
-selected_months = filter_values.get("selected_months", [])
-selected_weeks = filter_values.get("selected_weeks", [])
-selected_diseases = filter_values.get("selected_diseases", [])
-selected_facilities = filter_values.get("selected_facilities", [])
-selected_wards = filter_values.get("selected_wards", [])
-selected_genders = filter_values.get("selected_genders", [])
-selected_age_groups = filter_values.get("selected_age_groups", [])
-selected_opd_ipd = filter_values.get("selected_opd_ipd", [])
-selected_areas = filter_values.get("selected_areas", [])
-selected_status = filter_values.get("selected_status", [])
-
-area_column = filter_values.get("area_column")
-status_column = filter_values.get("status_column")
-
-date_from = filter_values.get("date_from")
-date_to = filter_values.get("date_to")
-
-
-# ============================================================
-# APPLY GLOBAL FILTER
-# ============================================================
-
-filtered_df = apply_filters(
-    df=df,
-    selected_years=selected_years,
-    selected_months=selected_months,
-    selected_weeks=selected_weeks,
-    selected_diseases=selected_diseases,
-    selected_facilities=selected_facilities,
-    selected_wards=selected_wards,
-    selected_genders=selected_genders,
-    selected_age_groups=selected_age_groups,
-    selected_opd_ipd=selected_opd_ipd,
-    selected_areas=selected_areas,
-    selected_status=selected_status,
-    area_column=area_column,
-    status_column=status_column,
-    date_from=date_from,
-    date_to=date_to,
-)
-
-
-# ============================================================
-# FILTER STATUS
-# ============================================================
-
-st.caption(
-    f"📊 Filtered Records: **{len(filtered_df):,}** "
-    f"/ {len(df):,}"
-)
-
-
-# ============================================================
-# KPI STRIP
-# ============================================================
-
+# Management KPI strip
 kpis = calculate_kpis(filtered_df)
 
 c1, c2, c3, c4 = st.columns(4)
-
 with c1:
-    st.metric(
-        "Total Records",
-        f"{kpis.get('total_records', len(filtered_df)):,}",
-    )
-
+    st.metric("Total Records", f"{kpis.get('total_records', len(filtered_df)):,}")
 with c2:
-    st.metric(
-        "Diseases",
-        f"{kpis.get('diseases', 0):,}",
-    )
-
+    st.metric("Diseases", f"{kpis.get('diseases', 0):,}")
 with c3:
-    st.metric(
-        "Facilities",
-        f"{kpis.get('facilities', 0):,}",
-    )
-
+    st.metric("Facilities", f"{kpis.get('facilities', 0):,}")
 with c4:
-    st.metric(
-        "Wards",
-        f"{kpis.get('wards', 0):,}",
-    )
-
+    st.metric("Wards", f"{kpis.get('wards', 0):,}")
 
 st.divider()
 
-
-# ============================================================
-# PAGE ROUTING
-# ============================================================
-
+# ------------------------------------------------------------
+# Existing dashboard sections - do not duplicate filters here.
+# ------------------------------------------------------------
 try:
-
     if page == "Overview":
         render_overview(filtered_df)
-
     elif page == "Charts & Trends":
         render_charts(filtered_df)
-
     elif page == "Demographics":
         render_demographics(filtered_df)
-
     elif page == "Ward Analysis":
         render_ward(filtered_df)
-
     elif page == "Map":
         render_map(filtered_df)
-
     elif page == "Data Explorer":
         render_explorer(filtered_df)
-
     elif page == "Prediction":
         render_prediction(filtered_df)
-
     elif page == "User Manual":
         render_manual()
-
     elif page == "Validation & KPI":
         render_validation_kpi(filtered_df)
-
     elif page == "Drill-down & Export":
         render_drilldown_export(filtered_df)
-
 except Exception as e:
     st.error("This dashboard section could not be loaded.")
     st.exception(e)
-
-
-# ============================================================
-# FOOTER
-# ============================================================
 
 st.markdown(
     """
