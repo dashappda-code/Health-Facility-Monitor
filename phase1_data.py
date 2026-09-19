@@ -55,10 +55,18 @@ def convert_to_csv_url(url):
 
         sheet_id = match.group(1)
 
-        return (
+        gid_match = re.search(r"[?#&]gid=(\d+)", url)
+        gid = gid_match.group(1) if gid_match else None
+
+        base = (
             f"https://docs.google.com/spreadsheets/d/"
             f"{sheet_id}/export?format=csv"
         )
+
+        if gid:
+            base += f"&gid={gid}"
+
+        return base
 
     return url
 
@@ -316,6 +324,47 @@ def clean_data(df):
         df[column] = clean_text_column(
             df[column]
         )
+
+    # --------------------------------------------------------
+    # Canonical facility / ward aliases
+    # --------------------------------------------------------
+    # The live sheet uses names such as "Facility Name Lform" and
+    # "Ward".  Create the canonical columns expected by the dashboard
+    # without destroying the original fields.
+
+    if "Facility Name Lform" in df.columns:
+        facility_source = (
+            df["Facility Name Lform"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        current_facility = (
+            df["Facility Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        df.loc[current_facility.eq(""), "Facility Name"] = facility_source[
+            current_facility.eq("")
+        ]
+
+    if "Ward" in df.columns:
+        ward_source = (
+            df["Ward"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        current_ward = (
+            df["Ward Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        df.loc[current_ward.eq(""), "Ward Name"] = ward_source[
+            current_ward.eq("")
+        ]
 
     # --------------------------------------------------------
     # Reporting Date
