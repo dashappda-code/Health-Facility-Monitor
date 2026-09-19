@@ -107,174 +107,237 @@ def load_google_sheet() -> pd.DataFrame:
 
 
 # ============================================================
-# ROBUST DATE PARSER
+# SAFE SINGLE DATE PARSER
 # ============================================================
 
-def parse_google_date(series: pd.Series) -> pd.Series:
+def parse_single_date(value):
     """
-    Robust date parser for Google Sheets data.
+    Safely converts one Google Sheet date value.
 
-    Handles:
-    1. Normal dates:
-       20-Aug-2026
-       20/08/2026
-       20-08-2026
-       2026-08-20
+    Supports:
+    - 20-Aug-2026
+    - 20/08/2026
+    - 20-08-2026
+    - 2026-08-20
+    - Excel / Google serial dates
+    - pandas Timestamp
 
-    2. Excel / Google Sheets serial dates
-
-    3. Existing datetime values
-
-    Invalid dates become NaT.
+    Invalid / unrealistic dates return NaT.
     """
 
-    if series is None:
-        return series
-
-    original = series.copy()
-
     # --------------------------------------------------------
-    # Create empty datetime result
+    # Empty value
     # --------------------------------------------------------
 
-    result = pd.Series(
-        pd.NaT,
-        index=series.index,
-        dtype="datetime64[ns]",
-    )
+    if pd.isna(value):
+        return pd.NaT
 
     # --------------------------------------------------------
-    # CASE 1: Already datetime
+    # Already Timestamp
     # --------------------------------------------------------
 
-    datetime_mask = series.map(
-        lambda x: isinstance(
-            x,
-            (
-                pd.Timestamp,
-                np.datetime64,
-            ),
-        )
-    )
+    if isinstance(value, pd.Timestamp):
 
-    if datetime_mask.any():
+        if pd.isna(value):
+            return pd.NaT
 
-        result.loc[datetime_mask] = pd.to_datetime(
-            series.loc[datetime_mask],
-            errors="coerce",
-        )
+        if (
+            value < pd.Timestamp("2000-01-01")
+            or value > pd.Timestamp("2100-12-31")
+        ):
+            return pd.NaT
+
+        return value.normalize()
 
     # --------------------------------------------------------
-    # Remaining values
+    # Python datetime
     # --------------------------------------------------------
 
-    remaining = ~datetime_mask
+    if hasattr(value, "year") and hasattr(value, "month"):
 
-    if not remaining.any():
-        return result
+        try:
 
-    remaining_values = series.loc[remaining]
+            parsed = pd.Timestamp(value)
 
-    # --------------------------------------------------------
-    # Try numeric conversion
-    # --------------------------------------------------------
+            if (
+                parsed < pd.Timestamp("2000-01-01")
+                or parsed > pd.Timestamp("2100-12-31")
+            ):
+                return pd.NaT
 
-    numeric_values = pd.to_numeric(
-        remaining_values,
-        errors="coerce",
-    )
+            return parsed.normalize()
 
-    numeric_mask = numeric_values.notna()
-
-    # --------------------------------------------------------
-    # Google/Excel serial date handling
-    #
-    # Typical Excel/Google serial dates are around:
-    # 40000 - 60000
-    #
-    # Example:
-    # 2026 dates are approximately 46000+
-    # --------------------------------------------------------
-
-    serial_mask = (
-        numeric_mask
-        & (numeric_values >= 20000)
-        & (numeric_values <= 80000)
-    )
-
-    if serial_mask.any():
-
-        serial_dates = pd.to_datetime(
-            numeric_values.loc[serial_mask],
-            unit="D",
-            origin="1899-12-30",
-            errors="coerce",
-        )
-
-        result.loc[
-            serial_dates.index
-        ] = serial_dates
+        except Exception:
+            return pd.NaT
 
     # --------------------------------------------------------
-    # Remaining values are treated as text dates
+    # Numeric / Excel / Google Sheets serial
     # --------------------------------------------------------
 
-    text_mask = remaining & ~serial_mask
+    try:
 
-    if text_mask.any():
+        if isinstance(
+            value,
+            (int, float, np.integer, np.floating),
+        ):
 
-        text_values = (
-            original.loc[text_mask]
-            .astype(str)
-            .str.strip()
-        )
+            number = float(value)
 
-        # -----------------------------------------------
-        # First attempt:
-        # day-first
-        # -----------------------------------------------
+            # Google / Excel serial date range
+            if 20000 <= number <= 80000:
+
+                try:
+
+                    parsed = pd.to_datetime(
+                        number,
+                        unit="D",
+                        origin="1899-12-30",
+                        errors="coerce",
+                    )
+
+                    if pd.isna(parsed):
+                        return pd.NaT
+
+                    if (
+                        parsed < pd.Timestamp("2000-01-01")
+                        or parsed > pd.Timestamp("2100-12-31")
+                    ):
+                        return pd.NaT
+
+                    return parsed.normalize()
+
+                except Exception:
+                    return pd.NaT
+
+    except Exception:
+        pass
+
+    # --------------------------------------------------------
+    # Convert remaining value to string
+    # --------------------------------------------------------
+
+    text = str(value).strip()
+
+    if not text:
+        return pd.NaT
+
+    if text.lower() in {
+        "nan",
+        "nat",
+        "none",
+        "null",
+        "na",
+        "n/a",
+    }:
+        return pd.NaT
+
+    # --------------------------------------------------------
+    # Remove accidental time part
+    # --------------------------------------------------------
+
+    text = text.strip()
+
+    # --------------------------------------------------------
+    # Try explicit common formats FIRST
+    # --------------------------------------------------------
+
+    formats = [
+        "%d-%b-%Y",
+        "%d-%B-%Y",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%d.%m.%Y",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
+        "%d-%m-%Y %H:%M:%S",
+    ]
+
+    for fmt in formats:
+
+        try:
+
+            parsed = pd.to_datetime(
+                text,
+                format=fmt,
+                errors="coerce",
+            )
+
+            if pd.isna(parsed):
+                continue
+
+            if (
+                parsed < pd.Timestamp("2000-01-01")
+                or parsed > pd.Timestamp("2100-12-31")
+            ):
+                return pd.NaT
+
+            return parsed.normalize()
+
+        except Exception:
+            continue
+
+    # --------------------------------------------------------
+    # Final fallback
+    # --------------------------------------------------------
+
+    try:
 
         parsed = pd.to_datetime(
-            text_values,
+            text,
             errors="coerce",
             dayfirst=True,
         )
 
-        # -----------------------------------------------
-        # Second attempt for values still not parsed
-        # -----------------------------------------------
+        if pd.isna(parsed):
+            return pd.NaT
 
-        failed_mask = parsed.isna()
+        if (
+            parsed < pd.Timestamp("2000-01-01")
+            or parsed > pd.Timestamp("2100-12-31")
+        ):
+            return pd.NaT
 
-        if failed_mask.any():
+        return parsed.normalize()
 
-            parsed_fallback = pd.to_datetime(
-                text_values.loc[failed_mask],
-                errors="coerce",
-                dayfirst=False,
-            )
+    except Exception:
+        return pd.NaT
 
-            parsed.loc[
-                failed_mask
-            ] = parsed_fallback
 
-        result.loc[
-            parsed.index
-        ] = parsed
+# ============================================================
+# SAFE DATE SERIES PARSER
+# ============================================================
+
+def parse_google_date(
+    series: pd.Series,
+) -> pd.Series:
 
     # --------------------------------------------------------
-    # Remove clearly invalid / unrealistic dates
+    # Parse row by row
+    # --------------------------------------------------------
+
+    parsed_values = [
+        parse_single_date(value)
+        for value in series
+    ]
+
+    # --------------------------------------------------------
+    # Build new Series AFTER parsing
     #
-    # Your programme data is around 2024-2026.
-    # We keep a broad safe range so future data does not break.
+    # This avoids the Pandas assignment bug from the
+    # previous version.
     # --------------------------------------------------------
 
-    invalid_range = (
-        (result < pd.Timestamp("2000-01-01"))
-        | (result > pd.Timestamp("2100-12-31"))
+    result = pd.Series(
+        parsed_values,
+        index=series.index,
     )
 
-    result.loc[invalid_range] = pd.NaT
+    result = pd.to_datetime(
+        result,
+        errors="coerce",
+    )
 
     return result
 
@@ -335,15 +398,15 @@ def clean_data(
             .replace(
                 {
                     "nan": np.nan,
-                    "None": np.nan,
                     "NaN": np.nan,
+                    "None": np.nan,
                     "": np.nan,
                 }
             )
         )
 
     # ========================================================
-    # ROBUST DATE CLEANING
+    # DATE CLEANING
     # ========================================================
 
     for column in [
@@ -380,7 +443,7 @@ def clean_data(
         ).astype("Int64")
 
     # ========================================================
-    # MONTH CLEANING
+    # MONTH
     # ========================================================
 
     if "Month" in df.columns:
@@ -389,19 +452,18 @@ def clean_data(
             df["Month"]
             .astype(str)
             .str.strip()
-        )
-
-        df["Month"] = df["Month"].replace(
-            {
-                "nan": np.nan,
-                "None": np.nan,
-                "NaN": np.nan,
-                "": np.nan,
-            }
+            .replace(
+                {
+                    "nan": np.nan,
+                    "NaN": np.nan,
+                    "None": np.nan,
+                    "": np.nan,
+                }
+            )
         )
 
     # ========================================================
-    # WEEK CLEANING
+    # WEEK
     # ========================================================
 
     if "Week" in df.columns:
@@ -410,24 +472,25 @@ def clean_data(
             df["Week"]
             .astype(str)
             .str.strip()
-        )
-
-        df["Week"] = df["Week"].replace(
-            {
-                "nan": np.nan,
-                "None": np.nan,
-                "NaN": np.nan,
-                "": np.nan,
-            }
+            .replace(
+                {
+                    "nan": np.nan,
+                    "NaN": np.nan,
+                    "None": np.nan,
+                    "": np.nan,
+                }
+            )
         )
 
     # ========================================================
-    # CREATE / REPAIR YEAR FROM REPORTING DATE
+    # REPAIR YEAR FROM REPORTING DATE
     # ========================================================
 
     if "Reporting Date" in df.columns:
 
-        valid_dates = df["Reporting Date"].notna()
+        valid_dates = (
+            df["Reporting Date"].notna()
+        )
 
         if "Year" not in df.columns:
 
@@ -437,29 +500,24 @@ def clean_data(
                 dtype="Int64",
             )
 
-        date_years = (
-            df.loc[
-                valid_dates,
-                "Reporting Date"
-            ]
-            .dt.year
-            .astype("Int64")
-        )
-
-        # Only fill missing Year values
         missing_year = (
             df["Year"].isna()
             & valid_dates
         )
 
-        df.loc[
-            missing_year,
-            "Year"
-        ] = date_years.loc[
-            date_years.index.intersection(
-                df.index[missing_year]
+        if missing_year.any():
+
+            df.loc[
+                missing_year,
+                "Year"
+            ] = (
+                df.loc[
+                    missing_year,
+                    "Reporting Date"
+                ]
+                .dt.year
+                .astype("Int64")
             )
-        ]
 
         df["Year"] = df["Year"].astype("Int64")
 
@@ -484,7 +542,7 @@ def validate_columns(
 
 
 # ============================================================
-# DATE VALIDATION MESSAGE
+# REPORTING DATE VALIDATION
 # ============================================================
 
 def validate_reporting_dates(
@@ -494,21 +552,26 @@ def validate_reporting_dates(
     if "Reporting Date" not in df.columns:
         return
 
-    dates = df["Reporting Date"].dropna()
+    dates = (
+        df["Reporting Date"]
+        .dropna()
+    )
 
     if dates.empty:
+
         st.warning(
-            "No valid Reporting Date values were found."
+            "⚠️ No valid Reporting Date values were found."
         )
+
         return
 
     min_date = dates.min()
     max_date = dates.max()
 
     st.info(
-        f"📅 Available reporting period: "
+        "📅 Available reporting period: "
         f"{min_date.strftime('%d-%b-%Y')} "
-        f"to "
+        "to "
         f"{max_date.strftime('%d-%b-%Y')}"
     )
 
