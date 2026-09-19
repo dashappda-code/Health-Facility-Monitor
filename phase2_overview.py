@@ -336,3 +336,4 @@ def render_overview(df):
     if disease_col:
         counts = df[disease_col].astype(str).value_counts().head(15)
         st.dataframe(counts.rename("Records"), use_container_width=True)
+
