@@ -13,3 +13,4 @@ The application reads live data from Google Sheets.
 - Pandas
 - Plotly
 - PyDeck
+
