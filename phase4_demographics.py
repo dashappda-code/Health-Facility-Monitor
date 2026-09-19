@@ -1,790 +1,743 @@
-import pandas as pd
-import plotly.express as px
 import streamlit as st
+import pandas as pd
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
-def clean_series(series):
+def _clean_text(df, column):
+    if df is None or df.empty or column not in df.columns:
+        return pd.Series(dtype="object")
 
     return (
-        series
+        df[column]
+        .fillna("")
         .astype(str)
         .str.strip()
-        .replace(
-            {
-                "": pd.NA,
-                "nan": pd.NA,
-                "None": pd.NA,
-                "NA": pd.NA,
-                "N/A": pd.NA,
-            }
-        )
     )
 
-
-def find_column(df, candidates):
-
-    normalized = {
-        str(col).strip().lower().replace(" ", "").replace("_", ""): col
-        for col in df.columns
-    }
-
-    for candidate in candidates:
-
-        key = (
-            str(candidate)
-            .strip()
-            .lower()
-            .replace(" ", "")
-            .replace("_", "")
-        )
-
-        if key in normalized:
-            return normalized[key]
-
-    return None
-
-
-def layout(fig, height=450):
-
-    fig.update_layout(
-        height=height,
-        margin=dict(
-            l=20,
-            r=20,
-            t=60,
-            b=20
-        ),
-        legend_title_text="",
-        hovermode="x unified"
-    )
-
-    return fig
-
-
-# ============================================================
-# AGE GROUP
-# ============================================================
-
-def create_age_group(age_series):
-
-    age = pd.to_numeric(
-        age_series,
-        errors="coerce"
-    )
-
-    def classify(value):
-
-        if pd.isna(value):
-            return "Unknown"
-
-        if value < 1:
-            return "<1 Year"
-
-        if value <= 4:
-            return "1–4 Years"
-
-        if value <= 14:
-            return "5–14 Years"
-
-        if value <= 24:
-            return "15–24 Years"
-
-        if value <= 44:
-            return "25–44 Years"
-
-        if value <= 59:
-            return "45–59 Years"
-
-        return "60+ Years"
-
-    return age.apply(classify)
-
-
-# ============================================================
-# MAIN FUNCTION
-# ============================================================
 
 def render_demographics(df):
 
-    st.title("👥 Demographics & Disease Analysis")
-
-    st.caption(
-        "Age-wise, gender-wise and disease-wise analysis "
-        "with management-oriented comparisons."
-    )
+    st.subheader("👥 Demographic Analysis")
 
     if df is None or df.empty:
-
-        st.warning("No data available.")
-
+        st.warning(
+            "No records available for the selected filters."
+        )
         return
 
-    data = df.copy()
-
-    # ========================================================
-    # COLUMN DETECTION
-    # ========================================================
-
-    age_col = find_column(
-        data,
-        [
-            "Age",
-            "Age Years",
-            "Age (Years)",
-        ]
+    st.caption(
+        "Age-wise, age-group-wise, gender-wise and OPD/IPD "
+        "analysis based on the selected Global Dashboard Filters."
     )
 
-    gender_col = find_column(
-        data,
-        [
+    # =========================================================
+    # 1. DEMOGRAPHIC SUMMARY
+    # =========================================================
+
+    st.markdown("### 📊 Demographic Summary")
+
+    total_records = len(df)
+
+    if "Age" in df.columns:
+        age_numeric = pd.to_numeric(
+            df["Age"],
+            errors="coerce",
+        )
+        valid_age = age_numeric[
+            age_numeric.between(0, 120)
+        ]
+    else:
+        valid_age = pd.Series(
+            dtype="float64"
+        )
+
+    if not valid_age.empty:
+        mean_age = valid_age.mean()
+        median_age = valid_age.median()
+        min_age = valid_age.min()
+        max_age = valid_age.max()
+    else:
+        mean_age = None
+        median_age = None
+        min_age = None
+        max_age = None
+
+    if "Gender" in df.columns:
+        gender_values = _clean_text(
+            df,
             "Gender",
-            "Sex",
-        ]
-    )
-
-    disease_col = find_column(
-        data,
-        [
-            "Confirmed Diagnosis",
-            "Disease",
-            "Disease Name",
-            "Diagnosis",
-        ]
-    )
-
-    facility_col = find_column(
-        data,
-        [
-            "Facility Name Lform",
-            "Facility",
-            "Facility Name",
-            "Health Facility",
-        ]
-    )
-
-    ward_col = find_column(
-        data,
-        [
-            "Ward",
-            "Ward Name",
-            "Ward No",
-            "Ward Number",
-        ]
-    )
-
-    month_col = find_column(
-        data,
-        [
-            "Month",
-        ]
-    )
-
-    # ========================================================
-    # FILTERS
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("🎛️ Analysis Filters")
-
-    c1, c2 = st.columns(2)
-
-    if gender_col:
-
-        gender_values = sorted(
-            clean_series(data[gender_col])
-            .dropna()
-            .unique()
-            .tolist()
         )
-
-        selected_gender = c1.multiselect(
-            "👥 Gender",
-            gender_values,
-            placeholder="All Genders"
-        )
-
+        gender_values = gender_values[
+            gender_values.ne("")
+            & gender_values.ne("nan")
+        ]
+        gender_count = gender_values.nunique()
     else:
+        gender_count = 0
 
-        selected_gender = []
+    c1, c2, c3, c4, c5 = st.columns(5)
 
-    if disease_col:
-
-        disease_values = sorted(
-            clean_series(data[disease_col])
-            .dropna()
-            .unique()
-            .tolist()
+    with c1:
+        st.metric(
+            "Records",
+            f"{total_records:,}",
         )
 
-        selected_disease = c2.multiselect(
-            "🦠 Disease / Diagnosis",
-            disease_values,
-            placeholder="All Diseases"
-        )
+    with c2:
+        if mean_age is not None:
+            st.metric(
+                "Mean Age",
+                f"{mean_age:.1f} years",
+            )
+        else:
+            st.metric(
+                "Mean Age",
+                "N/A",
+            )
 
-    else:
+    with c3:
+        if median_age is not None:
+            st.metric(
+                "Median Age",
+                f"{median_age:.1f} years",
+            )
+        else:
+            st.metric(
+                "Median Age",
+                "N/A",
+            )
 
-        selected_disease = []
+    with c4:
+        if min_age is not None:
+            st.metric(
+                "Minimum Age",
+                f"{min_age:.0f}",
+            )
+        else:
+            st.metric(
+                "Minimum Age",
+                "N/A",
+            )
 
-    filtered = data.copy()
+    with c5:
+        if max_age is not None:
+            st.metric(
+                "Maximum Age",
+                f"{max_age:.0f}",
+            )
+        else:
+            st.metric(
+                "Maximum Age",
+                "N/A",
+            )
 
-    if selected_gender:
-
-        filtered = filtered[
-            clean_series(
-                filtered[gender_col]
-            ).isin(selected_gender)
-        ]
-
-    if selected_disease:
-
-        filtered = filtered[
-            clean_series(
-                filtered[disease_col]
-            ).isin(selected_disease)
-        ]
-
-    if filtered.empty:
-
-        st.warning(
-            "No records match the selected filters."
-        )
-
-        return
-
-    # ========================================================
-    # KPI
-    # ========================================================
+    # =========================================================
+    # 2. AGE GROUP-WISE ANALYSIS
+    # =========================================================
 
     st.divider()
 
-    st.subheader("📊 Demographic KPIs")
+    st.markdown("### 🎂 Age Group-wise Distribution")
 
-    k1, k2, k3, k4 = st.columns(4)
+    if "Age Group" in df.columns:
 
-    k1.metric(
-        "Total Records",
-        f"{len(filtered):,}"
-    )
-
-    k2.metric(
-        "Gender Categories",
-        f"{filtered[gender_col].nunique():,}"
-        if gender_col
-        else "0"
-    )
-
-    k3.metric(
-        "Disease Categories",
-        f"{filtered[disease_col].nunique():,}"
-        if disease_col
-        else "0"
-    )
-
-    k4.metric(
-        "Facilities",
-        f"{filtered[facility_col].nunique():,}"
-        if facility_col
-        else "0"
-    )
-
-    # ========================================================
-    # AGE-WISE ANALYSIS
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("🎂 Age-wise Case Distribution")
-
-    if age_col:
-
-        filtered["_Age_Group"] = create_age_group(
-            filtered[age_col]
+        age_group = _clean_text(
+            df,
+            "Age Group",
         )
 
-        age_order = [
-            "<1 Year",
-            "1–4 Years",
-            "5–14 Years",
-            "15–24 Years",
-            "25–44 Years",
-            "45–59 Years",
-            "60+ Years",
-            "Unknown",
+        age_group = age_group[
+            age_group.ne("")
+            & age_group.ne("nan")
+            & age_group.ne("NaT")
         ]
 
-        age_table = (
-            filtered["_Age_Group"]
-            .value_counts()
-            .reindex(
-                age_order,
-                fill_value=0
-            )
-            .rename_axis("Age Group")
-            .reset_index(name="Cases")
-        )
+        if not age_group.empty:
 
-        age_table["Share (%)"] = (
-            age_table["Cases"]
-            / age_table["Cases"].sum()
-            * 100
-        ).round(2)
-
-        st.dataframe(
-            age_table,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        fig = px.bar(
-            age_table,
-            x="Age Group",
-            y="Cases",
-            text="Cases",
-            title="Age-wise Case Distribution"
-        )
-
-        fig.update_traces(
-            textposition="outside"
-        )
-
-        st.plotly_chart(
-            layout(fig, 500),
-            use_container_width=True
-        )
-
-    else:
-
-        st.warning(
-            "Age column was not detected."
-        )
-
-    # ========================================================
-    # GENDER ANALYSIS
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("👥 Gender-wise Case Distribution")
-
-    if gender_col:
-
-        gender_table = (
-            clean_series(
-                filtered[gender_col]
-            )
-            .dropna()
-            .value_counts()
-            .rename_axis("Gender")
-            .reset_index(name="Cases")
-        )
-
-        gender_table["Share (%)"] = (
-            gender_table["Cases"]
-            / gender_table["Cases"].sum()
-            * 100
-        ).round(2)
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-
-            fig = px.pie(
-                gender_table,
-                names="Gender",
-                values="Cases",
-                title="Gender Distribution"
+            age_group_counts = (
+                age_group
+                .value_counts()
+                .rename_axis("Age Group")
+                .reset_index(name="Records")
             )
 
-            st.plotly_chart(
-                fig,
-                use_container_width=True
+            preferred_order = [
+                "Below 1 year",
+                "1-4",
+                "5-14",
+                "15-24",
+                "25-44",
+                "45-64",
+                "65+",
+                "Unknown",
+            ]
+
+            order_map = {
+                value: index
+                for index, value
+                in enumerate(preferred_order)
+            }
+
+            age_group_counts["sort_order"] = (
+                age_group_counts["Age Group"]
+                .map(order_map)
+                .fillna(999)
             )
 
-        with c2:
+            age_group_counts = (
+                age_group_counts
+                .sort_values(
+                    ["sort_order", "Age Group"]
+                )
+                .drop(
+                    columns=["sort_order"]
+                )
+                .reset_index(drop=True)
+            )
+
+            age_group_counts["Percentage"] = (
+                age_group_counts["Records"]
+                / age_group_counts["Records"].sum()
+                * 100
+            ).round(2)
+
+            st.bar_chart(
+                age_group_counts.set_index(
+                    "Age Group"
+                )["Records"],
+                use_container_width=True,
+            )
+
+            display_age_group = age_group_counts.copy()
+
+            display_age_group["Percentage"] = (
+                display_age_group["Percentage"]
+                .map(lambda x: f"{x:.2f}%")
+            )
 
             st.dataframe(
-                gender_table,
+                display_age_group,
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
             )
 
-    else:
+        else:
+            st.info(
+                "Age Group information is not available."
+            )
 
-        st.warning(
-            "Gender column was not detected."
-        )
-
-    # ========================================================
-    # AGE × GENDER
-    # ========================================================
+    # =========================================================
+    # 3. GENDER-WISE ANALYSIS
+    # =========================================================
 
     st.divider()
 
-    st.subheader("👥 Age × Gender Analysis")
+    st.markdown("### ⚧ Gender-wise Distribution")
 
-    if age_col and gender_col:
+    if "Gender" in df.columns:
 
-        age_gender = (
-            filtered
-            .groupby(
-                [
-                    "_Age_Group",
-                    gender_col
-                ]
-            )
-            .size()
-            .reset_index(name="Cases")
+        gender = _clean_text(
+            df,
+            "Gender",
         )
 
-        age_gender = age_gender.rename(
-            columns={
-                "_Age_Group": "Age Group",
-                gender_col: "Gender"
-            }
-        )
-
-        fig = px.bar(
-            age_gender,
-            x="Age Group",
-            y="Cases",
-            color="Gender",
-            barmode="group",
-            text="Cases",
-            title="Age Group × Gender"
-        )
-
-        st.plotly_chart(
-            layout(fig, 550),
-            use_container_width=True
-        )
-
-        st.dataframe(
-            age_gender,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # ========================================================
-    # DISEASE BURDEN
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("🦠 Disease-wise Case Burden")
-
-    if disease_col:
-
-        disease_table = (
-            clean_series(
-                filtered[disease_col]
-            )
-            .dropna()
-            .value_counts()
-            .rename_axis("Disease")
-            .reset_index(name="Cases")
-        )
-
-        disease_table["Share (%)"] = (
-            disease_table["Cases"]
-            / disease_table["Cases"].sum()
-            * 100
-        ).round(2)
-
-        disease_table.insert(
-            0,
-            "Rank",
-            range(
-                1,
-                len(disease_table) + 1
-            )
-        )
-
-        st.dataframe(
-            disease_table,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        chart_df = (
-            disease_table
-            .head(20)
-            .sort_values("Cases")
-        )
-
-        fig = px.bar(
-            chart_df,
-            x="Cases",
-            y="Disease",
-            orientation="h",
-            text="Cases",
-            title="Top 20 Diseases by Case Burden"
-        )
-
-        fig.update_traces(
-            textposition="outside"
-        )
-
-        st.plotly_chart(
-            layout(fig, 650),
-            use_container_width=True
-        )
-
-    else:
-
-        st.warning(
-            "Disease / diagnosis column was not detected."
-        )
-
-    # ========================================================
-    # DISEASE × GENDER
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("🦠 Disease × Gender")
-
-    if disease_col and gender_col:
-
-        disease_gender = (
-            filtered
-            .groupby(
-                [
-                    disease_col,
-                    gender_col
-                ]
-            )
-            .size()
-            .reset_index(name="Cases")
-        )
-
-        disease_gender = disease_gender.rename(
-            columns={
-                disease_col: "Disease",
-                gender_col: "Gender"
-            }
-        )
-
-        top_diseases = (
-            disease_gender
-            .groupby("Disease")["Cases"]
-            .sum()
-            .sort_values(
-                ascending=False
-            )
-            .head(15)
-            .index
-        )
-
-        chart_df = disease_gender[
-            disease_gender["Disease"].isin(
-                top_diseases
-            )
+        gender = gender[
+            gender.ne("")
+            & gender.ne("nan")
+            & gender.ne("NaT")
         ]
 
-        fig = px.bar(
-            chart_df,
-            x="Disease",
-            y="Cases",
-            color="Gender",
-            barmode="group",
-            title="Top Diseases by Gender"
-        )
+        if not gender.empty:
 
-        fig.update_layout(
-            xaxis_tickangle=-45
-        )
+            gender_counts = (
+                gender
+                .value_counts()
+                .rename_axis("Gender")
+                .reset_index(name="Records")
+            )
 
-        st.plotly_chart(
-            layout(fig, 600),
-            use_container_width=True
-        )
+            gender_counts["Percentage"] = (
+                gender_counts["Records"]
+                / gender_counts["Records"].sum()
+                * 100
+            ).round(2)
 
-    # ========================================================
-    # DISEASE × AGE
-    # ========================================================
+            left, right = st.columns(
+                [1.5, 1],
+                gap="large",
+            )
+
+            with left:
+                st.bar_chart(
+                    gender_counts.set_index(
+                        "Gender"
+                    )["Records"],
+                    use_container_width=True,
+                )
+
+            with right:
+                display_gender = gender_counts.copy()
+
+                display_gender["Percentage"] = (
+                    display_gender["Percentage"]
+                    .map(lambda x: f"{x:.2f}%")
+                )
+
+                st.dataframe(
+                    display_gender,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        else:
+            st.info(
+                "Gender information is not available."
+            )
+
+    # =========================================================
+    # 4. AGE-WISE ANALYSIS
+    # =========================================================
 
     st.divider()
 
-    st.subheader("🦠 Disease × Age Group")
+    st.markdown("### 📈 Age-wise Distribution")
 
-    if disease_col and age_col:
+    if "Age" in df.columns:
 
-        disease_age = (
-            filtered
-            .groupby(
-                [
-                    disease_col,
-                    "_Age_Group"
-                ]
-            )
-            .size()
-            .reset_index(name="Cases")
+        age_data = pd.to_numeric(
+            df["Age"],
+            errors="coerce",
         )
 
-        disease_age = disease_age.rename(
-            columns={
-                disease_col: "Disease",
-                "_Age_Group": "Age Group"
-            }
-        )
-
-        top_diseases = (
-            disease_age
-            .groupby("Disease")["Cases"]
-            .sum()
-            .sort_values(
-                ascending=False
-            )
-            .head(15)
-            .index
-        )
-
-        heat_df = disease_age[
-            disease_age["Disease"].isin(
-                top_diseases
-            )
+        age_data = age_data[
+            age_data.between(0, 120)
         ]
 
-        if not heat_df.empty:
+        if not age_data.empty:
 
-            matrix = pd.pivot_table(
-                heat_df,
-                index="Disease",
-                columns="Age Group",
-                values="Cases",
-                aggfunc="sum",
-                fill_value=0
+            age_counts = (
+                age_data
+                .round()
+                .astype(int)
+                .value_counts()
+                .sort_index()
+                .rename_axis("Age")
+                .reset_index(name="Records")
             )
 
-            fig = px.imshow(
-                matrix,
-                text_auto=True,
-                aspect="auto",
-                title="Disease × Age Group"
+            st.line_chart(
+                age_counts.set_index(
+                    "Age"
+                )["Records"],
+                use_container_width=True,
             )
 
-            st.plotly_chart(
-                layout(fig, 650),
-                use_container_width=True
+            st.dataframe(
+                age_counts,
+                use_container_width=True,
+                hide_index=True,
             )
 
-    # ========================================================
-    # FACILITY × DEMOGRAPHICS
-    # ========================================================
+        else:
+            st.info(
+                "Valid age information is not available."
+            )
+
+    # =========================================================
+    # 5. GENDER × AGE GROUP
+    # =========================================================
 
     st.divider()
 
-    st.subheader(
-        "🏥 Facility-wise Demographic Summary"
-    )
+    st.markdown("### 👥 Gender × Age Group")
 
-    if facility_col:
+    if (
+        "Gender" in df.columns
+        and "Age Group" in df.columns
+    ):
 
-        facility_demo = (
-            filtered
-            .groupby(facility_col)
-            .agg(
-                Cases=(facility_col, "size"),
-                Wards=(
-                    ward_col,
-                    "nunique"
-                ) if ward_col else (
-                    facility_col,
-                    "size"
-                ),
-                Diseases=(
-                    disease_col,
-                    "nunique"
-                ) if disease_col else (
-                    facility_col,
-                    "size"
-                ),
+        cross_df = df[
+            [
+                "Gender",
+                "Age Group",
+            ]
+        ].copy()
+
+        cross_df["Gender"] = (
+            cross_df["Gender"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        cross_df["Age Group"] = (
+            cross_df["Age Group"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        cross_df = cross_df[
+            cross_df["Gender"].ne("")
+            & cross_df["Age Group"].ne("")
+            & cross_df["Gender"].ne("nan")
+            & cross_df["Age Group"].ne("nan")
+        ]
+
+        if not cross_df.empty:
+
+            gender_age = pd.crosstab(
+                cross_df["Age Group"],
+                cross_df["Gender"],
             )
-            .reset_index()
-        )
 
-        facility_demo = facility_demo.rename(
-            columns={
-                facility_col: "Facility"
-            }
-        )
+            preferred_order = [
+                "Below 1 year",
+                "1-4",
+                "5-14",
+                "15-24",
+                "25-44",
+                "45-64",
+                "65+",
+                "Unknown",
+            ]
 
-        facility_demo = facility_demo.sort_values(
-            "Cases",
-            ascending=False
-        )
+            available = [
+                value
+                for value in preferred_order
+                if value in gender_age.index
+            ]
 
-        st.dataframe(
-            facility_demo,
-            use_container_width=True,
-            hide_index=True
-        )
+            remaining = [
+                value
+                for value in gender_age.index
+                if value not in available
+            ]
 
-    # ========================================================
-    # WARD × DEMOGRAPHICS
-    # ========================================================
+            gender_age = gender_age.reindex(
+                available + remaining
+            )
+
+            st.bar_chart(
+                gender_age,
+                use_container_width=True,
+            )
+
+            st.dataframe(
+                gender_age.reset_index(),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+            st.info(
+                "Gender and Age Group cross-analysis "
+                "is not available."
+            )
+
+    # =========================================================
+    # 6. OPD / IPD DEMOGRAPHIC DISTRIBUTION
+    # =========================================================
 
     st.divider()
 
-    st.subheader(
-        "🗺️ Ward-wise Demographic Summary"
+    st.markdown("### 🏨 OPD / IPD Demographic Distribution")
+
+    if "OPD/IPD" in df.columns:
+
+        opd = _clean_text(
+            df,
+            "OPD/IPD",
+        )
+
+        opd = opd[
+            opd.ne("")
+            & opd.ne("nan")
+            & opd.ne("NaT")
+        ]
+
+        if not opd.empty:
+
+            opd_counts = (
+                opd
+                .value_counts()
+                .rename_axis("OPD/IPD")
+                .reset_index(name="Records")
+            )
+
+            opd_counts["Percentage"] = (
+                opd_counts["Records"]
+                / opd_counts["Records"].sum()
+                * 100
+            ).round(2)
+
+            c1, c2 = st.columns(
+                [1.5, 1],
+                gap="large",
+            )
+
+            with c1:
+                st.bar_chart(
+                    opd_counts.set_index(
+                        "OPD/IPD"
+                    )["Records"],
+                    use_container_width=True,
+                )
+
+            with c2:
+
+                display_opd = opd_counts.copy()
+
+                display_opd["Percentage"] = (
+                    display_opd["Percentage"]
+                    .map(lambda x: f"{x:.2f}%")
+                )
+
+                st.dataframe(
+                    display_opd,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        else:
+            st.info(
+                "OPD/IPD information is not available."
+            )
+
+    # =========================================================
+    # 7. AGE GROUP × OPD/IPD
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### 🎂 Age Group × OPD/IPD")
+
+    if (
+        "Age Group" in df.columns
+        and "OPD/IPD" in df.columns
+    ):
+
+        age_opd = df[
+            [
+                "Age Group",
+                "OPD/IPD",
+            ]
+        ].copy()
+
+        age_opd["Age Group"] = (
+            age_opd["Age Group"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        age_opd["OPD/IPD"] = (
+            age_opd["OPD/IPD"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        age_opd = age_opd[
+            age_opd["Age Group"].ne("")
+            & age_opd["OPD/IPD"].ne("")
+            & age_opd["Age Group"].ne("nan")
+            & age_opd["OPD/IPD"].ne("nan")
+        ]
+
+        if not age_opd.empty:
+
+            age_opd_table = pd.crosstab(
+                age_opd["Age Group"],
+                age_opd["OPD/IPD"],
+            )
+
+            preferred_order = [
+                "Below 1 year",
+                "1-4",
+                "5-14",
+                "15-24",
+                "25-44",
+                "45-64",
+                "65+",
+                "Unknown",
+            ]
+
+            available = [
+                value
+                for value in preferred_order
+                if value in age_opd_table.index
+            ]
+
+            remaining = [
+                value
+                for value in age_opd_table.index
+                if value not in available
+            ]
+
+            age_opd_table = age_opd_table.reindex(
+                available + remaining
+            )
+
+            st.bar_chart(
+                age_opd_table,
+                use_container_width=True,
+            )
+
+            st.dataframe(
+                age_opd_table.reset_index(),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+            st.info(
+                "Age Group and OPD/IPD cross-analysis "
+                "is not available."
+            )
+
+    # =========================================================
+    # 8. DISEASE × GENDER
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### 🦠 Disease × Gender")
+
+    if (
+        "Disease" in df.columns
+        and "Gender" in df.columns
+    ):
+
+        disease_gender = df[
+            [
+                "Disease",
+                "Gender",
+            ]
+        ].copy()
+
+        disease_gender["Disease"] = (
+            disease_gender["Disease"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        disease_gender["Gender"] = (
+            disease_gender["Gender"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        disease_gender = disease_gender[
+            disease_gender["Disease"].ne("")
+            & disease_gender["Gender"].ne("")
+            & disease_gender["Disease"].ne("nan")
+            & disease_gender["Gender"].ne("nan")
+        ]
+
+        if not disease_gender.empty:
+
+            disease_gender_table = pd.crosstab(
+                disease_gender["Disease"],
+                disease_gender["Gender"],
+            )
+
+            top_diseases = (
+                disease_gender_table
+                .sum(axis=1)
+                .sort_values(
+                    ascending=False
+                )
+                .head(10)
+                .index
+            )
+
+            disease_gender_table = (
+                disease_gender_table
+                .loc[top_diseases]
+            )
+
+            st.bar_chart(
+                disease_gender_table,
+                use_container_width=True,
+            )
+
+            st.caption(
+                "The chart displays the top 10 diseases "
+                "by total records within the selected filters."
+            )
+
+            st.dataframe(
+                disease_gender_table.reset_index(),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+            st.info(
+                "Disease and Gender cross-analysis "
+                "is not available."
+            )
+
+    # =========================================================
+    # 9. DATA QUALITY NOTE
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### ℹ️ Demographic Data Quality")
+
+    missing_age = 0
+    missing_gender = 0
+    missing_age_group = 0
+
+    if "Age" in df.columns:
+        age_numeric = pd.to_numeric(
+            df["Age"],
+            errors="coerce",
+        )
+        missing_age = int(
+            age_numeric.isna().sum()
+        )
+
+    if "Gender" in df.columns:
+        gender_values = _clean_text(
+            df,
+            "Gender",
+        )
+        missing_gender = int(
+            gender_values.eq("").sum()
+        )
+
+    if "Age Group" in df.columns:
+        age_group_values = _clean_text(
+            df,
+            "Age Group",
+        )
+        missing_age_group = int(
+            age_group_values.eq("").sum()
+        )
+
+    quality_table = pd.DataFrame(
+        {
+            "Indicator": [
+                "Total Records",
+                "Missing / Invalid Age",
+                "Missing Gender",
+                "Missing Age Group",
+            ],
+            "Count": [
+                total_records,
+                missing_age,
+                missing_gender,
+                missing_age_group,
+            ],
+        }
     )
 
-    if ward_col:
-
-        ward_demo = (
-            filtered
-            .groupby(ward_col)
-            .agg(
-                Cases=(ward_col, "size"),
-                Facilities=(
-                    facility_col,
-                    "nunique"
-                ) if facility_col else (
-                    ward_col,
-                    "size"
-                ),
-                Diseases=(
-                    disease_col,
-                    "nunique"
-                ) if disease_col else (
-                    ward_col,
-                    "size"
-                ),
-            )
-            .reset_index()
-        )
-
-        ward_demo = ward_demo.rename(
-            columns={
-                ward_col: "Ward"
-            }
-        )
-
-        ward_demo = ward_demo.sort_values(
-            "Cases",
-            ascending=False
-        )
-
-        st.dataframe(
-            ward_demo,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # ========================================================
-    # CLEANUP
-    # ========================================================
-
-    if "_Age_Group" in filtered.columns:
-
-        filtered.drop(
-            columns=["_Age_Group"],
-            inplace=True
-        )
+    st.dataframe(
+        quality_table,
+        use_container_width=True,
+        hide_index=True,
+    )
