@@ -38,62 +38,91 @@ st.markdown(
     """
     <style>
 
-    /* Main application area */
+    /* ======================================================
+       MAIN PAGE
+       ====================================================== */
+
     .block-container {
         padding-top: 0.7rem;
         padding-bottom: 1rem;
         max-width: 100%;
     }
 
-    /* Sidebar */
+
+    /* ======================================================
+       SIDEBAR
+       ====================================================== */
+
     section[data-testid="stSidebar"] {
         width: 250px;
     }
 
-    /* Top horizontal control panel */
-    .top-control-panel {
-        border: 1px solid #c7d9e8;
-        border-left: 5px solid #1769aa;
+
+    /* ======================================================
+       GLOBAL FILTER PANEL
+       ====================================================== */
+
+    div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px;
-        background: #f7fbff;
-        padding: 10px 14px 8px 14px;
-        margin-top: 4px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 8px rgba(30, 60, 90, 0.08);
     }
+
 
     /* Filter labels */
-    div[data-testid="stMultiSelect"] label {
-        font-size: 12px;
-        font-weight: 650;
-    }
 
+    div[data-testid="stMultiSelect"] label,
     div[data-testid="stDateInput"] label {
-        font-size: 12px;
-        font-weight: 650;
+        font-size: 12px !important;
+        font-weight: 650 !important;
     }
 
-    /* Compact controls */
-    div[data-testid="stMultiSelect"] {
-        margin-bottom: 0;
-    }
 
+    /* Compact filter controls */
+
+    div[data-testid="stMultiSelect"],
     div[data-testid="stDateInput"] {
-        margin-bottom: 0;
+        margin-bottom: 0 !important;
     }
 
-    /* Reset button */
+
+    /* Multiselect box */
+
+    div[data-testid="stMultiSelect"] > div {
+        min-height: 38px;
+    }
+
+
+    /* Date input */
+
+    div[data-testid="stDateInput"] > div {
+        min-height: 38px;
+    }
+
+
+    /* ======================================================
+       RESET BUTTON
+       ====================================================== */
+
     .st-key-global_reset_filters button {
+        min-height: 38px;
         border-radius: 8px;
         font-weight: 700;
+        white-space: nowrap;
     }
 
-    /* Metrics */
+
+    /* ======================================================
+       KPI CARDS
+       ====================================================== */
+
     [data-testid="stMetric"] {
         padding: 7px 10px;
     }
 
-    /* Footer */
+
+    /* ======================================================
+       FOOTER
+       ====================================================== */
+
     .dashboard-footer {
         text-align: center;
         color: #777;
@@ -178,22 +207,31 @@ st.sidebar.caption(
 
 
 # ============================================================
-# TOP HORIZONTAL GLOBAL DASHBOARD CONTROL
+# GLOBAL DASHBOARD CONTROL
 # ============================================================
 
-st.markdown(
-    '<div class="top-control-panel">',
-    unsafe_allow_html=True,
+st.subheader(
+    "🎛️ Global Dashboard Control"
 )
 
-filter_values = create_filters(
-    df
+st.caption(
+    "Select any filter to update the entire dashboard immediately. "
+    "Leave filters blank to include all records."
 )
 
-st.markdown(
-    "</div>",
-    unsafe_allow_html=True,
-)
+
+# ============================================================
+# HORIZONTAL FILTER PANEL
+# ============================================================
+
+with st.container(
+    border=True,
+    key="global_filter_panel",
+):
+
+    filter_values = create_filters(
+        df
+    )
 
 
 # ============================================================
