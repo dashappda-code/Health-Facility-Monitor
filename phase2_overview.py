@@ -6,30 +6,34 @@ import pandas as pd
 # COLUMN FINDER
 # ============================================================
 
-def find_column(df, possible_names):
+def find_column(df, keywords):
 
-    for name in possible_names:
+    if df is None or df.empty:
+        return None
 
-        if name in df.columns:
-            return name
+    columns = list(df.columns)
 
-    lower_map = {
-        str(col).strip().lower(): col
-        for col in df.columns
-    }
+    # Exact match first
+    for keyword in keywords:
+        keyword = keyword.lower().strip()
 
-    for name in possible_names:
+        for col in columns:
+            if str(col).lower().strip() == keyword:
+                return col
 
-        key = str(name).strip().lower()
+    # Partial match
+    for keyword in keywords:
+        keyword = keyword.lower().strip()
 
-        if key in lower_map:
-            return lower_map[key]
+        for col in columns:
+            if keyword in str(col).lower():
+                return col
 
     return None
 
 
 # ============================================================
-# UNIQUE CLEAN VALUES
+# UNIQUE VALUES
 # ============================================================
 
 def get_values(df, column):
@@ -44,13 +48,9 @@ def get_values(df, column):
         .str.strip()
     )
 
-    values = values[
-        values != ""
-    ]
+    values = values[values != ""]
 
-    return sorted(
-        values.unique().tolist()
-    )
+    return sorted(values.unique().tolist())
 
 
 # ============================================================
@@ -59,274 +59,131 @@ def get_values(df, column):
 
 def create_filters(df):
 
+    st.markdown("### 🎛️ Global Dashboard Control")
+    st.caption(
+        "Select filters below. The selected data will be used across all dashboard sections."
+    )
+
     # --------------------------------------------------------
-    # COLUMN IDENTIFICATION
+    # Identify columns
     # --------------------------------------------------------
 
     year_col = find_column(
         df,
-        [
-            "Year",
-            "year",
-        ],
+        ["year", "वर्ष"]
     )
 
     month_col = find_column(
         df,
-        [
-            "Month",
-            "month",
-        ],
+        ["month", "महिना"]
     )
 
     week_col = find_column(
         df,
-        [
-            "Week",
-            "week",
-        ],
+        ["week", "week no", "week number", "आठवडा"]
     )
 
     disease_col = find_column(
         df,
         [
-            "Disease",
-            "Disease Name",
             "disease",
-        ],
+            "disease name",
+            "diagnosis",
+            "disease/diagnosis",
+            "रोग",
+        ]
     )
 
     facility_col = find_column(
         df,
         [
-            "Facility Name",
-            "Facility",
             "facility",
-        ],
+            "facility name",
+            "health facility",
+            "institution",
+            "आरोग्य केंद्र",
+        ]
     )
 
     ward_col = find_column(
         df,
         [
-            "Ward Name",
-            "Ward",
             "ward",
-        ],
+            "ward name",
+            "ward no",
+            "ward number",
+            "प्रभाग",
+        ]
     )
 
     gender_col = find_column(
         df,
         [
-            "Gender",
-            "Sex",
             "gender",
-        ],
+            "sex",
+            "लिंग",
+        ]
     )
 
     age_group_col = find_column(
         df,
         [
-            "Age Group",
-            "Age group",
-            "AgeGroup",
-        ],
+            "age group",
+            "age_group",
+            "agegroup",
+            "age category",
+            "वयोगट",
+        ]
     )
 
     opd_ipd_col = find_column(
         df,
         [
-            "OPD/IPD",
-            "OPD IPD",
-            "OPD_IPD",
-        ],
+            "opd/ipd",
+            "opd ipd",
+            "opd_ipd",
+            "patient type",
+            "service type",
+        ]
     )
 
     area_col = find_column(
         df,
         [
-            "Patient Address",
-            "Area",
-            "Address",
-            "Location",
-        ],
+            "area",
+            "area name",
+            "locality",
+            "location",
+            "परिसर",
+        ]
     )
 
     status_col = find_column(
         df,
         [
-            "Confirmed Diagnosis",
-            "Status",
-            "Diagnosis",
-        ],
+            "status",
+            "case status",
+            "case_status",
+            "diagnosis status",
+        ]
     )
 
     date_col = find_column(
         df,
         [
-            "Reporting Date",
-            "Date",
-            "Reporting date",
-        ],
+            "date",
+            "reporting date",
+            "date of reporting",
+            "event date",
+            "दिनांक",
+        ]
     )
-
 
     # --------------------------------------------------------
-    # OPTIONS
+    # FORM
     # --------------------------------------------------------
 
-    years = get_values(
-        df,
-        year_col,
-    )
-
-    months = get_values(
-        df,
-        month_col,
-    )
-
-    weeks = get_values(
-        df,
-        week_col,
-    )
-
-    diseases = get_values(
-        df,
-        disease_col,
-    )
-
-    facilities = get_values(
-        df,
-        facility_col,
-    )
-
-    wards = get_values(
-        df,
-        ward_col,
-    )
-
-    genders = get_values(
-        df,
-        gender_col,
-    )
-
-    age_groups = get_values(
-        df,
-        age_group_col,
-    )
-
-    opd_ipd = get_values(
-        df,
-        opd_ipd_col,
-    )
-
-    areas = get_values(
-        df,
-        area_col,
-    )
-
-    status = get_values(
-        df,
-        status_col,
-    )
-
-
-    # ========================================================
-    # SESSION STATE INITIALIZATION
-    # ========================================================
-
-    filter_keys = {
-
-        "global_years": years,
-
-        "global_months": months,
-
-        "global_weeks": weeks,
-
-        "global_diseases": diseases,
-
-        "global_facilities": facilities,
-
-        "global_wards": wards,
-
-        "global_genders": genders,
-
-        "global_age_groups": age_groups,
-
-        "global_opd_ipd": opd_ipd,
-
-        "global_areas": areas,
-
-        "global_status": status,
-
-    }
-
-
-    for key, default_value in filter_keys.items():
-
-        if key not in st.session_state:
-
-            st.session_state[key] = default_value
-
-
-    # ========================================================
-    # RESET FUNCTION
-    # ========================================================
-
-    if st.session_state.get(
-        "reset_dashboard_filters",
-        False
-    ):
-
-        st.session_state.global_years = years
-        st.session_state.global_months = months
-        st.session_state.global_weeks = weeks
-        st.session_state.global_diseases = diseases
-        st.session_state.global_facilities = facilities
-        st.session_state.global_wards = wards
-        st.session_state.global_genders = genders
-        st.session_state.global_age_groups = age_groups
-        st.session_state.global_opd_ipd = opd_ipd
-        st.session_state.global_areas = areas
-        st.session_state.global_status = status
-
-        st.session_state.reset_dashboard_filters = False
-
-
-    # ========================================================
-    # GLOBAL FILTER UI
-    # ========================================================
-
-    with st.container():
-
-        st.markdown(
-            """
-            <div style="
-                background:#f8f9fa;
-                border:1px solid #d6d6d6;
-                border-radius:8px;
-                padding:10px 12px 4px 12px;
-                margin-bottom:10px;
-            ">
-                <div style="
-                    font-size:18px;
-                    font-weight:600;
-                    margin-bottom:2px;
-                ">
-                    🎛️ Global Dashboard Control
-                </div>
-
-                <div style="
-                    font-size:12px;
-                    color:#666;
-                    margin-bottom:4px;
-                ">
-                    These filters apply across the dashboard.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
+    with st.form("global_dashboard_filter_form"):
 
         # ====================================================
         # ROW 1
@@ -335,37 +192,44 @@ def create_filters(df):
         r1 = st.columns(4)
 
         with r1[0]:
+            year_values = get_values(df, year_col)
 
             selected_years = st.multiselect(
                 "Year",
-                years,
-                key="global_years",
+                year_values,
+                default=year_values,
+                key="global_year_filter",
             )
 
         with r1[1]:
+            month_values = get_values(df, month_col)
 
             selected_months = st.multiselect(
                 "Month",
-                months,
-                key="global_months",
+                month_values,
+                default=month_values,
+                key="global_month_filter",
             )
 
         with r1[2]:
+            week_values = get_values(df, week_col)
 
             selected_weeks = st.multiselect(
                 "Week",
-                weeks,
-                key="global_weeks",
+                week_values,
+                default=week_values,
+                key="global_week_filter",
             )
 
         with r1[3]:
+            disease_values = get_values(df, disease_col)
 
             selected_diseases = st.multiselect(
                 "Disease",
-                diseases,
-                key="global_diseases",
+                disease_values,
+                default=disease_values,
+                key="global_disease_filter",
             )
-
 
         # ====================================================
         # ROW 2
@@ -374,106 +238,105 @@ def create_filters(df):
         r2 = st.columns(4)
 
         with r2[0]:
+            facility_values = get_values(df, facility_col)
 
             selected_facilities = st.multiselect(
                 "Facility",
-                facilities,
-                key="global_facilities",
+                facility_values,
+                default=facility_values,
+                key="global_facility_filter",
             )
 
         with r2[1]:
+            ward_values = get_values(df, ward_col)
 
             selected_wards = st.multiselect(
                 "Ward",
-                wards,
-                key="global_wards",
+                ward_values,
+                default=ward_values,
+                key="global_ward_filter",
             )
 
         with r2[2]:
+            gender_values = get_values(df, gender_col)
 
             selected_genders = st.multiselect(
                 "Gender",
-                genders,
-                key="global_genders",
+                gender_values,
+                default=gender_values,
+                key="global_gender_filter",
             )
 
         with r2[3]:
+            age_values = get_values(df, age_group_col)
 
             selected_age_groups = st.multiselect(
                 "Age Group",
-                age_groups,
-                key="global_age_groups",
+                age_values,
+                default=age_values,
+                key="global_age_filter",
             )
-
 
         # ====================================================
         # ROW 3
         # ====================================================
 
-        r3 = st.columns(4)
+        r3 = st.columns(3)
 
         with r3[0]:
+            opd_values = get_values(df, opd_ipd_col)
 
             selected_opd_ipd = st.multiselect(
                 "OPD / IPD",
-                opd_ipd,
-                key="global_opd_ipd",
+                opd_values,
+                default=opd_values,
+                key="global_opdipd_filter",
             )
 
         with r3[1]:
+            area_values = get_values(df, area_col)
 
             selected_areas = st.multiselect(
                 "Area",
-                areas,
-                key="global_areas",
+                area_values,
+                default=area_values,
+                key="global_area_filter",
             )
 
         with r3[2]:
+            status_values = get_values(df, status_col)
 
             selected_status = st.multiselect(
-                "Status / Diagnosis",
-                status,
-                key="global_status",
+                "Status",
+                status_values,
+                default=status_values,
+                key="global_status_filter",
             )
-
-        with r3[3]:
-
-            refresh_clicked = st.button(
-                "🔄 Refresh Data",
-                use_container_width=True,
-            )
-
-            reset_clicked = st.button(
-                "↩️ Reset Filters",
-                use_container_width=True,
-            )
-
 
         # ====================================================
         # DATE FILTER
         # ====================================================
 
+        st.markdown("**📅 Reporting Date Range**")
+
+        d1, d2 = st.columns(2)
+
         date_from = None
         date_to = None
 
-        if date_col is not None:
+        if date_col and date_col in df.columns:
 
             date_series = pd.to_datetime(
                 df[date_col],
-                errors="coerce",
-            )
+                errors="coerce"
+            ).dropna()
 
-            valid_dates = date_series.dropna()
+            if not date_series.empty:
 
-            if not valid_dates.empty:
-
-                min_date = valid_dates.min().date()
-                max_date = valid_dates.max().date()
-
-                d1, d2 = st.columns(2)
+                min_date = date_series.min().date()
+                max_date = date_series.max().date()
 
                 with d1:
-
                     date_from = st.date_input(
                         "Starting Date",
                         value=min_date,
@@ -483,7 +346,6 @@ def create_filters(df):
                     )
 
                 with d2:
-
                     date_to = st.date_input(
                         "Ending Date",
                         value=max_date,
@@ -492,358 +354,200 @@ def create_filters(df):
                         key="global_date_to",
                     )
 
-
         # ====================================================
-        # BUTTON ACTIONS
+        # BUTTONS
         # ====================================================
 
-        if refresh_clicked:
+        b1, b2 = st.columns([1, 5])
 
-            try:
+        with b1:
+            apply_clicked = st.form_submit_button(
+                "🔄 Apply Filters",
+                type="primary",
+                use_container_width=True,
+            )
 
-                from phase1_data import refresh_data
+        with b2:
+            reset_clicked = st.form_submit_button(
+                "↩ Reset Filters",
+                use_container_width=True,
+            )
 
-                refresh_data()
+    # --------------------------------------------------------
+    # RESET
+    # --------------------------------------------------------
 
-                st.cache_data.clear()
+    if reset_clicked:
 
-                st.rerun()
+        keys_to_clear = [
+            "global_year_filter",
+            "global_month_filter",
+            "global_week_filter",
+            "global_disease_filter",
+            "global_facility_filter",
+            "global_ward_filter",
+            "global_gender_filter",
+            "global_age_filter",
+            "global_opdipd_filter",
+            "global_area_filter",
+            "global_status_filter",
+            "global_date_from",
+            "global_date_to",
+        ]
 
-            except Exception:
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
 
-                st.warning(
-                    "Data refresh could not be completed."
-                )
-
-
-        if reset_clicked:
-
-            st.session_state.reset_dashboard_filters = True
-
-            st.rerun()
-
-
-    # ========================================================
-    # RETURN FILTER VALUES
-    # ========================================================
+        st.rerun()
 
     return {
-
         "selected_years": selected_years,
-
         "selected_months": selected_months,
-
         "selected_weeks": selected_weeks,
-
         "selected_diseases": selected_diseases,
-
         "selected_facilities": selected_facilities,
-
         "selected_wards": selected_wards,
-
         "selected_genders": selected_genders,
-
         "selected_age_groups": selected_age_groups,
-
         "selected_opd_ipd": selected_opd_ipd,
-
         "selected_areas": selected_areas,
-
         "selected_status": selected_status,
-
         "area_column": area_col,
-
         "status_column": status_col,
-
+        "date_column": date_col,
         "date_from": date_from,
-
         "date_to": date_to,
-
     }
 
 
 # ============================================================
-# FILTER HELPER
-# ============================================================
-
-def _filter_multiselect(
-    data,
-    column,
-    selected_values,
-):
-
-    if (
-        column is None
-        or column not in data.columns
-        or not selected_values
-    ):
-
-        return data
-
-    values = (
-        data[column]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
-
-    return data[
-        values.isin(
-            [str(x).strip() for x in selected_values]
-        )
-    ]
-
-
-# ============================================================
-# APPLY GLOBAL FILTERS
+# FAST FILTER FUNCTION
 # ============================================================
 
 def apply_filters(
     df,
-    selected_years=None,
-    selected_months=None,
-    selected_weeks=None,
-    selected_diseases=None,
-    selected_facilities=None,
-    selected_wards=None,
-    selected_genders=None,
-    selected_age_groups=None,
-    selected_opd_ipd=None,
-    selected_areas=None,
-    selected_status=None,
-    area_column=None,
-    status_column=None,
-    date_from=None,
-    date_to=None,
+    selected_years,
+    selected_months,
+    selected_weeks,
+    selected_diseases,
+    selected_facilities,
+    selected_wards,
+    selected_genders,
+    selected_age_groups,
+    selected_opd_ipd,
+    selected_areas,
+    selected_status,
+    area_column,
+    status_column,
+    date_from,
+    date_to,
 ):
 
-    data = df.copy()
+    if df is None or df.empty:
+        return df
 
+    # Start with all rows
+    mask = pd.Series(True, index=df.index)
 
-    # --------------------------------------------------------
-    # YEAR
-    # --------------------------------------------------------
+    def apply_text_filter(column, selected):
 
-    if selected_years:
+        nonlocal mask
 
-        year_col = find_column(
-            data,
-            ["Year", "year"],
-        )
+        if column is None:
+            return
 
-        data = _filter_multiselect(
-            data,
-            year_col,
-            selected_years,
-        )
+        if column not in df.columns:
+            return
 
+        if selected is None:
+            return
 
-    # --------------------------------------------------------
-    # MONTH
-    # --------------------------------------------------------
+        # Empty selection = no records
+        if len(selected) == 0:
+            mask &= False
+            return
 
-    month_col = find_column(
-        data,
-        ["Month", "month"],
-    )
-
-    data = _filter_multiselect(
-        data,
-        month_col,
-        selected_months,
-    )
-
+        mask &= df[column].astype(str).isin(selected)
 
     # --------------------------------------------------------
-    # WEEK
+    # Text filters
     # --------------------------------------------------------
 
-    week_col = find_column(
-        data,
-        ["Week", "week"],
-    )
-
-    data = _filter_multiselect(
-        data,
-        week_col,
-        selected_weeks,
-    )
-
-
-    # --------------------------------------------------------
-    # DISEASE
-    # --------------------------------------------------------
-
+    year_col = find_column(df, ["year", "वर्ष"])
+    month_col = find_column(df, ["month", "महिना"])
+    week_col = find_column(df, ["week", "week no", "week number", "आठवडा"])
     disease_col = find_column(
-        data,
-        ["Disease", "Disease Name", "disease"],
+        df,
+        ["disease", "disease name", "diagnosis", "रोग"]
     )
-
-    data = _filter_multiselect(
-        data,
-        disease_col,
-        selected_diseases,
-    )
-
-
-    # --------------------------------------------------------
-    # FACILITY
-    # --------------------------------------------------------
-
     facility_col = find_column(
-        data,
-        ["Facility Name", "Facility", "facility"],
+        df,
+        ["facility", "facility name", "health facility", "institution"]
     )
-
-    data = _filter_multiselect(
-        data,
-        facility_col,
-        selected_facilities,
-    )
-
-
-    # --------------------------------------------------------
-    # WARD
-    # --------------------------------------------------------
-
     ward_col = find_column(
-        data,
-        ["Ward Name", "Ward", "ward"],
+        df,
+        ["ward", "ward name", "ward no", "ward number"]
     )
-
-    data = _filter_multiselect(
-        data,
-        ward_col,
-        selected_wards,
-    )
-
-
-    # --------------------------------------------------------
-    # GENDER
-    # --------------------------------------------------------
-
     gender_col = find_column(
-        data,
-        ["Gender", "Sex", "gender"],
+        df,
+        ["gender", "sex", "लिंग"]
     )
-
-    data = _filter_multiselect(
-        data,
-        gender_col,
-        selected_genders,
-    )
-
-
-    # --------------------------------------------------------
-    # AGE GROUP
-    # --------------------------------------------------------
-
     age_group_col = find_column(
-        data,
-        ["Age Group", "Age group", "AgeGroup"],
+        df,
+        ["age group", "age_group", "agegroup", "age category"]
     )
-
-    data = _filter_multiselect(
-        data,
-        age_group_col,
-        selected_age_groups,
-    )
-
-
-    # --------------------------------------------------------
-    # OPD / IPD
-    # --------------------------------------------------------
-
     opd_ipd_col = find_column(
-        data,
-        [
-            "OPD/IPD",
-            "OPD IPD",
-            "OPD_IPD",
-        ],
+        df,
+        ["opd/ipd", "opd ipd", "opd_ipd", "patient type", "service type"]
     )
 
-    data = _filter_multiselect(
-        data,
-        opd_ipd_col,
-        selected_opd_ipd,
-    )
+    apply_text_filter(year_col, selected_years)
+    apply_text_filter(month_col, selected_months)
+    apply_text_filter(week_col, selected_weeks)
+    apply_text_filter(disease_col, selected_diseases)
+    apply_text_filter(facility_col, selected_facilities)
+    apply_text_filter(ward_col, selected_wards)
+    apply_text_filter(gender_col, selected_genders)
+    apply_text_filter(age_group_col, selected_age_groups)
+    apply_text_filter(opd_ipd_col, selected_opd_ipd)
 
-
-    # --------------------------------------------------------
-    # AREA
-    # --------------------------------------------------------
-
-    data = _filter_multiselect(
-        data,
-        area_column,
-        selected_areas,
-    )
-
+    apply_text_filter(area_column, selected_areas)
+    apply_text_filter(status_column, selected_status)
 
     # --------------------------------------------------------
-    # STATUS / DIAGNOSIS
-    # --------------------------------------------------------
-
-    data = _filter_multiselect(
-        data,
-        status_column,
-        selected_status,
-    )
-
-
-    # --------------------------------------------------------
-    # REPORTING DATE
+    # Date filter
     # --------------------------------------------------------
 
     date_col = find_column(
-        data,
+        df,
         [
-            "Reporting Date",
-            "Date",
-            "Reporting date",
-        ],
+            "date",
+            "reporting date",
+            "date of reporting",
+            "event date",
+            "दिनांक",
+        ]
     )
 
-    if date_col is not None:
+    if (
+        date_col is not None
+        and date_col in df.columns
+        and (date_from is not None or date_to is not None)
+    ):
 
-        date_series = pd.to_datetime(
-            data[date_col],
-            errors="coerce",
+        dates = pd.to_datetime(
+            df[date_col],
+            errors="coerce"
         )
 
         if date_from is not None:
-
-            date_from = pd.to_datetime(
-                date_from
-            )
-
-            data = data[
-                date_series >= date_from
-            ]
-
-            date_series = pd.to_datetime(
-                data[date_col],
-                errors="coerce",
-            )
-
+            mask &= dates.dt.date >= date_from
 
         if date_to is not None:
+            mask &= dates.dt.date <= date_to
 
-            date_to = pd.to_datetime(
-                date_to
-            ) + pd.Timedelta(
-                days=1
-            ) - pd.Timedelta(
-                microseconds=1
-            )
-
-            data = data[
-                date_series <= date_to
-            ]
-
-
-    return data
+    return df.loc[mask].copy()
 
 
 # ============================================================
@@ -852,84 +556,49 @@ def apply_filters(
 
 def calculate_kpis(df):
 
-    total_records = len(df)
-
+    if df is None or df.empty:
+        return {
+            "total_records": 0,
+            "diseases": 0,
+            "facilities": 0,
+            "wards": 0,
+        }
 
     disease_col = find_column(
         df,
-        ["Disease", "Disease Name", "disease"],
+        ["disease", "disease name", "diagnosis", "रोग"]
     )
 
     facility_col = find_column(
         df,
-        ["Facility Name", "Facility", "facility"],
+        ["facility", "facility name", "health facility", "institution"]
     )
 
     ward_col = find_column(
         df,
-        ["Ward Name", "Ward", "ward"],
+        ["ward", "ward name", "ward no", "ward number"]
     )
-
-    date_col = find_column(
-        df,
-        [
-            "Reporting Date",
-            "Date",
-            "Reporting date",
-        ],
-    )
-
-
-    diseases = (
-        df[disease_col].nunique()
-        if disease_col
-        else 0
-    )
-
-    facilities = (
-        df[facility_col].nunique()
-        if facility_col
-        else 0
-    )
-
-    wards = (
-        df[ward_col].nunique()
-        if ward_col
-        else 0
-    )
-
-
-    reporting_period = "Not available"
-
-
-    if date_col:
-
-        dates = pd.to_datetime(
-            df[date_col],
-            errors="coerce",
-        ).dropna()
-
-        if not dates.empty:
-
-            reporting_period = (
-                f"{dates.min().strftime('%d-%m-%Y')}"
-                f" to "
-                f"{dates.max().strftime('%d-%m-%Y')}"
-            )
-
 
     return {
+        "total_records": len(df),
 
-        "total_records": total_records,
+        "diseases": (
+            df[disease_col].nunique()
+            if disease_col
+            else 0
+        ),
 
-        "diseases": diseases,
+        "facilities": (
+            df[facility_col].nunique()
+            if facility_col
+            else 0
+        ),
 
-        "facilities": facilities,
-
-        "wards": wards,
-
-        "reporting_period": reporting_period,
-
+        "wards": (
+            df[ward_col].nunique()
+            if ward_col
+            else 0
+        ),
     }
 
 
@@ -939,177 +608,129 @@ def calculate_kpis(df):
 
 def render_overview(df):
 
-    st.markdown(
-        "## 📊 Programme Overview"
-    )
+    st.subheader("📊 Programme Overview")
 
     if df is None or df.empty:
-
-        st.warning(
-            "No records available for the selected filters."
-        )
-
+        st.warning("No records available for the selected filters.")
         return
 
+    facility_col = find_column(
+        df,
+        ["facility", "facility name", "health facility", "institution"]
+    )
 
-    kpis = calculate_kpis(df)
+    ward_col = find_column(
+        df,
+        ["ward", "ward name", "ward no", "ward number"]
+    )
 
+    disease_col = find_column(
+        df,
+        ["disease", "disease name", "diagnosis", "रोग"]
+    )
 
-    # ========================================================
-    # KPI ROW
-    # ========================================================
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-
-    with c1:
-
-        st.metric(
-            "Total Records",
-            f"{kpis['total_records']:,}",
-        )
-
-    with c2:
-
-        st.metric(
-            "Diseases",
-            f"{kpis['diseases']:,}",
-        )
-
-    with c3:
-
-        st.metric(
-            "Facilities",
-            f"{kpis['facilities']:,}",
-        )
-
-    with c4:
-
-        st.metric(
-            "Wards",
-            f"{kpis['wards']:,}",
-        )
-
-    with c5:
-
-        st.metric(
-            "Reporting Period",
-            kpis["reporting_period"],
-        )
-
+    date_col = find_column(
+        df,
+        [
+            "date",
+            "reporting date",
+            "date of reporting",
+            "event date",
+            "दिनांक",
+        ]
+    )
 
     # ========================================================
     # TOP FACILITIES / WARDS
     # ========================================================
 
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
+    with c1:
 
-    with col1:
-
-        st.markdown(
-            "### 🏥 Top Facilities"
-        )
-
-        facility_col = find_column(
-            df,
-            [
-                "Facility Name",
-                "Facility",
-                "facility",
-            ],
-        )
+        st.markdown("#### 🏥 Top Facilities")
 
         if facility_col:
 
-            facility_table = (
+            facility_counts = (
                 df[facility_col]
-                .fillna("Unknown")
                 .astype(str)
                 .value_counts()
                 .head(10)
-                .rename_axis("Facility")
-                .reset_index(
-                    name="Records"
+            )
+
+            if not facility_counts.empty:
+                st.dataframe(
+                    facility_counts.rename("Records"),
+                    use_container_width=True,
                 )
-            )
 
-            st.dataframe(
-                facility_table,
-                use_container_width=True,
-                hide_index=True,
-            )
+    with c2:
 
-
-    with col2:
-
-        st.markdown(
-            "### 🏘️ Top Wards"
-        )
-
-        ward_col = find_column(
-            df,
-            [
-                "Ward Name",
-                "Ward",
-                "ward",
-            ],
-        )
+        st.markdown("#### 🏘️ Top Burden Wards")
 
         if ward_col:
 
-            ward_table = (
+            ward_counts = (
                 df[ward_col]
-                .fillna("Unknown")
                 .astype(str)
                 .value_counts()
                 .head(10)
-                .rename_axis("Ward")
-                .reset_index(
-                    name="Records"
+            )
+
+            if not ward_counts.empty:
+                st.dataframe(
+                    ward_counts.rename("Records"),
+                    use_container_width=True,
                 )
-            )
-
-            st.dataframe(
-                ward_table,
-                use_container_width=True,
-                hide_index=True,
-            )
-
 
     # ========================================================
     # MONTHLY TREND
     # ========================================================
 
-    st.markdown(
-        "### 📅 Monthly Trend"
-    )
+    st.markdown("#### 📈 Monthly Trend")
 
-    month_col = find_column(
-        df,
-        [
-            "Month",
-            "month",
-        ],
-    )
+    if date_col:
 
-    if month_col:
+        dates = pd.to_datetime(
+            df[date_col],
+            errors="coerce"
+        )
 
-        monthly = (
-            df[month_col]
-            .fillna("Unknown")
+        trend_df = (
+            pd.DataFrame({"Date": dates})
+            .dropna()
+        )
+
+        if not trend_df.empty:
+
+            trend_df["Month"] = (
+                trend_df["Date"]
+                .dt.to_period("M")
+                .astype(str)
+            )
+
+            monthly = (
+                trend_df["Month"]
+                .value_counts()
+                .sort_index()
+            )
+
+            st.line_chart(monthly)
+
+    # ========================================================
+    # DISEASE DISTRIBUTION
+    # ========================================================
+
+    if disease_col:
+
+        st.markdown("#### 🦠 Disease Distribution")
+
+        disease_counts = (
+            df[disease_col]
             .astype(str)
             .value_counts()
-            .rename_axis("Month")
-            .reset_index(
-                name="Records"
-            )
+            .head(15)
         )
 
-        st.bar_chart(
-            monthly.set_index("Month")
-        )
-
-
-    st.caption(
-        f"Showing {len(df):,} records after applying global filters."
-    )
+        st.bar_chart(disease_counts)
