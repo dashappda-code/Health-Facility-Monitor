@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import phase1_data
 
 
 # ============================================================
@@ -25,18 +24,23 @@ def create_filters(df):
     if df is None or df.empty:
         return empty_filters
 
+
     # --------------------------------------------------------
-    # Reset system
+    # Reset counter
     # --------------------------------------------------------
 
     if "dashboard_filter_reset" not in st.session_state:
         st.session_state.dashboard_filter_reset = 0
 
     reset_id = st.session_state.dashboard_filter_reset
-    prefix = f"dashboard_filter_{reset_id}"
+
+    prefix = (
+        f"dashboard_filter_{reset_id}"
+    )
+
 
     # --------------------------------------------------------
-    # Unique values
+    # Unique value helper
     # --------------------------------------------------------
 
     def unique_values(column):
@@ -61,6 +65,11 @@ def create_filters(df):
             values.unique().tolist()
         )
 
+
+    # --------------------------------------------------------
+    # Filter options
+    # --------------------------------------------------------
+
     years = unique_values("Year")
     months = unique_values("Month")
     weeks = unique_values("Week")
@@ -71,8 +80,9 @@ def create_filters(df):
     age_groups = unique_values("Age Group")
     opd_ipd = unique_values("OPD/IPD")
 
+
     # --------------------------------------------------------
-    # Date range
+    # Reporting date limits
     # --------------------------------------------------------
 
     min_date = None
@@ -80,198 +90,235 @@ def create_filters(df):
 
     if "Reporting Date" in df.columns:
 
-        dates = df["Reporting Date"].dropna()
+        dates = (
+            df["Reporting Date"]
+            .dropna()
+        )
 
         if not dates.empty:
+
             min_date = dates.min().date()
             max_date = dates.max().date()
 
+
     # ========================================================
-    # ONE SINGLE PANEL
+    # HORIZONTAL PANEL CONTENT
     # ========================================================
 
-    with st.container(border=True):
+    header_left, header_right = st.columns(
+        [8, 1.3],
+        vertical_alignment="center",
+    )
 
-        # ----------------------------------------------------
-        # Panel Header
-        # ----------------------------------------------------
 
-        header_col, reset_col = st.columns(
-            [8, 1.3],
-            vertical_alignment="center",
+    # --------------------------------------------------------
+    # Header
+    # --------------------------------------------------------
+
+    with header_left:
+
+        st.subheader(
+            "🎛️ Global Dashboard Control"
         )
 
-        with header_col:
+        st.caption(
+            "Select any filter to update the entire "
+            "dashboard immediately. Leave a filter blank "
+            "to include all records."
+        )
 
-            st.markdown(
-                "### 🎛️ Global Dashboard Control"
-            )
 
-            st.caption(
-                "Select any filter to update the entire "
-                "dashboard immediately. Leave a filter blank "
-                "to include all records."
-            )
+    # --------------------------------------------------------
+    # Reset
+    # --------------------------------------------------------
 
-        with reset_col:
+    with header_right:
 
-            reset_clicked = st.button(
-                "↩️ Reset",
-                key="global_reset_filters",
-                use_container_width=True,
-            )
+        reset_clicked = st.button(
+            "↩️ Reset",
+            key="global_reset_filters",
+            use_container_width=True,
+        )
 
-        if reset_clicked:
 
-            st.session_state.dashboard_filter_reset += 1
-            st.rerun()
+    if reset_clicked:
 
-        # ----------------------------------------------------
-        # ROW 1
-        # ----------------------------------------------------
+        st.session_state.dashboard_filter_reset += 1
 
-        row1 = st.columns(
-            [1, 1, 1, 1.4, 2.2],
+        st.rerun()
+
+
+    # ========================================================
+    # ROW 1
+    # ========================================================
+
+    row1 = st.columns(
+        [1, 1, 1, 1.4, 2.2],
+        gap="small",
+    )
+
+
+    # Year
+    with row1[0]:
+
+        selected_year = st.multiselect(
+            "📅 Year",
+            options=years,
+            default=[],
+            key=f"{prefix}_year",
+            placeholder="All Years",
+        )
+
+
+    # Month
+    with row1[1]:
+
+        selected_month = st.multiselect(
+            "🗓️ Month",
+            options=months,
+            default=[],
+            key=f"{prefix}_month",
+            placeholder="All Months",
+        )
+
+
+    # Week
+    with row1[2]:
+
+        selected_week = st.multiselect(
+            "📆 Week",
+            options=weeks,
+            default=[],
+            key=f"{prefix}_week",
+            placeholder="All Weeks",
+        )
+
+
+    # Disease
+    with row1[3]:
+
+        selected_disease = st.multiselect(
+            "🦠 Disease",
+            options=diseases,
+            default=[],
+            key=f"{prefix}_disease",
+            placeholder="All Diseases",
+        )
+
+
+    # Facility
+    with row1[4]:
+
+        selected_facility = st.multiselect(
+            "🏥 Facility",
+            options=facilities,
+            default=[],
+            key=f"{prefix}_facility",
+            placeholder="All Facilities",
+        )
+
+
+    # ========================================================
+    # ROW 2
+    # ========================================================
+
+    row2 = st.columns(
+        [1.5, 1, 1.1, 1.2, 2.8],
+        gap="small",
+    )
+
+
+    # Ward
+    with row2[0]:
+
+        selected_ward = st.multiselect(
+            "📍 Ward",
+            options=wards,
+            default=[],
+            key=f"{prefix}_ward",
+            placeholder="All Wards",
+        )
+
+
+    # Gender
+    with row2[1]:
+
+        selected_gender = st.multiselect(
+            "👤 Gender",
+            options=genders,
+            default=[],
+            key=f"{prefix}_gender",
+            placeholder="All Genders",
+        )
+
+
+    # Age Group
+    with row2[2]:
+
+        selected_age_group = st.multiselect(
+            "🎂 Age Group",
+            options=age_groups,
+            default=[],
+            key=f"{prefix}_age_group",
+            placeholder="All Age Groups",
+        )
+
+
+    # OPD / IPD
+    with row2[3]:
+
+        selected_opd_ipd = st.multiselect(
+            "🏨 OPD / IPD",
+            options=opd_ipd,
+            default=[],
+            key=f"{prefix}_opd_ipd",
+            placeholder="All",
+        )
+
+
+    # Reporting Date
+    with row2[4]:
+
+        date_columns = st.columns(
+            2,
             gap="small",
         )
 
-        with row1[0]:
 
-            selected_year = st.multiselect(
-                "📅 Year",
-                options=years,
-                default=[],
-                key=f"{prefix}_year",
-                placeholder="All Years",
+        with date_columns[0]:
+
+            from_date = st.date_input(
+                "📅 From Date",
+                value=None,
+                min_value=min_date,
+                max_value=max_date,
+                key=f"{prefix}_from_date",
             )
 
-        with row1[1]:
 
-            selected_month = st.multiselect(
-                "🗓️ Month",
-                options=months,
-                default=[],
-                key=f"{prefix}_month",
-                placeholder="All Months",
+        with date_columns[1]:
+
+            to_date = st.date_input(
+                "📅 To Date",
+                value=None,
+                min_value=min_date,
+                max_value=max_date,
+                key=f"{prefix}_to_date",
             )
 
-        with row1[2]:
 
-            selected_week = st.multiselect(
-                "📆 Week",
-                options=weeks,
-                default=[],
-                key=f"{prefix}_week",
-                placeholder="All Weeks",
+        selected_reporting_date = None
+
+        if (
+            from_date is not None
+            or to_date is not None
+        ):
+
+            selected_reporting_date = (
+                from_date,
+                to_date,
             )
 
-        with row1[3]:
-
-            selected_disease = st.multiselect(
-                "🦠 Disease",
-                options=diseases,
-                default=[],
-                key=f"{prefix}_disease",
-                placeholder="All Diseases",
-            )
-
-        with row1[4]:
-
-            selected_facility = st.multiselect(
-                "🏥 Facility",
-                options=facilities,
-                default=[],
-                key=f"{prefix}_facility",
-                placeholder="All Facilities",
-            )
-
-        # ----------------------------------------------------
-        # ROW 2
-        # ----------------------------------------------------
-
-        row2 = st.columns(
-            [1.5, 1, 1.1, 1.2, 2.8],
-            gap="small",
-        )
-
-        with row2[0]:
-
-            selected_ward = st.multiselect(
-                "📍 Ward",
-                options=wards,
-                default=[],
-                key=f"{prefix}_ward",
-                placeholder="All Wards",
-            )
-
-        with row2[1]:
-
-            selected_gender = st.multiselect(
-                "👤 Gender",
-                options=genders,
-                default=[],
-                key=f"{prefix}_gender",
-                placeholder="All Genders",
-            )
-
-        with row2[2]:
-
-            selected_age_group = st.multiselect(
-                "🎂 Age Group",
-                options=age_groups,
-                default=[],
-                key=f"{prefix}_age_group",
-                placeholder="All Age Groups",
-            )
-
-        with row2[3]:
-
-            selected_opd_ipd = st.multiselect(
-                "🏨 OPD / IPD",
-                options=opd_ipd,
-                default=[],
-                key=f"{prefix}_opd_ipd",
-                placeholder="All",
-            )
-
-        with row2[4]:
-
-            date_columns = st.columns(
-                2,
-                gap="small",
-            )
-
-            with date_columns[0]:
-
-                from_date = st.date_input(
-                    "📅 From Date",
-                    value=None,
-                    min_value=min_date,
-                    max_value=max_date,
-                    key=f"{prefix}_from_date",
-                )
-
-            with date_columns[1]:
-
-                to_date = st.date_input(
-                    "📅 To Date",
-                    value=None,
-                    min_value=min_date,
-                    max_value=max_date,
-                    key=f"{prefix}_to_date",
-                )
-
-            selected_reporting_date = None
-
-            if (
-                from_date is not None
-                or to_date is not None
-            ):
-
-                selected_reporting_date = (
-                    from_date,
-                    to_date,
-                )
 
     # ========================================================
     # RETURN
@@ -312,7 +359,9 @@ def apply_filters(
     if df is None or df.empty:
         return pd.DataFrame()
 
+
     filtered = df.copy()
+
 
     # --------------------------------------------------------
     # Reporting Date
@@ -328,9 +377,14 @@ def apply_filters(
             start_date = None
             end_date = None
 
-            if isinstance(reporting_date, tuple):
+
+            if isinstance(
+                reporting_date,
+                tuple,
+            ):
 
                 if len(reporting_date) == 2:
+
                     start_date = reporting_date[0]
                     end_date = reporting_date[1]
 
@@ -338,6 +392,7 @@ def apply_filters(
 
                 start_date = reporting_date
                 end_date = reporting_date
+
 
             if start_date is not None:
 
@@ -352,6 +407,7 @@ def apply_filters(
                         >= start_timestamp.normalize()
                     )
                 ]
+
 
             if end_date is not None:
 
@@ -368,7 +424,9 @@ def apply_filters(
                 ]
 
         except Exception:
+
             pass
+
 
     # --------------------------------------------------------
     # Text filter helper
@@ -386,14 +444,17 @@ def apply_filters(
         if column not in data.columns:
             return data
 
+
         values_clean = [
             str(value).strip()
             for value in values
             if str(value).strip()
         ]
 
+
         if not values_clean:
             return data
+
 
         column_values = (
             data[column]
@@ -402,12 +463,16 @@ def apply_filters(
             .str.strip()
         )
 
+
         return data[
-            column_values.isin(values_clean)
+            column_values.isin(
+                values_clean
+            )
         ]
 
+
     # --------------------------------------------------------
-    # Apply filters
+    # Filters
     # --------------------------------------------------------
 
     filtered = apply_text_filter(
@@ -464,7 +529,10 @@ def apply_filters(
         opd_ipd,
     )
 
-    return filtered.reset_index(drop=True)
+
+    return filtered.reset_index(
+        drop=True
+    )
 
 
 # ============================================================
@@ -482,10 +550,12 @@ def calculate_kpis(df):
             "wards": 0,
         }
 
+
     def count_unique(column):
 
         if column not in df.columns:
             return 0
+
 
         values = (
             df[column]
@@ -494,20 +564,29 @@ def calculate_kpis(df):
             .str.strip()
         )
 
+
         values = values[
             values.ne("")
             & values.ne("nan")
         ]
 
+
         return int(
             values.nunique()
         )
 
+
     return {
         "total_records": int(len(df)),
-        "diseases": count_unique("Disease"),
-        "facilities": count_unique("Facility Name"),
-        "wards": count_unique("Ward Name"),
+        "diseases": count_unique(
+            "Disease"
+        ),
+        "facilities": count_unique(
+            "Facility Name"
+        ),
+        "wards": count_unique(
+            "Ward Name"
+        ),
     }
 
 
@@ -521,6 +600,7 @@ def render_overview(df):
         "📊 Programme Overview"
     )
 
+
     if df is None or df.empty:
 
         st.warning(
@@ -529,9 +609,16 @@ def render_overview(df):
 
         return
 
+
     kpis = calculate_kpis(df)
 
+
+    # --------------------------------------------------------
+    # KPI
+    # --------------------------------------------------------
+
     c1, c2, c3, c4 = st.columns(4)
+
 
     with c1:
 
@@ -540,12 +627,14 @@ def render_overview(df):
             f"{kpis['total_records']:,}",
         )
 
+
     with c2:
 
         st.metric(
             "Diseases",
             f"{kpis['diseases']:,}",
         )
+
 
     with c3:
 
@@ -554,6 +643,7 @@ def render_overview(df):
             f"{kpis['facilities']:,}",
         )
 
+
     with c4:
 
         st.metric(
@@ -561,7 +651,9 @@ def render_overview(df):
             f"{kpis['wards']:,}",
         )
 
+
     st.divider()
+
 
     # --------------------------------------------------------
     # Reporting Period
@@ -569,22 +661,30 @@ def render_overview(df):
 
     if "Reporting Date" in df.columns:
 
-        dates = df["Reporting Date"].dropna()
+        dates = (
+            df["Reporting Date"]
+            .dropna()
+        )
+
 
         if not dates.empty:
 
-            start_date = dates.min().strftime(
-                "%d-%m-%Y"
+            start_date = (
+                dates.min()
+                .strftime("%d-%m-%Y")
             )
 
-            end_date = dates.max().strftime(
-                "%d-%m-%Y"
+            end_date = (
+                dates.max()
+                .strftime("%d-%m-%Y")
             )
+
 
             st.info(
                 f"📅 Reporting Period: "
                 f"**{start_date} to {end_date}**"
             )
+
 
     # --------------------------------------------------------
     # Disease-wise Burden
@@ -599,9 +699,11 @@ def render_overview(df):
             .str.strip()
         )
 
+
         disease_counts = disease_counts[
             disease_counts.ne("")
         ]
+
 
         if not disease_counts.empty:
 
@@ -615,15 +717,18 @@ def render_overview(df):
                 )
             )
 
+
             st.markdown(
                 "### 🦠 Disease-wise Burden"
             )
+
 
             st.dataframe(
                 top_disease,
                 use_container_width=True,
                 hide_index=True,
             )
+
 
     # --------------------------------------------------------
     # Top Facilities
@@ -638,9 +743,11 @@ def render_overview(df):
             .str.strip()
         )
 
+
         facility_counts = facility_counts[
             facility_counts.ne("")
         ]
+
 
         if not facility_counts.empty:
 
@@ -654,15 +761,18 @@ def render_overview(df):
                 )
             )
 
+
             st.markdown(
                 "### 🏥 Top Facilities"
             )
+
 
             st.dataframe(
                 top_facilities,
                 use_container_width=True,
                 hide_index=True,
             )
+
 
     # --------------------------------------------------------
     # Top Burden Wards
@@ -677,9 +787,11 @@ def render_overview(df):
             .str.strip()
         )
 
+
         ward_counts = ward_counts[
             ward_counts.ne("")
         ]
+
 
         if not ward_counts.empty:
 
@@ -693,36 +805,14 @@ def render_overview(df):
                 )
             )
 
+
             st.markdown(
                 "### 📍 Top Burden Wards"
             )
+
 
             st.dataframe(
                 top_wards,
                 use_container_width=True,
                 hide_index=True,
             )
-
-
-# ============================================================
-# GOOGLE SHEET REFRESH
-# ============================================================
-
-st.sidebar.markdown("---")
-
-if st.sidebar.button(
-    "🔄 Refresh Google Sheet Data",
-    use_container_width=True,
-):
-
-    with st.spinner(
-        "Refreshing Google Sheet data..."
-    ):
-
-        phase1_data.refresh_data()
-
-    st.success(
-        "Google Sheet data refreshed successfully."
-    )
-
-    st.rerun()
