@@ -10,6 +10,7 @@ from phase7_explorer import render_explorer
 from phase8_prediction import render_prediction
 from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
+from phase11_drilldown_export import render_drilldown_export
 
 
 # ============================================================
@@ -88,6 +89,7 @@ page = st.sidebar.radio(
         "Map View",
         "Data Explorer",
         "Prediction",
+        "🔎 Detailed Drill-down",
         "📘 User Manual",
     ],
 )
@@ -135,7 +137,10 @@ elif page == "Prediction":
 
     render_prediction(df)
 
+elif page == "🔎 Detailed Drill-down":
 
+    render_drilldown_export(df)
+    
 elif page == "📘 User Manual":
 
     render_manual(df)
