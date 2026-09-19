@@ -38,8 +38,61 @@ st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 1rem;
+        padding-top: 0.75rem;
         padding-bottom: 1rem;
+    }
+
+    /* ======================================================
+       GLOBAL FILTER PANEL
+       ====================================================== */
+    div[data-testid="stForm"] {
+        position: sticky;
+        top: 0.35rem;
+        z-index: 999;
+        background: rgba(255,255,255,0.98);
+        border: 1px solid #d8e2ee;
+        border-radius: 14px;
+        padding: 0.65rem 0.8rem 0.55rem 0.8rem;
+        box-shadow: 0 5px 18px rgba(30,60,90,0.10);
+        margin-bottom: 0.8rem;
+    }
+
+    .global-filter-heading {
+        background: linear-gradient(90deg, #eef6ff 0%, #f8fbff 100%);
+        border-left: 5px solid #1769aa;
+        border-radius: 10px;
+        padding: 9px 14px;
+        margin: 3px 0 7px 0;
+    }
+    .global-filter-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #123b5d;
+    }
+    .global-filter-subtitle {
+        font-size: 12px;
+        color: #5d6b78;
+        margin-top: 2px;
+    }
+    .filter-row-label {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        color: #60788e;
+        margin: 4px 0 2px 2px;
+    }
+    .filter-row-label.second {
+        margin-top: 8px;
+    }
+    div[data-testid="stFormSubmitButton"] button {
+        border-radius: 8px;
+        font-weight: 700;
+    }
+    div[data-testid="stMultiSelect"] label,
+    div[data-testid="stDateInput"] label {
+        font-size: 12px;
+        font-weight: 650;
+        color: #314b61;
     }
 
     [data-testid="stMetric"] {
