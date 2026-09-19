@@ -1,4 +1,4 @@
-```python
+
 import streamlit as st
 
 from phase1_data import load_data
@@ -332,4 +332,4 @@ st.caption(
     "Health Programme Management Dashboard | "
     "Live Google Sheet Data"
 )
-```
+
