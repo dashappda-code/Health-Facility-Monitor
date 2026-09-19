@@ -1,12 +1,7 @@
 import streamlit as st
 
 from phase1_data import load_data
-from phase2_overview import (
-    create_filters,
-    apply_filters,
-    render_overview,
-)
-
+from phase2_overview import create_filters, apply_filters, render_overview
 from phase3_charts import render_charts
 from phase4_demographics import render_demographics
 from phase5_ward import render_ward_analysis
@@ -23,7 +18,7 @@ from phase11_drilldown_export import render_drilldown_export
 # ============================================================
 
 st.set_page_config(
-    page_title="Health Facility Monitor",
+    page_title="Health Programme Management Dashboard",
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -31,239 +26,327 @@ st.set_page_config(
 
 
 # ============================================================
-# LOAD DATA FROM GOOGLE SHEETS
+# HEADER
 # ============================================================
 
-try:
+st.markdown(
+    """
+    <div style="
+        font-size:30px;
+        font-weight:700;
+        margin-bottom:0px;
+    ">
+        🏥 Health Programme Management Dashboard
+    </div>
 
+    <div style="
+        font-size:15px;
+        margin-top:7px;
+        color:#555;
+    ">
+        Health Programme Management Dashboard
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# STEP 1 — LOAD DATA
+# ============================================================
+
+st.info("🔄 STEP 1: Google Sheet data loading started...")
+
+try:
     df = load_data()
 
-except Exception as error:
+except Exception as e:
+    st.error("❌ STEP 1 FAILED: Google Sheet / data loading error")
 
-    st.error(
-        "Unable to load data from Google Sheets."
+    st.exception(e)
+
+    st.warning(
+        """
+        कृपया वर दिसणारा error screenshot पाठवा.
+        आत्ता बाकी dashboard modules बदलू नका.
+        """
     )
-
-    st.exception(error)
 
     st.stop()
 
 
 # ============================================================
-# SIDEBAR HEADER
+# STEP 1 SUCCESS
 # ============================================================
 
-st.sidebar.title(
-    "🏥 Health Facility Monitor"
+st.success(
+    f"✅ STEP 1 DONE — {len(df):,} records loaded successfully."
 )
 
-st.sidebar.caption(
-    "Public Health Surveillance Dashboard"
-)
 
-st.sidebar.divider()
+# ============================================================
+# BASIC DATA CHECK
+# ============================================================
+
+if df is None or df.empty:
+
+    st.error(
+        "❌ Google Sheet मधून data आला आहे, पण dataset रिकामा आहे."
+    )
+
+    st.stop()
 
 
 # ============================================================
-# DATA STATUS
+# SIDEBAR
 # ============================================================
+
+with st.sidebar:
+
+    st.markdown("## 🏥 Programme Dashboard")
+
+    st.markdown("---")
+
+    page = st.radio(
+        "Select Section",
+        [
+            "Overview",
+            "Charts & Trends",
+            "Demographics",
+            "Ward Analysis",
+            "Map",
+            "Data Explorer",
+            "Prediction",
+            "Validation & KPI",
+            "Drill-down & Export",
+            "User Manual",
+        ],
+    )
+
+    st.markdown("---")
+
+    st.caption(
+        f"Total records: {len(df):,}"
+    )
+
+
+# ============================================================
+# STEP 2 — GLOBAL FILTERS
+# ============================================================
+
+st.info("🔄 STEP 2: Applying global dashboard filters...")
 
 try:
 
-    total_records = len(df)
+    filter_values = create_filters(df)
 
-    st.sidebar.success(
-        f"🟢 Data Loaded\n\n"
-        f"Records: {total_records:,}"
+    filtered_df = apply_filters(
+        df,
+        filter_values,
     )
 
-except Exception:
+except Exception as e:
 
-    st.sidebar.info(
-        "🟢 Data source connected"
-    )
+    st.error("❌ STEP 2 FAILED: Dashboard filter error")
 
+    st.exception(e)
 
-# ============================================================
-# GLOBAL DASHBOARD CONTROLS
-# ============================================================
-#
-# IMPORTANT:
-# Dashboard Controls are created ONLY ONCE here.
-#
-# Do NOT create filters again inside individual modules.
-#
-# The same filtered dataframe will be sent to every page.
-# ============================================================
-
-filters = create_filters(df)
+    st.stop()
 
 
 # ============================================================
-# APPLY GLOBAL FILTERS
+# STEP 2 SUCCESS
 # ============================================================
 
-filtered_df = apply_filters(
-    df,
-    **filters
+st.success(
+    f"✅ STEP 2 DONE — {len(filtered_df):,} records after filters."
 )
 
 
 # ============================================================
-# GLOBAL FILTER STATUS
+# GLOBAL DATA STATUS
 # ============================================================
 
-st.sidebar.divider()
+st.markdown("---")
 
-st.sidebar.markdown(
-    "### 📊 Current Data View"
-)
+col1, col2, col3 = st.columns(3)
 
-st.sidebar.metric(
-    "Filtered Records",
-    f"{len(filtered_df):,}"
-)
+with col1:
+    st.metric(
+        "Total Records",
+        f"{len(df):,}",
+    )
 
-st.sidebar.caption(
-    f"Total available records: {len(df):,}"
-)
+with col2:
+    st.metric(
+        "Filtered Records",
+        f"{len(filtered_df):,}",
+    )
 
+with col3:
 
-# ============================================================
-# SIDEBAR NAVIGATION
-# ============================================================
+    if len(df) > 0:
 
-st.sidebar.divider()
+        percentage = (
+            len(filtered_df) / len(df)
+        ) * 100
 
-page = st.sidebar.radio(
-    "📌 Navigation",
-    [
-        "Overview",
-        "📊 Management KPI & Validation",
-        "Charts & Trends",
-        "Demographics & Disease",
-        "Ward Analysis",
-        "Map View",
-        "Data Explorer",
-        "Prediction",
-        "🔎 Detailed Drill-down",
-        "📘 User Manual",
-    ],
-)
+        st.metric(
+            "Records Selected",
+            f"{percentage:.1f}%",
+        )
+
+    else:
+
+        st.metric(
+            "Records Selected",
+            "0%",
+        )
 
 
 # ============================================================
-# PAGE ROUTING
-# ============================================================
-#
-# Every page receives filtered_df.
-#
-# Therefore:
-#
-# Year filter
-# Month filter
-# Disease filter
-# Facility filter
-# Ward filter
-# Gender filter
-# Age Group filter
-# OPD/IPD filter
-# Area filter
-# Status filter
-# Date filter
-#
-# all work across the selected page.
+# PAGE RENDERING
 # ============================================================
 
+st.markdown("---")
 
-if page == "Overview":
+try:
 
-    render_overview(
-        filtered_df
+    # --------------------------------------------------------
+    # OVERVIEW
+    # --------------------------------------------------------
+
+    if page == "Overview":
+
+        st.info("📊 Loading Overview...")
+
+        render_overview(filtered_df)
+
+
+    # --------------------------------------------------------
+    # CHARTS & TRENDS
+    # --------------------------------------------------------
+
+    elif page == "Charts & Trends":
+
+        st.info("📈 Loading Charts & Trends...")
+
+        render_charts(filtered_df)
+
+
+    # --------------------------------------------------------
+    # DEMOGRAPHICS
+    # --------------------------------------------------------
+
+    elif page == "Demographics":
+
+        st.info("👥 Loading Demographic Analysis...")
+
+        render_demographics(filtered_df)
+
+
+    # --------------------------------------------------------
+    # WARD ANALYSIS
+    # --------------------------------------------------------
+
+    elif page == "Ward Analysis":
+
+        st.info("🏘️ Loading Ward Analysis...")
+
+        render_ward_analysis(filtered_df)
+
+
+    # --------------------------------------------------------
+    # MAP
+    # --------------------------------------------------------
+
+    elif page == "Map":
+
+        st.info("🗺️ Loading Map...")
+
+        render_map(filtered_df)
+
+
+    # --------------------------------------------------------
+    # DATA EXPLORER
+    # --------------------------------------------------------
+
+    elif page == "Data Explorer":
+
+        st.info("🔎 Loading Data Explorer...")
+
+        render_explorer(filtered_df)
+
+
+    # --------------------------------------------------------
+    # PREDICTION
+    # --------------------------------------------------------
+
+    elif page == "Prediction":
+
+        st.info("🔮 Loading Prediction Module...")
+
+        render_prediction(filtered_df)
+
+
+    # --------------------------------------------------------
+    # VALIDATION & KPI
+    # --------------------------------------------------------
+
+    elif page == "Validation & KPI":
+
+        st.info("✅ Loading Validation & KPI...")
+
+        render_validation_kpi(filtered_df)
+
+
+    # --------------------------------------------------------
+    # DRILL-DOWN & EXPORT
+    # --------------------------------------------------------
+
+    elif page == "Drill-down & Export":
+
+        st.info("📥 Loading Drill-down & Export...")
+
+        render_drilldown_export(filtered_df)
+
+
+    # --------------------------------------------------------
+    # USER MANUAL
+    # --------------------------------------------------------
+
+    elif page == "User Manual":
+
+        st.info("📘 Loading User Manual...")
+
+        render_manual()
+
+
+except Exception as e:
+
+    st.error(
+        f"❌ Error while loading section: {page}"
     )
 
+    st.exception(e)
 
-elif page == "📊 Management KPI & Validation":
-
-    render_validation_kpi(
-        filtered_df
+    st.warning(
+        """
+        हा error संबंधित module मध्ये आहे.
+        वर दिसणारा पूर्ण error screenshot पाठवा.
+        """
     )
 
-
-elif page == "Charts & Trends":
-
-    render_charts(
-        filtered_df
-    )
-
-
-elif page == "Demographics & Disease":
-
-    render_demographics(
-        filtered_df
-    )
-
-
-elif page == "Ward Analysis":
-
-    render_ward_analysis(
-        filtered_df
-    )
-
-
-elif page == "Map View":
-
-    render_map(
-        filtered_df
-    )
-
-
-elif page == "Data Explorer":
-
-    render_explorer(
-        filtered_df
-    )
-
-
-elif page == "Prediction":
-
-    render_prediction(
-        filtered_df
-    )
-
-
-elif page == "🔎 Detailed Drill-down":
-
-    render_drilldown_export(
-        filtered_df
-    )
-
-
-elif page == "📘 User Manual":
-
-    render_manual(
-        filtered_df
-    )
+    st.stop()
 
 
 # ============================================================
 # FOOTER
 # ============================================================
 
-st.sidebar.divider()
-
-st.sidebar.caption(
-    "📊 Interactive Programme Monitoring System"
-)
-
-st.sidebar.caption(
-    "Data Source: Live Google Sheets"
-)
-
-st.divider()
+st.markdown("---")
 
 st.caption(
-    "Health Facility Monitor | "
-    "Live Google Sheets Data Source | "
-    "For Programme Monitoring & Management Support"
+    "Health Programme Management Dashboard | "
+    "Live Google Sheet Data"
 )
