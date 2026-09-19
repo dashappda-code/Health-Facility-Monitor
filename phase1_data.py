@@ -1,4 +1,4 @@
-```python
+
 import re
 from io import StringIO
 
@@ -463,4 +463,4 @@ def refresh_data():
     load_data.clear()
 
     return load_data()
-```
+
