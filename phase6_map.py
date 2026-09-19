@@ -6,7 +6,7 @@ from phase2_overview import apply_filters, create_filters
 
 
 # ============================================================
-# COMMON MAP LAYOUT
+# MAP LAYOUT
 # ============================================================
 
 def _map_layout(fig, height=650):
@@ -20,14 +20,10 @@ def _map_layout(fig, height=650):
 
 
 # ============================================================
-# FIND COORDINATE COLUMNS
+# FIND LATITUDE / LONGITUDE COLUMNS
 # ============================================================
 
 def _find_coordinate_columns(df):
-    """
-    Automatically detects common latitude/longitude
-    column names from the uploaded dataset.
-    """
 
     lat_candidates = [
         "Latitude",
@@ -36,7 +32,9 @@ def _find_coordinate_columns(df):
         "Lat",
         "lat",
         "GPS Latitude",
-        "Latitude GPS"
+        "Latitude GPS",
+        "Latitude (Y)",
+        "Lat (Y)"
     ]
 
     lon_candidates = [
@@ -46,7 +44,9 @@ def _find_coordinate_columns(df):
         "Long",
         "long",
         "GPS Longitude",
-        "Longitude GPS"
+        "Longitude GPS",
+        "Longitude (X)",
+        "Long (X)"
     ]
 
     lat_col = None
@@ -66,7 +66,7 @@ def _find_coordinate_columns(df):
 
 
 # ============================================================
-# PREPARE MAP DATA
+# PREPARE GEO DATA
 # ============================================================
 
 def _prepare_map_data(df, lat_col, lon_col):
@@ -87,31 +87,29 @@ def _prepare_map_data(df, lat_col, lon_col):
         subset=[lat_col, lon_col]
     )
 
+    # Basic geographical validity check
+    map_df = map_df[
+        (map_df[lat_col] >= -90)
+        & (map_df[lat_col] <= 90)
+        & (map_df[lon_col] >= -180)
+        & (map_df[lon_col] <= 180)
+    ]
+
     return map_df
 
 
 # ============================================================
-# FACILITY MAP
+# FACILITY-WISE MAP
 # ============================================================
 
 def _facility_map(df, lat_col, lon_col):
 
-    required_columns = [
-        "Facility Name Lform",
-        lat_col,
-        lon_col
-    ]
+    if "Facility Name Lform" not in df.columns:
 
-    missing = [
-        col for col in required_columns
-        if col not in df.columns
-    ]
-
-    if missing:
         st.warning(
-            "Facility map cannot be created because "
-            f"these columns are missing: {', '.join(missing)}"
+            "Facility Name Lform column is not available."
         )
+
         return
 
     map_df = _prepare_map_data(
@@ -121,14 +119,16 @@ def _facility_map(df, lat_col, lon_col):
     )
 
     if map_df.empty:
+
         st.info(
-            "No valid latitude/longitude records available "
+            "No valid latitude/longitude records are available "
             "for the selected filters."
         )
+
         return
 
     # --------------------------------------------------------
-    # Facility-level aggregation
+    # GROUPING
     # --------------------------------------------------------
 
     group_columns = [
@@ -140,9 +140,12 @@ def _facility_map(df, lat_col, lon_col):
 
     facility_map = (
         map_df
-        .groupby(group_columns, dropna=False)
+        .groupby(
+            group_columns,
+            dropna=False
+        )
         .agg(
-            Cases=(group_columns[0], "size"),
+            Cases=("Facility Name Lform", "size"),
             Latitude=(lat_col, "mean"),
             Longitude=(lon_col, "mean")
         )
@@ -150,15 +153,17 @@ def _facility_map(df, lat_col, lon_col):
     )
 
     # --------------------------------------------------------
-    # Optional disease count
+    # DISEASE COUNT
     # --------------------------------------------------------
 
     if "Confirmed Diagnosis" in map_df.columns:
 
         disease_count = (
             map_df
-            .groupby(group_columns, dropna=False)
-            ["Confirmed Diagnosis"]
+            .groupby(
+                group_columns,
+                dropna=False
+            )["Confirmed Diagnosis"]
             .nunique()
             .reset_index(
                 name="Diseases"
@@ -172,7 +177,7 @@ def _facility_map(df, lat_col, lon_col):
         )
 
     # --------------------------------------------------------
-    # Hover fields
+    # MAP
     # --------------------------------------------------------
 
     hover_data = {
@@ -186,10 +191,6 @@ def _facility_map(df, lat_col, lon_col):
 
     if "Diseases" in facility_map.columns:
         hover_data["Diseases"] = True
-
-    # --------------------------------------------------------
-    # Map
-    # --------------------------------------------------------
 
     fig = px.scatter_map(
         facility_map,
@@ -214,11 +215,12 @@ def _facility_map(df, lat_col, lon_col):
     )
 
     # --------------------------------------------------------
-    # Facility map table
+    # FACILITY TABLE
     # --------------------------------------------------------
 
     display_columns = [
-        col for col in [
+        col
+        for col in [
             "Facility Name Lform",
             "Ward",
             "Cases",
@@ -229,28 +231,34 @@ def _facility_map(df, lat_col, lon_col):
         if col in facility_map.columns
     ]
 
+    facility_map = facility_map.sort_values(
+        "Cases",
+        ascending=False
+    )
+
+    st.subheader(
+        "🏥 Facility-wise Geographic Summary"
+    )
+
     st.dataframe(
-        facility_map[
-            display_columns
-        ].sort_values(
-            "Cases",
-            ascending=False
-        ),
+        facility_map[display_columns],
         use_container_width=True,
         hide_index=True
     )
 
 
 # ============================================================
-# WARD MAP
+# WARD-WISE MAP
 # ============================================================
 
 def _ward_map(df, lat_col, lon_col):
 
     if "Ward" not in df.columns:
+
         st.warning(
-            "Ward column is not available in the dataset."
+            "Ward column is not available."
         )
+
         return
 
     map_df = _prepare_map_data(
@@ -260,13 +268,15 @@ def _ward_map(df, lat_col, lon_col):
     )
 
     if map_df.empty:
+
         st.info(
-            "No valid geographical records available."
+            "No valid geographical records are available."
         )
+
         return
 
     # --------------------------------------------------------
-    # Ward aggregation
+    # WARD AGGREGATION
     # --------------------------------------------------------
 
     ward_map = (
@@ -282,7 +292,7 @@ def _ward_map(df, lat_col, lon_col):
     )
 
     # --------------------------------------------------------
-    # Facility count
+    # FACILITY COUNT
     # --------------------------------------------------------
 
     if "Facility Name Lform" in map_df.columns:
@@ -305,7 +315,7 @@ def _ward_map(df, lat_col, lon_col):
         )
 
     # --------------------------------------------------------
-    # Disease count
+    # DISEASE COUNT
     # --------------------------------------------------------
 
     if "Confirmed Diagnosis" in map_df.columns:
@@ -328,7 +338,7 @@ def _ward_map(df, lat_col, lon_col):
         )
 
     # --------------------------------------------------------
-    # Hover data
+    # HOVER
     # --------------------------------------------------------
 
     hover_data = {
@@ -344,7 +354,7 @@ def _ward_map(df, lat_col, lon_col):
         hover_data["Diseases"] = True
 
     # --------------------------------------------------------
-    # Map
+    # MAP
     # --------------------------------------------------------
 
     fig = px.scatter_map(
@@ -370,11 +380,12 @@ def _ward_map(df, lat_col, lon_col):
     )
 
     # --------------------------------------------------------
-    # Ward table
+    # WARD TABLE
     # --------------------------------------------------------
 
     display_columns = [
-        col for col in [
+        col
+        for col in [
             "Ward",
             "Cases",
             "Facilities",
@@ -385,20 +396,24 @@ def _ward_map(df, lat_col, lon_col):
         if col in ward_map.columns
     ]
 
+    ward_map = ward_map.sort_values(
+        "Cases",
+        ascending=False
+    )
+
+    st.subheader(
+        "🏙️ Ward-wise Geographic Summary"
+    )
+
     st.dataframe(
-        ward_map[
-            display_columns
-        ].sort_values(
-            "Cases",
-            ascending=False
-        ),
+        ward_map[display_columns],
         use_container_width=True,
         hide_index=True
     )
 
 
 # ============================================================
-# MANAGEMENT MAP SUMMARY
+# MANAGEMENT SUMMARY
 # ============================================================
 
 def _map_summary(df):
@@ -410,19 +425,25 @@ def _map_summary(df):
     total_cases = len(df)
 
     total_wards = (
-        df["Ward"].nunique(dropna=True)
+        df["Ward"].nunique(
+            dropna=True
+        )
         if "Ward" in df.columns
         else 0
     )
 
     total_facilities = (
         df["Facility Name Lform"]
-        .nunique(dropna=True)
+        .nunique(
+            dropna=True
+        )
         if "Facility Name Lform" in df.columns
         else 0
     )
 
-    lat_col, lon_col = _find_coordinate_columns(df)
+    lat_col, lon_col = _find_coordinate_columns(
+        df
+    )
 
     geo_records = 0
 
@@ -460,10 +481,10 @@ def _map_summary(df):
 
 
 # ============================================================
-# MAIN RENDER FUNCTION
+# MAIN MAP FUNCTION
 # ============================================================
 
-def render_map_analysis(df):
+def render_map(df):
 
     st.title(
         "🗺️ Geographical & Facility Map Analysis"
@@ -474,14 +495,36 @@ def render_map_analysis(df):
         "wards and health facilities."
     )
 
-    if df is None or df.empty:
+    # --------------------------------------------------------
+    # DATA CHECK
+    # --------------------------------------------------------
+
+    if df is None:
+
+        st.error(
+            "Data could not be loaded."
+        )
+
+        return
+
+    if not isinstance(df, pd.DataFrame):
+
+        st.error(
+            "The supplied data is not a valid DataFrame."
+        )
+
+        return
+
+    if df.empty:
+
         st.warning(
             "No data available for map analysis."
         )
+
         return
 
     # --------------------------------------------------------
-    # APPLY GLOBAL FILTERS
+    # GLOBAL FILTERS
     # --------------------------------------------------------
 
     try:
@@ -493,12 +536,7 @@ def render_map_analysis(df):
             **filters
         )
 
-    except Exception as e:
-
-        st.warning(
-            "Filters could not be applied. "
-            "Showing available data."
-        )
+    except Exception:
 
         filtered_df = df.copy()
 
@@ -521,7 +559,7 @@ def render_map_analysis(df):
     st.divider()
 
     # --------------------------------------------------------
-    # CHECK GEO COLUMNS
+    # COORDINATE DETECTION
     # --------------------------------------------------------
 
     lat_col, lon_col = _find_coordinate_columns(
@@ -536,13 +574,13 @@ def render_map_analysis(df):
         )
 
         st.info(
-            "Please ensure your data contains latitude and "
-            "longitude columns such as 'Latitude' and "
-            "'Longitude'."
+            "The map requires geographical coordinates. "
+            "Please ensure that the dataset contains "
+            "Latitude and Longitude columns."
         )
 
         st.subheader(
-            "Available Columns"
+            "Available Data Columns"
         )
 
         st.write(
@@ -552,7 +590,7 @@ def render_map_analysis(df):
         return
 
     # --------------------------------------------------------
-    # MAP TYPE
+    # MAP VIEW SELECTOR
     # --------------------------------------------------------
 
     map_type = st.radio(
@@ -598,14 +636,14 @@ def render_map_analysis(df):
             lon_col
         )
 
-    # --------------------------------------------------------
-    # TOP GEOGRAPHICAL BURDEN
-    # --------------------------------------------------------
+    # ========================================================
+    # TOP WARDS
+    # ========================================================
 
     st.divider()
 
     st.subheader(
-        "📍 Top Geographical Burden"
+        "📍 Top Wards by Case Burden"
     )
 
     if "Ward" in filtered_df.columns:
@@ -616,7 +654,9 @@ def render_map_analysis(df):
             ["Ward"]
             .value_counts()
             .rename_axis("Ward")
-            .reset_index(name="Cases")
+            .reset_index(
+                name="Cases"
+            )
         )
 
         if not ward_burden.empty:
@@ -632,10 +672,17 @@ def render_map_analysis(df):
 
             total = ward_burden["Cases"].sum()
 
-            ward_burden["Share (%)"] = (
-                ward_burden["Cases"] /
-                total * 100
-            ).round(2)
+            if total > 0:
+
+                ward_burden["Share (%)"] = (
+                    ward_burden["Cases"]
+                    / total
+                    * 100
+                ).round(2)
+
+            else:
+
+                ward_burden["Share (%)"] = 0
 
             st.dataframe(
                 ward_burden.head(20),
@@ -643,9 +690,9 @@ def render_map_analysis(df):
                 hide_index=True
             )
 
-    # --------------------------------------------------------
+    # ========================================================
     # TOP FACILITIES
-    # --------------------------------------------------------
+    # ========================================================
 
     if "Facility Name Lform" in filtered_df.columns:
 
@@ -656,7 +703,9 @@ def render_map_analysis(df):
         facility_burden = (
             filtered_df
             .dropna(
-                subset=["Facility Name Lform"]
+                subset=[
+                    "Facility Name Lform"
+                ]
             )
             ["Facility Name Lform"]
             .value_counts()
@@ -681,13 +730,34 @@ def render_map_analysis(df):
 
             total = facility_burden["Cases"].sum()
 
-            facility_burden["Share (%)"] = (
-                facility_burden["Cases"] /
-                total * 100
-            ).round(2)
+            if total > 0:
+
+                facility_burden["Share (%)"] = (
+                    facility_burden["Cases"]
+                    / total
+                    * 100
+                ).round(2)
+
+            else:
+
+                facility_burden["Share (%)"] = 0
 
             st.dataframe(
                 facility_burden.head(20),
                 use_container_width=True,
                 hide_index=True
             )
+
+
+# ============================================================
+# COMPATIBILITY ALIAS
+# ============================================================
+# Allows both names:
+#
+# render_map(df)
+# render_map_analysis(df)
+#
+# to work without changing the rest of the application.
+
+def render_map_analysis(df):
+    return render_map(df)
