@@ -536,10 +536,14 @@ def apply_filters(
         and (date_from is not None or date_to is not None)
     ):
 
-        dates = pd.to_datetime(
-            df[date_col],
-            errors="coerce"
-        )
+        if pd.api.types.is_datetime64_any_dtype(df[date_col]):
+            dates = df[date_col]
+        else:
+            dates = pd.to_datetime(
+                df[date_col],
+                errors="coerce",
+                format="mixed"
+            )
 
         if date_from is not None:
             mask &= dates.dt.date >= date_from
@@ -692,10 +696,14 @@ def render_overview(df):
 
     if date_col:
 
-        dates = pd.to_datetime(
-            df[date_col],
-            errors="coerce"
-        )
+        if pd.api.types.is_datetime64_any_dtype(df[date_col]):
+            dates = df[date_col]
+        else:
+            dates = pd.to_datetime(
+                df[date_col],
+                errors="coerce",
+                format="mixed"
+            )
 
         trend_df = (
             pd.DataFrame({"Date": dates})
