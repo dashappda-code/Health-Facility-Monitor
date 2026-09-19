@@ -2,6 +2,7 @@
 import streamlit as st
 
 from phase1_data import load_data
+
 from phase2_overview import (
     create_filters,
     apply_filters,
@@ -56,15 +57,9 @@ st.markdown(
 # LOAD DATA
 # ============================================================
 
-@st.cache_data(ttl=60, show_spinner=False)
-def get_data():
-
-    return load_data()
-
-
 try:
 
-    df = get_data()
+    df = load_data()
 
 except Exception as e:
 
@@ -87,7 +82,7 @@ if df is None or df.empty:
 
 
 # ============================================================
-# SIDEBAR NAVIGATION
+# SIDEBAR
 # ============================================================
 
 with st.sidebar:
@@ -122,79 +117,81 @@ with st.sidebar:
 
 
 # ============================================================
-# GLOBAL FILTERS
+# CREATE FILTER VALUES
 # ============================================================
 
-filter_values = create_filters(df)
+filter_values = create_filters(
+    df
+)
 
 
 # ============================================================
-# DEFAULT VALUES
+# FILTER VALUES
 # ============================================================
 
 selected_years = filter_values.get(
     "selected_years",
-    filter_values.get("years", []),
+    filter_values.get("years", [])
 )
 
 selected_months = filter_values.get(
     "selected_months",
-    filter_values.get("months", []),
+    filter_values.get("months", [])
 )
 
 selected_weeks = filter_values.get(
     "selected_weeks",
-    filter_values.get("weeks", []),
+    filter_values.get("weeks", [])
 )
 
 selected_diseases = filter_values.get(
     "selected_diseases",
-    filter_values.get("diseases", []),
+    filter_values.get("diseases", [])
 )
 
 selected_facilities = filter_values.get(
     "selected_facilities",
-    filter_values.get("facilities", []),
+    filter_values.get("facilities", [])
 )
 
 selected_wards = filter_values.get(
     "selected_wards",
-    filter_values.get("wards", []),
+    filter_values.get("wards", [])
 )
 
 selected_genders = filter_values.get(
     "selected_genders",
-    filter_values.get("genders", []),
+    filter_values.get("genders", [])
 )
 
 selected_age_groups = filter_values.get(
     "selected_age_groups",
-    filter_values.get("age_groups", []),
+    filter_values.get("age_groups", [])
 )
 
 selected_opd_ipd = filter_values.get(
     "selected_opd_ipd",
-    filter_values.get("opd_ipd", []),
+    filter_values.get("opd_ipd", [])
 )
 
 selected_areas = filter_values.get(
     "selected_areas",
-    filter_values.get("areas", []),
+    filter_values.get("areas", [])
 )
 
 selected_status = filter_values.get(
     "selected_status",
-    filter_values.get("status", []),
+    filter_values.get("status", [])
 )
 
 area_column = filter_values.get(
     "area_column",
-    "Patient Address",
+    "Patient Address"
 )
 
 status_column = filter_values.get(
     "status_column",
-    "Confirmed Diagnosis",
+    "Confirmed Diagnosis"
 )
 
 date_from = filter_values.get(
@@ -207,7 +204,7 @@ date_to = filter_values.get(
 
 
 # ============================================================
-# APPLY GLOBAL FILTERS
+# APPLY FILTERS
 # ============================================================
 
 filtered_df = apply_filters(
@@ -231,45 +228,28 @@ filtered_df = apply_filters(
 
 
 # ============================================================
-# GLOBAL STATUS
+# SIMPLE STATUS BAR
 # ============================================================
 
-st.markdown("---")
-
-c1, c2, c3 = st.columns(3)
+c1, c2 = st.columns(2)
 
 with c1:
 
     st.metric(
         "Total Records",
-        f"{len(df):,}",
+        f"{len(df):,}"
     )
 
 with c2:
 
     st.metric(
         "Selected Records",
-        f"{len(filtered_df):,}",
+        f"{len(filtered_df):,}"
     )
-
-with c3:
-
-    percentage = (
-        len(filtered_df) / len(df) * 100
-        if len(df) > 0
-        else 0
-    )
-
-    st.metric(
-        "Selected",
-        f"{percentage:.1f}%",
-    )
-
-st.markdown("---")
 
 
 # ============================================================
-# PAGE ROUTING
+# PAGE
 # ============================================================
 
 try:
