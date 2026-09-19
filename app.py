@@ -18,10 +18,6 @@ from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
 
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
-
 st.set_page_config(
     page_title="Health Programme Management Dashboard",
     page_icon="🏥",
@@ -30,44 +26,22 @@ st.set_page_config(
 )
 
 
-# ============================================================
-# GLOBAL STYLING
-# ============================================================
-
 st.markdown(
     """
     <style>
-
-    /* -------------------------------------------------------
-       MAIN PAGE
-       ------------------------------------------------------- */
 
     .block-container {
         padding-top: 0.8rem;
         padding-bottom: 1rem;
     }
 
-
-    /* -------------------------------------------------------
-       GLOBAL FILTER HEADING
-       ------------------------------------------------------- */
-
     .global-filter-heading {
-        background: linear-gradient(
-            90deg,
-            #eaf4ff,
-            #f8fbff
-        );
-
+        background: linear-gradient(90deg, #eaf4ff, #f8fbff);
         border: 1px solid #c9dced;
-
         border-left: 5px solid #1769aa;
-
         border-radius: 12px;
-
         padding: 9px 14px;
-
-        margin: 0 0 8px 0;
+        margin: 4px 0 7px 0;
     }
 
     .global-filter-title {
@@ -82,136 +56,86 @@ st.markdown(
         margin-top: 2px;
     }
 
+    /*
+    ============================================================
+    GLOBAL FILTER CONTAINER
+    Excel-style sticky / freeze behaviour
+    ============================================================
+    */
 
-    /* -------------------------------------------------------
-       STICKY GLOBAL FILTER
-       
-       The complete Global Dashboard Control container
-       remains visible while the page is scrolled.
-       ------------------------------------------------------- */
-
-    div[data-testid="stVerticalBlock"]:has(
-        .global-filter-heading
-    ) {
+    .st-key-global_filter_container {
         position: sticky;
-
         top: 0.25rem;
-
         z-index: 999;
-
-        background: rgba(
-            255,
-            255,
-            255,
-            0.98
-        );
-
+        background: rgba(255, 255, 255, 0.98);
         border-radius: 12px;
-
-        padding: 5px 5px 7px 5px;
-
-        box-shadow:
-            0 4px 14px
-            rgba(
-                30,
-                60,
-                90,
-                0.12
-            );
-
-        backdrop-filter: blur(6px);
-
-        -webkit-backdrop-filter: blur(6px);
+        padding: 4px 4px 8px 4px;
+        margin-bottom: 10px;
+        box-shadow: 0 4px 16px rgba(30, 60, 90, 0.12);
+        backdrop-filter: blur(5px);
     }
 
+    /*
+    ============================================================
+    FILTER WIDGETS
+    ============================================================
+    */
 
-    /* -------------------------------------------------------
-       FILTER CONTAINER
-       ------------------------------------------------------- */
-
-    div[data-testid="stVerticalBlock"]:has(
-        .global-filter-heading
-    ) div[data-testid="stMultiSelect"] label,
-
-    div[data-testid="stVerticalBlock"]:has(
-        .global-filter-heading
-    ) div[data-testid="stDateInput"] label {
-
+    div[data-testid="stMultiSelect"] label,
+    div[data-testid="stDateInput"] label {
         font-size: 12px;
-
         font-weight: 650;
     }
 
-
-    /* -------------------------------------------------------
-       MULTISELECT BOX
-       ------------------------------------------------------- */
-
-    div[data-testid="stVerticalBlock"]:has(
-        .global-filter-heading
-    ) div[data-baseweb="select"] {
-
-        min-height: 38px;
+    div[data-testid="stMultiSelect"] {
+        margin-bottom: 0;
     }
 
+    div[data-testid="stDateInput"] {
+        margin-bottom: 0;
+    }
 
-    /* -------------------------------------------------------
-       RESET BUTTON
-       ------------------------------------------------------- */
+    /*
+    ============================================================
+    RESET BUTTON
+    ============================================================
+    */
 
-    div[data-testid="stVerticalBlock"]:has(
-        .global-filter-heading
-    ) div[data-testid="stButton"] button {
-
+    .st-key-global_reset_filters button {
         border-radius: 8px;
-
         font-weight: 700;
-
-        min-height: 34px;
     }
 
-
-    /* -------------------------------------------------------
-       DATE INPUT
-       ------------------------------------------------------- */
-
-    div[data-testid="stVerticalBlock"]:has(
-        .global-filter-heading
-    ) div[data-testid="stDateInput"] input {
-
-        font-size: 13px;
-    }
-
-
-    /* -------------------------------------------------------
-       KPI
-       ------------------------------------------------------- */
+    /*
+    ============================================================
+    KPI
+    ============================================================
+    */
 
     [data-testid="stMetric"] {
         padding: 7px 10px;
     }
 
-
-    /* -------------------------------------------------------
-       SIDEBAR
-       ------------------------------------------------------- */
+    /*
+    ============================================================
+    SIDEBAR
+    ============================================================
+    */
 
     section[data-testid="stSidebar"] {
         width: 250px;
     }
 
-
-    /* -------------------------------------------------------
-       FOOTER
-       ------------------------------------------------------- */
+    /*
+    ============================================================
+    FOOTER
+    ============================================================
+    */
 
     .dashboard-footer {
         text-align: center;
-
         color: #777;
-
         font-size: 12px;
-
         padding-top: 18px;
     }
 
@@ -221,22 +145,9 @@ st.markdown(
 )
 
 
-# ============================================================
-# DASHBOARD HEADER
-# ============================================================
+st.title("🏥 Health Programme Management Dashboard")
+st.caption("Live Google Sheet Based Programme Monitoring System")
 
-st.title(
-    "🏥 Health Programme Management Dashboard"
-)
-
-st.caption(
-    "Live Google Sheet Based Programme Monitoring System"
-)
-
-
-# ============================================================
-# DATA LOADING
-# ============================================================
 
 def get_data():
     return load_data()
@@ -245,32 +156,25 @@ def get_data():
 df = get_data()
 
 
-# ============================================================
-# DATA VALIDATION
-# ============================================================
-
 if df is None or df.empty:
 
-    st.error(
-        "No data available from the Google Sheet."
-    )
+    st.error("No data available from the Google Sheet.")
 
     st.info(
         "Please verify that the Google Sheet is shared as "
-        "'Anyone with the link - Viewer' and that the "
-        "configured worksheet GID is correct."
+        "'Anyone with the link - Viewer' and that the configured "
+        "worksheet GID is correct."
     )
 
     st.stop()
 
 
 # ============================================================
-# SIDEBAR MENU
+# SIDEBAR NAVIGATION
 # ============================================================
 
-st.sidebar.title(
-    "📌 Dashboard Menu"
-)
+st.sidebar.title("📌 Dashboard Menu")
+
 
 page = st.sidebar.radio(
     "Select Section",
@@ -297,15 +201,11 @@ st.sidebar.caption(
 
 
 # ============================================================
-# GLOBAL FILTERS
+# ONE GLOBAL FILTER
 # ============================================================
 
 filter_values = create_filters(df)
 
-
-# ============================================================
-# APPLY FILTERS
-# ============================================================
 
 filtered_df = apply_filters(
     df=df,
@@ -313,23 +213,17 @@ filtered_df = apply_filters(
 )
 
 
-# ============================================================
-# FILTERED RECORD COUNT
-# ============================================================
-
 st.caption(
-    f"📊 Filtered Records: "
-    f"**{len(filtered_df):,}** / **{len(df):,}**"
+    f"📊 Filtered Records: **{len(filtered_df):,}** / **{len(df):,}**"
 )
 
 
 # ============================================================
-# GLOBAL KPI
+# MANAGEMENT KPI STRIP
 # ============================================================
 
-kpis = calculate_kpis(
-    filtered_df
-)
+kpis = calculate_kpis(filtered_df)
+
 
 c1, c2, c3, c4 = st.columns(4)
 
@@ -370,77 +264,50 @@ st.divider()
 
 
 # ============================================================
-# DASHBOARD SECTIONS
+# EXISTING DASHBOARD SECTIONS
 # ============================================================
 
 try:
 
     if page == "Overview":
 
-        render_overview(
-            filtered_df
-        )
-
+        render_overview(filtered_df)
 
     elif page == "Charts & Trends":
 
-        render_charts(
-            filtered_df
-        )
-
+        render_charts(filtered_df)
 
     elif page == "Demographics":
 
-        render_demographics(
-            filtered_df
-        )
-
+        render_demographics(filtered_df)
 
     elif page == "Ward Analysis":
 
-        render_ward(
-            filtered_df
-        )
-
+        render_ward(filtered_df)
 
     elif page == "Map":
 
-        render_map(
-            filtered_df
-        )
-
+        render_map(filtered_df)
 
     elif page == "Data Explorer":
 
-        render_explorer(
-            filtered_df
-        )
-
+        render_explorer(filtered_df)
 
     elif page == "Prediction":
 
-        render_prediction(
-            filtered_df
-        )
-
+        render_prediction(filtered_df)
 
     elif page == "User Manual":
 
         render_manual()
 
-
     elif page == "Validation & KPI":
 
-        render_validation_kpi(
-            filtered_df
-        )
-
+        render_validation_kpi(filtered_df)
 
     elif page == "Drill-down & Export":
 
-        render_drilldown_export(
-            filtered_df
-        )
+        render_drilldown_export(filtered_df)
 
 
 except Exception as e:
