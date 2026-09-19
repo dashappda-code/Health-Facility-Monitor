@@ -1,768 +1,551 @@
-import pandas as pd
+import io
+
 import streamlit as st
+import pandas as pd
 
 
-# ============================================================
-# PAGE CONFIGURATION / HELPERS
-# ============================================================
+def _clean_text(value):
+    if pd.isna(value):
+        return ""
 
-def _clean_dataframe(df):
-    """
-    Creates a safe copy of the dataframe for exploration.
-    """
+    return str(value).strip()
 
-    if df is None:
+
+def _prepare_display_data(df):
+    if df is None or df.empty:
         return pd.DataFrame()
-
-    if not isinstance(df, pd.DataFrame):
-        return pd.DataFrame()
-
-    clean_df = df.copy()
-
-    # Remove completely empty rows
-    clean_df = clean_df.dropna(
-        how="all"
-    ).reset_index(drop=True)
-
-    return clean_df
-
-
-def _search_dataframe(df, search_text):
-    """
-    Performs a global text search across all columns.
-    """
-
-    if not search_text:
-        return df
-
-    search_text = str(search_text).strip()
-
-    if not search_text:
-        return df
-
-    mask = pd.Series(
-        False,
-        index=df.index
-    )
-
-    for col in df.columns:
-
-        try:
-
-            mask = (
-                mask
-                |
-                df[col]
-                .astype(str)
-                .str.contains(
-                    search_text,
-                    case=False,
-                    na=False,
-                    regex=False
-                )
-            )
-
-        except Exception:
-            continue
-
-    return df.loc[mask].copy()
-
-
-def _format_dataframe_for_display(df):
-    """
-    Makes a display-safe copy without changing
-    the original dataset.
-    """
 
     display_df = df.copy()
 
-    for col in display_df.columns:
-
-        # Convert datetime columns to readable strings
+    for column in display_df.columns:
         if pd.api.types.is_datetime64_any_dtype(
-            display_df[col]
+            display_df[column]
         ):
-
-            display_df[col] = (
-                display_df[col]
+            display_df[column] = (
+                display_df[column]
                 .dt.strftime("%d-%m-%Y")
             )
 
     return display_df
 
 
-# ============================================================
-# SUMMARY METRICS
-# ============================================================
+def _create_excel_bytes(df):
+    output = io.BytesIO()
 
-def _show_summary(df):
+    with pd.ExcelWriter(
+        output,
+        engine="openpyxl",
+    ) as writer:
 
-    total_records = len(df)
-
-    total_columns = len(df.columns)
-
-    missing_values = int(
-        df.isna().sum().sum()
-    )
-
-    duplicate_rows = int(
-        df.duplicated().sum()
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Records",
-        f"{total_records:,}"
-    )
-
-    c2.metric(
-        "Columns",
-        f"{total_columns:,}"
-    )
-
-    c3.metric(
-        "Missing Values",
-        f"{missing_values:,}"
-    )
-
-    c4.metric(
-        "Duplicate Rows",
-        f"{duplicate_rows:,}"
-    )
-
-
-# ============================================================
-# QUICK MANAGEMENT SUMMARY
-# ============================================================
-
-def _management_summary(df):
-
-    st.subheader(
-        "📊 Explorer Management Summary"
-    )
-
-    summary_items = []
-
-    # --------------------------------------------------------
-    # Total cases
-    # --------------------------------------------------------
-
-    summary_items.append(
-        {
-            "Indicator": "Total Records / Cases",
-            "Value": len(df)
-        }
-    )
-
-    # --------------------------------------------------------
-    # Wards
-    # --------------------------------------------------------
-
-    if "Ward" in df.columns:
-
-        summary_items.append(
-            {
-                "Indicator": "Wards Covered",
-                "Value": df["Ward"].nunique(
-                    dropna=True
-                )
-            }
+        df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Filtered Data",
         )
 
-        ward_counts = (
-            df["Ward"]
-            .dropna()
-            .value_counts()
-        )
+    output.seek(0)
 
-        if not ward_counts.empty:
+    return output.getvalue()
 
-            summary_items.append(
-                {
-                    "Indicator": "Top Burden Ward",
-                    "Value": ward_counts.index[0]
-                }
-            )
-
-            summary_items.append(
-                {
-                    "Indicator": "Top Ward Cases",
-                    "Value": int(
-                        ward_counts.iloc[0]
-                    )
-                }
-            )
-
-    # --------------------------------------------------------
-    # Facilities
-    # --------------------------------------------------------
-
-    if "Facility Name Lform" in df.columns:
-
-        summary_items.append(
-            {
-                "Indicator": "Facilities Covered",
-                "Value": df[
-                    "Facility Name Lform"
-                ].nunique(
-                    dropna=True
-                )
-            }
-        )
-
-        facility_counts = (
-            df["Facility Name Lform"]
-            .dropna()
-            .value_counts()
-        )
-
-        if not facility_counts.empty:
-
-            summary_items.append(
-                {
-                    "Indicator": "Top Facility",
-                    "Value": facility_counts.index[0]
-                }
-            )
-
-            summary_items.append(
-                {
-                    "Indicator": "Top Facility Cases",
-                    "Value": int(
-                        facility_counts.iloc[0]
-                    )
-                }
-            )
-
-    # --------------------------------------------------------
-    # Gender
-    # --------------------------------------------------------
-
-    if "Gender" in df.columns:
-
-        summary_items.append(
-            {
-                "Indicator": "Gender Categories",
-                "Value": df["Gender"].nunique(
-                    dropna=True
-                )
-            }
-        )
-
-    # --------------------------------------------------------
-    # Disease
-    # --------------------------------------------------------
-
-    if "Confirmed Diagnosis" in df.columns:
-
-        summary_items.append(
-            {
-                "Indicator": "Disease Categories",
-                "Value": df[
-                    "Confirmed Diagnosis"
-                ].nunique(
-                    dropna=True
-                )
-            }
-        )
-
-    summary_df = pd.DataFrame(
-        summary_items
-    )
-
-    if not summary_df.empty:
-
-        st.dataframe(
-            summary_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-# ============================================================
-# COLUMN-WISE DATA QUALITY
-# ============================================================
-
-def _data_quality_table(df):
-
-    quality = pd.DataFrame(
-        {
-            "Column": df.columns,
-            "Data Type": [
-                str(dtype)
-                for dtype in df.dtypes
-            ],
-            "Records": [
-                len(df)
-                for _ in df.columns
-            ],
-            "Non-Null": [
-                int(df[col].notna().sum())
-                for col in df.columns
-            ],
-            "Missing": [
-                int(df[col].isna().sum())
-                for col in df.columns
-            ],
-            "Missing (%)": [
-                round(
-                    df[col].isna().mean() * 100,
-                    2
-                )
-                for col in df.columns
-            ],
-            "Unique Values": [
-                int(df[col].nunique(
-                    dropna=True
-                ))
-                for col in df.columns
-            ]
-        }
-    )
-
-    quality["Completeness (%)"] = (
-        100 - quality["Missing (%)"]
-    ).round(2)
-
-    quality = quality.sort_values(
-        "Missing (%)",
-        ascending=False
-    ).reset_index(drop=True)
-
-    return quality
-
-
-# ============================================================
-# CATEGORY ANALYSIS
-# ============================================================
-
-def _category_analysis(df, column):
-
-    if column not in df.columns:
-        return
-
-    analysis_df = df[column].copy()
-
-    analysis_df = (
-        analysis_df
-        .dropna()
-        .astype(str)
-        .str.strip()
-    )
-
-    if analysis_df.empty:
-
-        st.info(
-            f"No usable data available for {column}."
-        )
-
-        return
-
-    counts = (
-        analysis_df
-        .value_counts()
-        .rename_axis(column)
-        .reset_index(name="Cases")
-    )
-
-    counts["Share (%)"] = (
-        counts["Cases"]
-        / counts["Cases"].sum()
-        * 100
-    ).round(2)
-
-    counts.insert(
-        0,
-        "Rank",
-        range(
-            1,
-            len(counts) + 1
-        )
-    )
-
-    st.dataframe(
-        counts,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-# ============================================================
-# MAIN EXPLORER FUNCTION
-# ============================================================
 
 def render_explorer(df):
 
-    st.title(
-        "🔎 Interactive Data Explorer"
-    )
+    st.subheader("🔎 Data Explorer")
 
-    st.caption(
-        "Search, filter, inspect and download "
-        "the underlying programme data."
-    )
-
-    # --------------------------------------------------------
-    # DATA CHECK
-    # --------------------------------------------------------
-
-    df = _clean_dataframe(df)
-
-    if df.empty:
-
+    if df is None or df.empty:
         st.warning(
-            "No data available for exploration."
+            "No records available for the selected filters."
         )
-
         return
 
-    # Global dashboard filters are already applied in app.py.
-    filtered_df = df.copy()
-
-    # --------------------------------------------------------
-    # SUMMARY
-    # --------------------------------------------------------
-
-    _show_summary(
-        filtered_df
+    st.caption(
+        "Explore, search, sort and export records "
+        "after applying the Global Dashboard Filters."
     )
 
-    # --------------------------------------------------------
-    # TABS
-    # --------------------------------------------------------
+    # =========================================================
+    # 1. DATA SUMMARY
+    # =========================================================
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        [
-            "📋 Data Explorer",
-            "📊 Quick Analysis",
-            "🔍 Data Quality",
-            "⬇️ Download"
-        ]
+    st.markdown("### 📊 Explorer Summary")
+
+    total_records = len(df)
+    total_columns = len(df.columns)
+
+    missing_cells = int(
+        df.isna().sum().sum()
     )
 
-    # ========================================================
-    # TAB 1 — DATA EXPLORER
-    # ========================================================
+    total_cells = (
+        total_records
+        * total_columns
+    )
 
-    with tab1:
+    if total_cells > 0:
+        missing_percentage = (
+            missing_cells
+            / total_cells
+            * 100
+        )
+    else:
+        missing_percentage = 0
 
-        st.subheader(
-            "📋 Interactive Record Explorer"
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        st.metric(
+            "Filtered Records",
+            f"{total_records:,}",
         )
 
-        # ----------------------------------------------------
-        # GLOBAL SEARCH
-        # ----------------------------------------------------
-
-        search_text = st.text_input(
-            "🔎 Search across all columns",
-            placeholder=(
-                "Search facility, ward, diagnosis, "
-                "gender, patient ID, etc."
-            )
+    with c2:
+        st.metric(
+            "Columns",
+            f"{total_columns:,}",
         )
 
-        explorer_df = _search_dataframe(
-            filtered_df,
+    with c3:
+        st.metric(
+            "Missing Cells",
+            f"{missing_cells:,}",
+        )
+
+    with c4:
+        st.metric(
+            "Missing %",
+            f"{missing_percentage:.2f}%",
+        )
+
+    # =========================================================
+    # 2. SEARCH
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### 🔍 Search Records")
+
+    search_text = st.text_input(
+        "Search across all columns",
+        placeholder=(
+            "Enter disease, facility, ward, gender, "
+            "patient address, diagnosis, etc."
+        ),
+        key="explorer_search",
+    )
+
+    explorer_df = df.copy()
+
+    if search_text.strip():
+
+        search_value = (
             search_text
+            .strip()
+            .lower()
         )
 
-        st.caption(
-            f"Showing {len(explorer_df):,} "
-            f"of {len(filtered_df):,} records"
+        text_df = (
+            explorer_df
+            .fillna("")
+            .astype(str)
         )
 
-        # ----------------------------------------------------
-        # COLUMN SELECTION
-        # ----------------------------------------------------
-
-        all_columns = list(
-            explorer_df.columns
-        )
-
-        default_columns = all_columns[:]
-
-        selected_columns = st.multiselect(
-            "Select columns to display",
-            options=all_columns,
-            default=default_columns
-        )
-
-        if not selected_columns:
-
-            st.warning(
-                "Please select at least one column."
+        row_mask = (
+            text_df
+            .apply(
+                lambda column:
+                column.str.lower()
+                .str.contains(
+                    search_value,
+                    regex=False,
+                    na=False,
+                )
             )
+            .any(axis=1)
+        )
 
-            return
-
-        display_df = explorer_df[
-            selected_columns
+        explorer_df = explorer_df[
+            row_mask
         ].copy()
 
-        # ----------------------------------------------------
-        # SORTING
-        # ----------------------------------------------------
+    # =========================================================
+    # 3. SEARCH RESULT
+    # =========================================================
 
-        sort_col = st.selectbox(
-            "Sort by column",
-            options=[
-                "No sorting"
-            ] + selected_columns
+    if search_text.strip():
+
+        st.info(
+            f"Search results: "
+            f"**{len(explorer_df):,}** records."
         )
 
-        if sort_col != "No sorting":
+    # =========================================================
+    # 4. COLUMN SELECTION
+    # =========================================================
 
-            sort_order = st.radio(
-                "Sort order",
-                [
-                    "Descending",
-                    "Ascending"
-                ],
-                horizontal=True
-            )
+    st.divider()
 
-            display_df = display_df.sort_values(
-                by=sort_col,
-                ascending=(
-                    sort_order == "Ascending"
-                ),
-                na_position="last"
-            )
+    st.markdown("### 🧩 Select Columns")
 
-        # ----------------------------------------------------
-        # RECORD LIMIT
-        # ----------------------------------------------------
+    all_columns = df.columns.tolist()
 
-        max_rows = len(display_df)
-
-        if max_rows > 5000:
-
-            display_limit = st.number_input(
-                "Maximum records to display",
-                min_value=100,
-                max_value=max_rows,
-                value=1000,
-                step=100
-            )
-
-        else:
-
-            display_limit = max_rows
-
-        display_df = display_df.head(
-            int(display_limit)
-        )
-
-        display_df = _format_dataframe_for_display(
-            display_df
-        )
-
-        # ----------------------------------------------------
-        # DATA TABLE
-        # ----------------------------------------------------
-
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            height=600
-        )
-
-    # ========================================================
-    # TAB 2 — QUICK ANALYSIS
-    # ========================================================
-
-    with tab2:
-
-        _management_summary(
-            filtered_df
-        )
-
-        st.divider()
-
-        st.subheader(
-            "📊 Category-wise Analysis"
-        )
-
-        categorical_columns = [
-            col
-            for col in filtered_df.columns
-            if (
-                filtered_df[col].dtype == "object"
-                or
-                str(
-                    filtered_df[col].dtype
-                ).startswith("category")
-            )
+    default_columns = [
+        column
+        for column in [
+            "Reporting Date",
+            "Year",
+            "Month",
+            "Week",
+            "Disease",
+            "Facility Name",
+            "Ward Name",
+            "Gender",
+            "Age",
+            "Age Group",
+            "OPD/IPD",
+            "Confirmed Diagnosis",
         ]
+        if column in all_columns
+    ]
 
-        if categorical_columns:
+    if not default_columns:
+        default_columns = all_columns[:15]
 
-            selected_category = st.selectbox(
-                "Select a variable",
-                categorical_columns
-            )
+    selected_columns = st.multiselect(
+        "Columns to display",
+        options=all_columns,
+        default=default_columns,
+        key="explorer_columns",
+    )
 
-            _category_analysis(
-                filtered_df,
-                selected_category
-            )
+    if not selected_columns:
+        st.warning(
+            "Please select at least one column."
+        )
+        return
 
-        else:
+    # =========================================================
+    # 5. SORT
+    # =========================================================
 
-            st.info(
-                "No categorical variables are available."
-            )
+    st.divider()
 
-        # ----------------------------------------------------
-        # COMMON PROGRAMME VARIABLES
-        # ----------------------------------------------------
+    st.markdown("### ↕️ Sort Records")
 
-        st.divider()
+    sort_columns = st.columns(
+        [3, 1],
+        gap="medium",
+    )
 
-        st.subheader(
-            "🎯 Programme Variables"
+    with sort_columns[0]:
+
+        sort_column = st.selectbox(
+            "Sort by",
+            options=selected_columns,
+            key="explorer_sort_column",
         )
 
-        programme_columns = [
-            col
-            for col in [
-                "Ward",
-                "Facility Name Lform",
-                "Gender",
-                "Confirmed Diagnosis",
-                "Month",
-                "Age",
-                "Age Group"
-            ]
-            if col in filtered_df.columns
-        ]
+    with sort_columns[1]:
 
-        if programme_columns:
-
-            selected_programme_variable = st.selectbox(
-                "Select programme variable",
-                programme_columns,
-                key="programme_variable"
-            )
-
-            _category_analysis(
-                filtered_df,
-                selected_programme_variable
-            )
-
-    # ========================================================
-    # TAB 3 — DATA QUALITY
-    # ========================================================
-
-    with tab3:
-
-        st.subheader(
-            "🔍 Data Quality Assessment"
+        sort_descending = st.checkbox(
+            "Descending",
+            value=True,
+            key="explorer_sort_descending",
         )
 
-        quality_df = _data_quality_table(
-            filtered_df
-        )
+    if sort_column in explorer_df.columns:
 
-        st.dataframe(
-            quality_df,
-            use_container_width=True,
-            hide_index=True
-        )
+        try:
 
-        # ----------------------------------------------------
-        # MISSING DATA WARNING
-        # ----------------------------------------------------
-
-        high_missing = quality_df[
-            quality_df["Missing (%)"] >= 20
-        ]
-
-        if not high_missing.empty:
-
-            st.warning(
-                f"{len(high_missing)} column(s) have "
-                "20% or more missing data."
+            explorer_df = explorer_df.sort_values(
+                by=sort_column,
+                ascending=not sort_descending,
+                na_position="last",
             )
 
-        # ----------------------------------------------------
-        # DUPLICATES
-        # ----------------------------------------------------
+        except Exception:
+            pass
 
-        duplicate_count = int(
-            filtered_df.duplicated().sum()
+    # =========================================================
+    # 6. ROW DISPLAY LIMIT
+    # =========================================================
+
+    st.markdown("### 📄 Display Options")
+
+    display_columns = st.columns(
+        [2, 2, 2],
+        gap="medium",
+    )
+
+    with display_columns[0]:
+
+        max_rows = st.number_input(
+            "Maximum rows to display",
+            min_value=50,
+            max_value=10000,
+            value=1000,
+            step=50,
+            key="explorer_max_rows",
+        )
+
+    with display_columns[1]:
+
+        st.metric(
+            "Available Search Results",
+            f"{len(explorer_df):,}",
+        )
+
+    with display_columns[2]:
+
+        displayed_count = min(
+            len(explorer_df),
+            int(max_rows),
         )
 
         st.metric(
-            "Duplicate Records",
-            f"{duplicate_count:,}"
+            "Rows Displayed",
+            f"{displayed_count:,}",
         )
 
-        # ----------------------------------------------------
-        # COMPLETELY EMPTY COLUMNS
-        # ----------------------------------------------------
+    # =========================================================
+    # 7. DATA TABLE
+    # =========================================================
 
-        empty_columns = [
-            col
-            for col in filtered_df.columns
-            if filtered_df[col].notna().sum() == 0
-        ]
+    st.divider()
 
-        if empty_columns:
+    st.markdown("### 📋 Record-level Data")
 
-            st.warning(
-                "Completely empty columns detected:"
-            )
+    table_df = explorer_df[
+        selected_columns
+    ].head(
+        int(max_rows)
+    ).copy()
 
-            st.write(
-                empty_columns
-            )
+    table_df = _prepare_display_data(
+        table_df
+    )
 
-    # ========================================================
-    # TAB 4 — DOWNLOAD
-    # ========================================================
+    st.dataframe(
+        table_df,
+        use_container_width=True,
+        hide_index=True,
+        height=550,
+    )
 
-    with tab4:
-
-        st.subheader(
-            "⬇️ Download Filtered Data"
-        )
-
-        download_df = _format_dataframe_for_display(
-            filtered_df
-        )
-
-        csv_data = download_df.to_csv(
-            index=False
-        ).encode(
-            "utf-8-sig"
-        )
-
-        st.download_button(
-            label="⬇️ Download Filtered CSV",
-            data=csv_data,
-            file_name="filtered_management_data.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+    if len(explorer_df) > int(max_rows):
 
         st.caption(
-            "The downloaded file contains the records "
-            "after applying the selected dashboard filters."
+            f"Only the first {int(max_rows):,} rows are "
+            f"displayed. The export section below contains "
+            f"the complete filtered dataset."
         )
 
+    # =========================================================
+    # 8. COMPLETE FILTERED DATA
+    # =========================================================
 
-# ============================================================
-# COMPATIBILITY ALIASES
-# ============================================================
-# Supports different names from app.py.
+    st.divider()
 
-def render_explorer_analysis(df):
-    return render_explorer(df)
+    st.markdown("### 📦 Complete Filtered Dataset")
 
+    st.write(
+        f"Current Global Filter + Search result contains "
+        f"**{len(explorer_df):,} records**."
+    )
 
-def render_data_explorer(df):
-    return render_explorer(df)
+    complete_export_df = explorer_df.copy()
+
+    # =========================================================
+    # 9. CSV EXPORT
+    # =========================================================
+
+    csv_data = complete_export_df.to_csv(
+        index=False
+    ).encode(
+        "utf-8-sig"
+    )
+
+    csv_columns = st.columns(
+        [1, 1, 1],
+        gap="medium",
+    )
+
+    with csv_columns[0]:
+
+        st.download_button(
+            label="⬇️ Download CSV",
+            data=csv_data,
+            file_name=(
+                "health_programme_filtered_data.csv"
+            ),
+            mime="text/csv",
+            use_container_width=True,
+            key="explorer_download_csv",
+        )
+
+    # =========================================================
+    # 10. EXCEL EXPORT
+    # =========================================================
+
+    excel_data = _create_excel_bytes(
+        complete_export_df
+    )
+
+    with csv_columns[1]:
+
+        st.download_button(
+            label="📊 Download Excel",
+            data=excel_data,
+            file_name=(
+                "health_programme_filtered_data.xlsx"
+            ),
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            use_container_width=True,
+            key="explorer_download_excel",
+        )
+
+    # =========================================================
+    # 11. SELECTED COLUMNS EXPORT
+    # =========================================================
+
+    selected_export_df = explorer_df[
+        selected_columns
+    ].copy()
+
+    selected_csv = (
+        selected_export_df
+        .to_csv(index=False)
+        .encode("utf-8-sig")
+    )
+
+    with csv_columns[2]:
+
+        st.download_button(
+            label="📥 Selected Columns CSV",
+            data=selected_csv,
+            file_name=(
+                "health_programme_selected_columns.csv"
+            ),
+            mime="text/csv",
+            use_container_width=True,
+            key="explorer_download_selected_csv",
+        )
+
+    # =========================================================
+    # 12. COLUMN DATA QUALITY
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### 🧪 Column-wise Data Quality")
+
+    quality_rows = []
+
+    for column in df.columns:
+
+        series = df[column]
+
+        total = len(series)
+        missing = int(
+            series.isna().sum()
+        )
+
+        if total > 0:
+            missing_percent = (
+                missing
+                / total
+                * 100
+            )
+        else:
+            missing_percent = 0
+
+        unique_count = int(
+            series.nunique(
+                dropna=True
+            )
+        )
+
+        quality_rows.append(
+            {
+                "Column": column,
+                "Data Type": str(
+                    series.dtype
+                ),
+                "Records": total,
+                "Missing": missing,
+                "Missing %": round(
+                    missing_percent,
+                    2,
+                ),
+                "Unique Values": unique_count,
+            }
+        )
+
+    quality_df = pd.DataFrame(
+        quality_rows
+    )
+
+    st.dataframe(
+        quality_df,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # =========================================================
+    # 13. FILTERED DATA INFORMATION
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### ℹ️ Current Data Scope")
+
+    scope_items = []
+
+    if "Reporting Date" in df.columns:
+
+        dates = pd.to_datetime(
+            df["Reporting Date"],
+            errors="coerce",
+        ).dropna()
+
+        if not dates.empty:
+
+            scope_items.append(
+                {
+                    "Indicator": "Reporting Period",
+                    "Value": (
+                        f"{dates.min().strftime('%d-%m-%Y')} "
+                        f"to "
+                        f"{dates.max().strftime('%d-%m-%Y')}"
+                    ),
+                }
+            )
+
+    scope_items.extend(
+        [
+            {
+                "Indicator": "Filtered Records",
+                "Value": f"{len(df):,}",
+            },
+            {
+                "Indicator": "Explorer Search Results",
+                "Value": f"{len(explorer_df):,}",
+            },
+            {
+                "Indicator": "Displayed Columns",
+                "Value": f"{len(selected_columns):,}",
+            },
+        ]
+    )
+
+    scope_df = pd.DataFrame(
+        scope_items
+    )
+
+    st.dataframe(
+        scope_df,
+        use_container_width=True,
+        hide_index=True,
+    )
