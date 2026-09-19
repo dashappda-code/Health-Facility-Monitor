@@ -540,3 +540,4 @@ def refresh_data():
 
     return load_data()
 
+
