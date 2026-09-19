@@ -18,29 +18,25 @@ from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
 
-# ============================================================
+# =========================================================
 # PAGE CONFIGURATION
-# ============================================================
+# =========================================================
 
 st.set_page_config(
-    page_title="Health Programme Management Dashboard",
+    page_title="MSU Mumbai Public Health Surveillance Dashboard",
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 
-# ============================================================
-# GLOBAL PAGE STYLE
-# ============================================================
+# =========================================================
+# DASHBOARD STYLING
+# =========================================================
 
 st.markdown(
     """
     <style>
-
-    /* ======================================================
-       MAIN APPLICATION
-       ====================================================== */
 
     .block-container {
         padding-top: 0.65rem;
@@ -48,19 +44,9 @@ st.markdown(
         max-width: 100%;
     }
 
-
-    /* ======================================================
-       SIDEBAR
-       ====================================================== */
-
     section[data-testid="stSidebar"] {
         width: 250px;
     }
-
-
-    /* ======================================================
-       GLOBAL FILTER CONTAINER
-       ====================================================== */
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px !important;
@@ -71,11 +57,6 @@ st.markdown(
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
     }
 
-
-    /* ======================================================
-       FILTER LABELS
-       ====================================================== */
-
     div[data-testid="stMultiSelect"] label,
     div[data-testid="stDateInput"] label {
         font-size: 11px !important;
@@ -83,40 +64,20 @@ st.markdown(
         margin-bottom: 2px !important;
     }
 
-
-    /* ======================================================
-       FILTER BOXES
-       ====================================================== */
-
     div[data-testid="stMultiSelect"] > div,
     div[data-testid="stDateInput"] > div {
         min-height: 36px !important;
     }
-
-
-    /* ======================================================
-       MULTISELECT INPUT
-       ====================================================== */
 
     div[data-testid="stMultiSelect"] [data-baseweb="select"] {
         min-height: 36px !important;
         border-radius: 7px !important;
     }
 
-
-    /* ======================================================
-       DATE INPUT
-       ====================================================== */
-
     div[data-testid="stDateInput"] input {
         min-height: 34px !important;
         border-radius: 7px !important;
     }
-
-
-    /* ======================================================
-       RESET BUTTON
-       ====================================================== */
 
     .st-key-global_reset_filters button {
         min-height: 36px !important;
@@ -125,28 +86,13 @@ st.markdown(
         white-space: nowrap !important;
     }
 
-
-    /* ======================================================
-       FILTER SPACING
-       ====================================================== */
-
     div[data-testid="stHorizontalBlock"] {
         gap: 0.55rem !important;
     }
 
-
-    /* ======================================================
-       KPI CARDS
-       ====================================================== */
-
     [data-testid="stMetric"] {
         padding: 7px 10px !important;
     }
-
-
-    /* ======================================================
-       FOOTER
-       ====================================================== */
 
     .dashboard-footer {
         text-align: center;
@@ -161,22 +107,22 @@ st.markdown(
 )
 
 
-# ============================================================
-# TITLE
-# ============================================================
+# =========================================================
+# DASHBOARD HEADER
+# =========================================================
 
 st.title(
-    "🏥 Health Programme Management Dashboard"
+    "🏥 MSU Mumbai Public Health Surveillance Dashboard"
 )
 
 st.caption(
-    "Live Google Sheet Based Programme Monitoring System"
+    "Surveillance • Monitoring • Analysis • Management"
 )
 
 
-# ============================================================
-# LOAD DATA
-# ============================================================
+# =========================================================
+# DATA LOADING
+# =========================================================
 
 def get_data():
     return load_data()
@@ -200,13 +146,14 @@ if df is None or df.empty:
     st.stop()
 
 
-# ============================================================
-# SIDEBAR MENU
-# ============================================================
+# =========================================================
+# SIDEBAR
+# =========================================================
 
 st.sidebar.title(
     "📌 Dashboard Menu"
 )
+
 
 page = st.sidebar.radio(
     "Select Section",
@@ -224,16 +171,18 @@ page = st.sidebar.radio(
     ],
 )
 
+
 st.sidebar.divider()
+
 
 st.sidebar.caption(
     f"Records loaded: {len(df):,}"
 )
 
 
-# ============================================================
+# =========================================================
 # GLOBAL DASHBOARD CONTROL
-# ============================================================
+# =========================================================
 
 st.subheader(
     "🎛️ Global Dashboard Control"
@@ -245,10 +194,6 @@ st.caption(
 )
 
 
-# ============================================================
-# HORIZONTAL FILTER PANEL
-# ============================================================
-
 with st.container(
     border=True,
     key="global_filter_panel",
@@ -259,19 +204,15 @@ with st.container(
     )
 
 
-# ============================================================
+# =========================================================
 # APPLY GLOBAL FILTERS
-# ============================================================
+# =========================================================
 
 filtered_df = apply_filters(
     df=df,
     **filter_values,
 )
 
-
-# ============================================================
-# FILTER STATUS
-# ============================================================
 
 st.caption(
     f"📊 Filtered Records: "
@@ -280,13 +221,14 @@ st.caption(
 )
 
 
-# ============================================================
-# GLOBAL KPI BAR
-# ============================================================
+# =========================================================
+# GLOBAL KPI
+# =========================================================
 
 kpis = calculate_kpis(
     filtered_df
 )
+
 
 c1, c2, c3, c4 = st.columns(4)
 
@@ -326,9 +268,9 @@ with c4:
 st.divider()
 
 
-# ============================================================
-# PAGE CONTENT
-# ============================================================
+# =========================================================
+# DASHBOARD SECTIONS
+# =========================================================
 
 try:
 
@@ -400,9 +342,9 @@ except Exception as e:
     st.exception(e)
 
 
-# ============================================================
-# GOOGLE SHEET REFRESH
-# ============================================================
+# =========================================================
+# REFRESH GOOGLE SHEET DATA
+# =========================================================
 
 st.sidebar.markdown("---")
 
@@ -427,15 +369,15 @@ if st.sidebar.button(
     st.rerun()
 
 
-# ============================================================
+# =========================================================
 # FOOTER
-# ============================================================
+# =========================================================
 
 st.markdown(
     """
     <div class="dashboard-footer">
-        Health Programme Management Dashboard |
-        Live Google Sheet Based Monitoring System
+        MSU Mumbai Public Health Surveillance Dashboard |
+        Surveillance • Monitoring • Analysis • Management
     </div>
     """,
     unsafe_allow_html=True,
