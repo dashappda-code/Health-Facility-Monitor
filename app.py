@@ -11,6 +11,7 @@ from phase8_prediction import render_prediction
 from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
+from dashboard_control import render_dashboard_control, render_filter_summary
 
 
 # ============================================================
@@ -73,7 +74,18 @@ except Exception:
 
 st.sidebar.divider()
 
+# ============================================================
+# GLOBAL DASHBOARD CONTROL
+# ============================================================
 
+original_df = df.copy()
+
+df = render_dashboard_control(df)
+
+render_filter_summary(
+    original_df,
+    df
+)
 # ============================================================
 # SIDEBAR NAVIGATION
 # ============================================================
