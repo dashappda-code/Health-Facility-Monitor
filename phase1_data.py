@@ -332,6 +332,37 @@ def clean_data(df):
     # "Ward".  Create the canonical columns expected by the dashboard
     # without destroying the original fields.
 
+    # Live sheet -> dashboard canonical mappings
+    if "Confirmed Diagnosis" in df.columns:
+        disease_source = (
+            df["Confirmed Diagnosis"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        current_disease = (
+            df["Disease"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        df.loc[current_disease.eq(""), "Disease"] = disease_source[current_disease.eq("")]
+
+    if "Opd Ipd" in df.columns:
+        opd_source = (
+            df["Opd Ipd"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        current_opd = (
+            df["OPD/IPD"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        df.loc[current_opd.eq(""), "OPD/IPD"] = opd_source[current_opd.eq("")]
+
     if "Facility Name Lform" in df.columns:
         facility_source = (
             df["Facility Name Lform"]
