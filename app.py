@@ -31,158 +31,69 @@ st.set_page_config(
 
 
 # ============================================================
-# GLOBAL DASHBOARD STYLE
+# GLOBAL PAGE STYLE
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* --------------------------------------------------------
-       MAIN PAGE
-       -------------------------------------------------------- */
-
+    /* Main application area */
     .block-container {
-        padding-top: 0.8rem;
+        padding-top: 0.7rem;
         padding-bottom: 1rem;
+        max-width: 100%;
     }
 
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        width: 250px;
+    }
 
-    /* --------------------------------------------------------
-       GLOBAL FILTER PANEL HEADER
-       -------------------------------------------------------- */
-
-    .global-filter-panel {
-        background: linear-gradient(
-            90deg,
-            #eaf4ff,
-            #f8fbff
-        );
-
-        border: 1px solid #c9dced;
+    /* Top horizontal control panel */
+    .top-control-panel {
+        border: 1px solid #c7d9e8;
         border-left: 5px solid #1769aa;
-
         border-radius: 12px;
-
-        padding: 9px 14px;
-
-        margin: 5px 0 7px 0;
-
-        box-shadow:
-            0 3px 12px
-            rgba(30, 60, 90, 0.08);
+        background: #f7fbff;
+        padding: 10px 14px 8px 14px;
+        margin-top: 4px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 8px rgba(30, 60, 90, 0.08);
     }
 
-
-    .global-filter-panel-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-
-    .global-filter-title {
-        font-size: 19px;
-        font-weight: 750;
-        color: #123b5d;
-        line-height: 1.2;
-    }
-
-
-    .global-filter-subtitle {
+    /* Filter labels */
+    div[data-testid="stMultiSelect"] label {
         font-size: 12px;
-        color: #607080;
-        margin-top: 2px;
-        line-height: 1.3;
+        font-weight: 650;
     }
 
-
-    /* --------------------------------------------------------
-       FILTER PANEL
-       -------------------------------------------------------- */
-
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 12px;
-    }
-
-
-    /* --------------------------------------------------------
-       FILTER LABELS
-       -------------------------------------------------------- */
-
-    div[data-testid="stMultiSelect"] label,
     div[data-testid="stDateInput"] label {
         font-size: 12px;
         font-weight: 650;
     }
 
-
+    /* Compact controls */
     div[data-testid="stMultiSelect"] {
         margin-bottom: 0;
     }
-
 
     div[data-testid="stDateInput"] {
         margin-bottom: 0;
     }
 
-
-    /* --------------------------------------------------------
-       RESET BUTTON
-       -------------------------------------------------------- */
-
+    /* Reset button */
     .st-key-global_reset_filters button {
         border-radius: 8px;
         font-weight: 700;
     }
 
-
-    /* --------------------------------------------------------
-       DATE TITLE
-       -------------------------------------------------------- */
-
-    .filter-date-title {
-        font-size: 12px;
-        font-weight: 650;
-        color: #455a64;
-        margin-bottom: 2px;
-    }
-
-
-    /* --------------------------------------------------------
-       FILTER PANEL LABEL
-       -------------------------------------------------------- */
-
-    .filter-panel-label {
-        font-size: 13px;
-        font-weight: 700;
-        color: #456276;
-        padding: 2px 0 5px 0;
-    }
-
-
-    /* --------------------------------------------------------
-       KPI
-       -------------------------------------------------------- */
-
+    /* Metrics */
     [data-testid="stMetric"] {
         padding: 7px 10px;
     }
 
-
-    /* --------------------------------------------------------
-       SIDEBAR
-       -------------------------------------------------------- */
-
-    section[data-testid="stSidebar"] {
-        width: 250px;
-    }
-
-
-    /* --------------------------------------------------------
-       FOOTER
-       -------------------------------------------------------- */
-
+    /* Footer */
     .dashboard-footer {
         text-align: center;
         color: #777;
@@ -197,7 +108,7 @@ st.markdown(
 
 
 # ============================================================
-# DASHBOARD TITLE
+# TITLE
 # ============================================================
 
 st.title(
@@ -210,7 +121,7 @@ st.caption(
 
 
 # ============================================================
-# DATA LOADING
+# LOAD DATA
 # ============================================================
 
 def get_data():
@@ -219,10 +130,6 @@ def get_data():
 
 df = get_data()
 
-
-# ============================================================
-# DATA VALIDATION
-# ============================================================
 
 if df is None or df.empty:
 
@@ -240,13 +147,12 @@ if df is None or df.empty:
 
 
 # ============================================================
-# SIDEBAR NAVIGATION
+# SIDEBAR MENU
 # ============================================================
 
 st.sidebar.title(
     "📌 Dashboard Menu"
 )
-
 
 page = st.sidebar.radio(
     "Select Section",
@@ -264,9 +170,7 @@ page = st.sidebar.radio(
     ],
 )
 
-
 st.sidebar.divider()
-
 
 st.sidebar.caption(
     f"Records loaded: {len(df):,}"
@@ -274,11 +178,27 @@ st.sidebar.caption(
 
 
 # ============================================================
-# GLOBAL FILTER
+# TOP HORIZONTAL GLOBAL DASHBOARD CONTROL
 # ============================================================
 
-filter_values = create_filters(df)
+st.markdown(
+    '<div class="top-control-panel">',
+    unsafe_allow_html=True,
+)
 
+filter_values = create_filters(
+    df
+)
+
+st.markdown(
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# APPLY GLOBAL FILTERS
+# ============================================================
 
 filtered_df = apply_filters(
     df=df,
@@ -287,7 +207,7 @@ filtered_df = apply_filters(
 
 
 # ============================================================
-# FILTERED RECORD COUNT
+# FILTER STATUS
 # ============================================================
 
 st.caption(
@@ -298,13 +218,12 @@ st.caption(
 
 
 # ============================================================
-# MANAGEMENT KPI STRIP
+# GLOBAL KPI BAR
 # ============================================================
 
 kpis = calculate_kpis(
     filtered_df
 )
-
 
 c1, c2, c3, c4 = st.columns(4)
 
@@ -345,7 +264,7 @@ st.divider()
 
 
 # ============================================================
-# DASHBOARD SECTIONS
+# PAGE CONTENT
 # ============================================================
 
 try:
@@ -356,13 +275,11 @@ try:
             filtered_df
         )
 
-
     elif page == "Charts & Trends":
 
         render_charts(
             filtered_df
         )
-
 
     elif page == "Demographics":
 
@@ -370,13 +287,11 @@ try:
             filtered_df
         )
 
-
     elif page == "Ward Analysis":
 
         render_ward(
             filtered_df
         )
-
 
     elif page == "Map":
 
@@ -384,13 +299,11 @@ try:
             filtered_df
         )
 
-
     elif page == "Data Explorer":
 
         render_explorer(
             filtered_df
         )
-
 
     elif page == "Prediction":
 
@@ -398,18 +311,15 @@ try:
             filtered_df
         )
 
-
     elif page == "User Manual":
 
         render_manual()
-
 
     elif page == "Validation & KPI":
 
         render_validation_kpi(
             filtered_df
         )
-
 
     elif page == "Drill-down & Export":
 
@@ -425,6 +335,33 @@ except Exception as e:
     )
 
     st.exception(e)
+
+
+# ============================================================
+# GOOGLE SHEET REFRESH
+# ============================================================
+
+st.sidebar.markdown("---")
+
+
+if st.sidebar.button(
+    "🔄 Refresh Google Sheet Data",
+    use_container_width=True,
+):
+
+    with st.spinner(
+        "Refreshing Google Sheet data..."
+    ):
+
+        from phase1_data import refresh_data
+
+        refresh_data()
+
+    st.success(
+        "Google Sheet data refreshed successfully."
+    )
+
+    st.rerun()
 
 
 # ============================================================
