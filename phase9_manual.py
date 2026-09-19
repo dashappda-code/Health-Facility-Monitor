@@ -6,18 +6,19 @@ def render_manual():
     st.subheader("📘 User Manual")
 
     st.caption(
-        "Health Programme Management Dashboard — "
-        "User Guide and Operational Instructions"
+        "MSU Mumbai Public Health Surveillance Dashboard — "
+        "Surveillance • Monitoring • Analysis • Management"
     )
 
     # =========================================================
-    # 1. PURPOSE
+    # 1. DASHBOARD PURPOSE
     # =========================================================
 
     st.markdown("## 1. Dashboard Purpose")
 
     st.write(
-        "This dashboard is designed for programme monitoring, "
+        "The MSU Mumbai Public Health Surveillance Dashboard is "
+        "designed for public health surveillance, programme monitoring, "
         "data review, trend analysis, facility-wise and ward-wise "
         "assessment, demographic analysis, validation and "
         "management-level decision support."
@@ -46,8 +47,10 @@ def render_manual():
         """
         **Important operational points**
 
-        - The Google Sheet should remain accessible to the dashboard.
-        - Column names should not be changed without updating the dashboard.
+        - The Google Sheet is the primary data source.
+        - The source sheet should remain accessible to the dashboard.
+        - Required column names should not be changed without updating
+          the dashboard data-mapping logic.
         - New records should follow the existing data-entry structure.
         - Reporting dates should be entered in a valid date format.
         - Facility and Ward names should be entered consistently.
@@ -115,7 +118,7 @@ def render_manual():
     )
 
     # =========================================================
-    # 4. HOW TO USE FILTERS
+    # 4. HOW TO APPLY FILTERS
     # =========================================================
 
     st.markdown("## 4. How to Apply Filters")
@@ -133,15 +136,15 @@ def render_manual():
 
         **Step 5:** Review the **Filtered Records** count.
 
-        **Step 6:** Move between dashboard tabs. The selected filters
-        continue to control the analysis.
+        **Step 6:** Move between dashboard sections. The selected
+        filters continue to control the analysis.
 
         **Step 7:** To remove all selections, click **↩️ Reset**.
         """
     )
 
     # =========================================================
-    # 5. DASHBOARD TABS
+    # 5. DASHBOARD SECTIONS
     # =========================================================
 
     st.markdown("## 5. Dashboard Sections")
@@ -160,7 +163,7 @@ def render_manual():
             "Drill-down & Export",
         ],
         "Primary Use": [
-            "Overall programme status, KPIs, disease, facility and ward burden.",
+            "Overall surveillance status, KPIs, disease, facility and ward burden.",
             "Month-wise, disease-wise, facility-wise and ward-wise trends.",
             "Age, age group, gender and OPD/IPD analysis.",
             "Ward burden, ward ranking and ward-level cross-analysis.",
@@ -187,7 +190,7 @@ def render_manual():
 
     st.write(
         "The Overview section provides a management-level summary "
-        "of the currently filtered records."
+        "of the currently filtered surveillance records."
     )
 
     st.markdown(
@@ -213,7 +216,7 @@ def render_manual():
 
     st.write(
         "This section provides trend-based analysis for monitoring "
-        "changes in programme records over time."
+        "changes in surveillance records over time."
     )
 
     st.markdown(
@@ -238,7 +241,7 @@ def render_manual():
 
     st.write(
         "The Demographics section provides population-level "
-        "characteristics of the selected records."
+        "characteristics of the selected surveillance records."
     )
 
     st.markdown(
@@ -267,7 +270,7 @@ def render_manual():
 
     st.write(
         "Ward Analysis is intended for geographic programme "
-        "management at ward level."
+        "management and surveillance assessment at ward level."
     )
 
     st.markdown(
@@ -302,8 +305,8 @@ def render_manual():
         "If Latitude and Longitude are not available in the "
         "Google Sheet, the dashboard does not create artificial "
         "coordinates. In that situation, ward, facility and "
-        "patient-location information is presented as tabular/"
-        "distribution analysis."
+        "patient-location information is presented through "
+        "location-wise analysis."
     )
 
     # =========================================================
@@ -338,7 +341,7 @@ def render_manual():
 
     st.write(
         "The Prediction section provides historical trend-based "
-        "indicative projections for programme planning."
+        "indicative projections for programme planning and monitoring."
     )
 
     st.markdown(
@@ -368,7 +371,7 @@ def render_manual():
 
     st.write(
         "This section is intended to assess the completeness, "
-        "consistency and basic validity of the filtered dataset."
+        "consistency and basic validity of the filtered surveillance data."
     )
 
     st.markdown(
@@ -377,13 +380,14 @@ def render_manual():
 
         - Total records
         - Missing values
-        - Date validity
+        - Reporting Date validity
         - Age validity
         - Gender completeness
         - Disease completeness
         - Facility completeness
         - Ward completeness
         - Duplicate records
+        - Year and Month distribution
         - KPI summary
         """
     )
@@ -395,20 +399,34 @@ def render_manual():
     st.markdown("## 14. Drill-down & Export")
 
     st.write(
-        "This section supports management-level detailed review "
-        "and extraction of filtered programme information."
+        "This section supports detailed management-level review "
+        "and extraction of filtered surveillance information."
     )
 
     st.markdown(
         """
-        Use this section when detailed analysis is required after "
-        "applying Year, Month, Disease, Facility, Ward, Gender, "
-        "Age Group, OPD/IPD or date filters."
+        Use this section when detailed analysis is required after
+        applying Year, Month, Disease, Facility, Ward, Gender,
+        Age Group, OPD/IPD or date filters.
+
+        Available drill-down includes:
+
+        - Facility-wise
+        - Ward-wise
+        - Disease-wise
+        - Facility × Ward
+        - Facility × Disease
+        - Ward × Disease
+        - Month-wise
+        - Gender-wise
+        - Age Group-wise
+        - OPD/IPD-wise
+        - Record-level detail
         """
     )
 
     # =========================================================
-    # 15. REFRESH GOOGLE SHEET
+    # 15. REFRESH GOOGLE SHEET DATA
     # =========================================================
 
     st.markdown("## 15. Refresh Google Sheet Data")
@@ -419,11 +437,11 @@ def render_manual():
 
         **Step 1:** Update the Google Sheet.
 
-        **Step 2:** Save/complete the required data entry.
+        **Step 2:** Complete the required data entry.
 
         **Step 3:** Return to the dashboard.
 
-        **Step 4:** Use **🔄 Refresh Google Sheet Data** from the "
+        **Step 4:** Use **🔄 Refresh Google Sheet Data** from the
         sidebar.
 
         **Step 5:** Wait for the refresh to complete.
@@ -479,7 +497,7 @@ def render_manual():
 
     st.markdown(
         """
-        For reliable dashboard outputs:
+        For reliable surveillance outputs:
 
         - Use consistent facility names.
         - Use consistent ward names.
@@ -504,8 +522,7 @@ def render_manual():
         """
         **Record count is not automatically equivalent to disease incidence.**
 
-        Programme managers should interpret dashboard findings in the
-        context of:
+        Surveillance findings should be interpreted in the context of:
 
         - Reporting completeness
         - Facility reporting practices
@@ -551,18 +568,24 @@ def render_manual():
     )
 
     # =========================================================
-    # 20. FOOTER
+    # 20. DASHBOARD IDENTITY
     # =========================================================
 
-    st.divider()
+    st.markdown("## 20. Dashboard Identity")
+
+    st.markdown(
+        """
+        **MSU Mumbai Public Health Surveillance Dashboard**
+
+        *Surveillance • Monitoring • Analysis • Management*
+        """
+    )
 
     st.success(
-        "Dashboard User Manual completed. "
-        "Use the Global Dashboard Filters first, then review "
-        "the relevant management section."
+        "User Manual is ready for operational use."
     )
 
     st.caption(
-        "Health Programme Management Dashboard | "
-        "Live Google Sheet Based Monitoring System"
+        "MSU Mumbai Public Health Surveillance Dashboard | "
+        "Surveillance • Monitoring • Analysis • Management"
     )
