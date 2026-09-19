@@ -1,1138 +1,822 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import streamlit as st
 
 
-# ============================================================
-# COMMON HELPERS
-# ============================================================
+def _clean_text(df, column):
+    if df is None or df.empty or column not in df.columns:
+        return pd.Series(dtype="object")
 
-def _layout(fig, height=500):
-    fig.update_layout(
-        height=height,
-        margin=dict(l=20, r=20, t=60, b=20),
-        legend_title_text="",
-        hovermode="x unified"
-    )
-    return fig
-
-
-def _safe_numeric(series):
-    return pd.to_numeric(
-        series,
-        errors="coerce"
-    )
-
-
-def _month_column(df):
-    """
-    Detects a usable month/date column.
-    """
-
-    candidates = [
-        "Month",
-        "month",
-        "Month Name",
-        "Month_Name",
-        "Date",
-        "date",
-        "Registration Date",
-        "Registration_Date"
-    ]
-
-    for col in candidates:
-        if col in df.columns:
-            return col
-
-    return None
-
-
-def _convert_month_order(df, month_col):
-    """
-    Converts common month formats into chronological
-    month order where possible.
-    """
-
-    result = df.copy()
-
-    month_order = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec"
-    ]
-
-    month_map = {
-        "January": "Jan",
-        "February": "Feb",
-        "March": "Mar",
-        "April": "Apr",
-        "May": "May",
-        "June": "Jun",
-        "July": "Jul",
-        "August": "Aug",
-        "September": "Sep",
-        "October": "Oct",
-        "November": "Nov",
-        "December": "Dec"
-    }
-
-    result[month_col] = (
-        result[month_col]
+    return (
+        df[column]
+        .fillna("")
         .astype(str)
         .str.strip()
-        .replace(month_map)
     )
 
-    result[month_col] = pd.Categorical(
-        result[month_col],
-        categories=month_order,
-        ordered=True
-    )
 
-    return result
+def _month_number(value):
+    text = str(value).strip().lower()
+
+    month_map = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "sept": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
+    }
+
+    if text in month_map:
+        return month_map[text]
+
+    try:
+        number = int(float(text))
+
+        if 1 <= number <= 12:
+            return number
+
+    except Exception:
+        pass
+
+    return 99
 
 
-# ============================================================
-# MONTHLY CASE DATA
-# ============================================================
+def _prepare_monthly_data(df):
 
-def _monthly_cases(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-    month_col = _month_column(df)
-
-    if month_col is None:
-        return None, None
+    if "Month" not in df.columns:
+        return pd.DataFrame()
 
     temp = df.copy()
 
-    # --------------------------------------------------------
-    # If actual date column
-    # --------------------------------------------------------
+    temp["Month"] = (
+        temp["Month"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
 
-    if (
-        "date" in month_col.lower()
-        or "registration" in month_col.lower()
-    ):
+    temp = temp[
+        temp["Month"].ne("")
+        & temp["Month"].ne("nan")
+        & temp["Month"].ne("NaT")
+    ]
 
-        parsed = pd.to_datetime(
-            temp[month_col],
-            errors="coerce",
-            dayfirst=True
+    if temp.empty:
+        return pd.DataFrame()
+
+    # ---------------------------------------------------------
+    # Prefer Year + Month when Year is available
+    # ---------------------------------------------------------
+
+    if "Year" in temp.columns:
+
+        temp["Year"] = (
+            temp["Year"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
         )
 
-        if parsed.notna().sum() > 0:
+        temp["Year_Number"] = pd.to_numeric(
+            temp["Year"],
+            errors="coerce",
+        )
 
-            temp["_PredictionMonth"] = (
-                parsed
-                .dt.to_period("M")
-                .astype(str)
+        temp["Month_Number"] = (
+            temp["Month"]
+            .map(_month_number)
+        )
+
+        valid_year = (
+            temp["Year_Number"].notna()
+            & temp["Year_Number"].between(
+                2000,
+                2100,
             )
+        )
 
-            monthly = (
-                temp
-                .dropna(
-                    subset=["_PredictionMonth"]
-                )
-                .groupby("_PredictionMonth")
-                .size()
-                .reset_index(
-                    name="Cases"
-                )
+        valid_month = (
+            temp["Month_Number"].between(
+                1,
+                12,
             )
+        )
 
-            monthly["Month"] = pd.to_datetime(
-                monthly["_PredictionMonth"]
-                + "-01",
-                errors="coerce"
+        temp = temp[
+            valid_year
+            & valid_month
+        ]
+
+        if temp.empty:
+            return pd.DataFrame()
+
+        monthly = (
+            temp
+            .groupby(
+                [
+                    "Year_Number",
+                    "Month_Number",
+                ],
+                dropna=False,
             )
-
-            monthly = monthly.sort_values(
-                "Month"
+            .size()
+            .reset_index(
+                name="Records"
             )
+        )
 
-            return monthly, "Date"
+        monthly["Period"] = (
+            monthly["Year_Number"]
+            .astype(int)
+            .astype(str)
+            + "-"
+            + monthly["Month_Number"]
+            .astype(int)
+            .astype(str)
+            .str.zfill(2)
+        )
 
-    # --------------------------------------------------------
-    # Month name column
-    # --------------------------------------------------------
+        monthly = monthly.sort_values(
+            [
+                "Year_Number",
+                "Month_Number",
+            ]
+        )
 
-    temp = _convert_month_order(
-        temp,
-        month_col
+        return monthly.reset_index(
+            drop=True
+        )
+
+    # ---------------------------------------------------------
+    # Fallback: Month only
+    # ---------------------------------------------------------
+
+    temp["Month_Number"] = (
+        temp["Month"]
+        .map(_month_number)
     )
+
+    temp = temp[
+        temp["Month_Number"].between(
+            1,
+            12,
+        )
+    ]
+
+    if temp.empty:
+        return pd.DataFrame()
 
     monthly = (
         temp
-        .dropna(subset=[month_col])
-        .groupby(month_col, observed=True)
+        .groupby(
+            "Month_Number"
+        )
         .size()
         .reset_index(
-            name="Cases"
+            name="Records"
         )
     )
 
-    monthly = monthly.rename(
-        columns={
-            month_col: "Month"
-        }
+    monthly["Period"] = (
+        monthly["Month_Number"]
+        .astype(int)
+        .map(
+            {
+                1: "January",
+                2: "February",
+                3: "March",
+                4: "April",
+                5: "May",
+                6: "June",
+                7: "July",
+                8: "August",
+                9: "September",
+                10: "October",
+                11: "November",
+                12: "December",
+            }
+        )
     )
 
-    month_order = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec"
-    ]
-
-    monthly["Month"] = pd.Categorical(
-        monthly["Month"],
-        categories=month_order,
-        ordered=True
+    return monthly.sort_values(
+        "Month_Number"
+    ).reset_index(
+        drop=True
     )
 
-    monthly = monthly.sort_values(
-        "Month"
-    )
 
-    return monthly, "Month"
+def _calculate_projection(values):
 
-
-# ============================================================
-# SIMPLE TREND FORECAST
-# ============================================================
-
-def _linear_forecast(values, periods=1):
-
-    values = np.asarray(
+    numeric = pd.to_numeric(
         values,
-        dtype=float
+        errors="coerce",
     )
 
-    values = values[
-        np.isfinite(values)
+    numeric = numeric[
+        np.isfinite(numeric)
     ]
 
-    if len(values) == 0:
-        return []
+    if numeric.empty:
+        return None
 
-    if len(values) == 1:
+    if len(numeric) == 1:
+        return float(
+            numeric.iloc[-1]
+        )
 
-        return [
-            max(
-                0,
-                float(values[-1])
-            )
-            for _ in range(periods)
-        ]
+    # ---------------------------------------------------------
+    # Weighted recent baseline
+    # ---------------------------------------------------------
+
+    recent = numeric.tail(
+        min(3, len(numeric))
+    )
+
+    weights = np.arange(
+        1,
+        len(recent) + 1,
+        dtype=float,
+    )
+
+    weighted_average = float(
+        np.average(
+            recent,
+            weights=weights,
+        )
+    )
+
+    # ---------------------------------------------------------
+    # Linear trend
+    # ---------------------------------------------------------
 
     x = np.arange(
-        len(values),
-        dtype=float
+        len(numeric),
+        dtype=float,
     )
 
     try:
 
         slope, intercept = np.polyfit(
             x,
-            values,
-            1
+            numeric.to_numpy(
+                dtype=float
+            ),
+            1,
+        )
+
+        next_trend = (
+            slope * len(numeric)
+            + intercept
         )
 
     except Exception:
 
-        return [
-            max(
-                0,
-                float(values[-1])
-            )
-            for _ in range(periods)
-        ]
+        next_trend = weighted_average
 
-    future_x = np.arange(
-        len(values),
-        len(values) + periods,
-        dtype=float
+    # ---------------------------------------------------------
+    # Combine recent level + trend
+    # ---------------------------------------------------------
+
+    projection = (
+        weighted_average * 0.70
+        + next_trend * 0.30
     )
 
-    predictions = (
-        slope * future_x
-        + intercept
+    # Counts cannot be negative.
+    projection = max(
+        0,
+        projection,
     )
 
-    predictions = np.maximum(
-        predictions,
-        0
+    return float(
+        projection
     )
 
-    return predictions.tolist()
 
+def render_prediction(df):
 
-# ============================================================
-# TREND CLASSIFICATION
-# ============================================================
+    st.subheader("🔮 Prediction & Trend Projection")
 
-def _trend_direction(values):
-
-    if len(values) < 2:
-        return "Insufficient data"
-
-    first = float(values[0])
-    last = float(values[-1])
-
-    if first == 0:
-
-        if last > 0:
-            return "Increasing"
-
-        return "Stable"
-
-    change = (
-        (last - first)
-        / abs(first)
-        * 100
-    )
-
-    if change >= 10:
-        return "Increasing"
-
-    if change <= -10:
-        return "Decreasing"
-
-    return "Relatively stable"
-
-
-# ============================================================
-# PREDICTION KPI
-# ============================================================
-
-def _prediction_summary(
-    monthly,
-    prediction
-):
-
-    if monthly is None or monthly.empty:
+    if df is None or df.empty:
+        st.warning(
+            "No records available for the selected filters."
+        )
         return
 
-    historical_total = int(
-        monthly["Cases"].sum()
+    st.caption(
+        "Historical trend and indicative projection based on "
+        "the currently filtered programme data."
     )
 
-    average_cases = float(
-        monthly["Cases"].mean()
+    # =========================================================
+    # IMPORTANT METHODOLOGICAL NOTE
+    # =========================================================
+
+    st.info(
+        "⚠️ The projection shown in this section is an "
+        "indicative statistical estimate based on historical "
+        "record volume. It is not a confirmed disease forecast "
+        "and should not be interpreted as a clinical prediction."
     )
 
-    latest_cases = int(
-        monthly["Cases"].iloc[-1]
-    )
+    # =========================================================
+    # 1. MONTHLY HISTORICAL DATA
+    # =========================================================
 
-    predicted_cases = int(
-        round(
-            prediction
-        )
-    )
-
-    if latest_cases > 0:
-
-        change = (
-            (predicted_cases - latest_cases)
-            / latest_cases
-            * 100
-        )
-
-    else:
-
-        change = 0
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Historical Cases",
-        f"{historical_total:,}"
-    )
-
-    c2.metric(
-        "Average Cases / Period",
-        f"{average_cases:,.1f}"
-    )
-
-    c3.metric(
-        "Latest Period Cases",
-        f"{latest_cases:,}"
-    )
-
-    c4.metric(
-        "Next Period Trend Estimate",
-        f"{predicted_cases:,}",
-        delta=f"{change:+.1f}%"
-    )
-
-
-# ============================================================
-# MONTHLY TREND ANALYSIS
-# ============================================================
-
-def _monthly_prediction_analysis(df):
-
-    monthly, month_type = _monthly_cases(
+    monthly = _prepare_monthly_data(
         df
     )
 
-    if monthly is None or monthly.empty:
+    if monthly.empty:
 
         st.warning(
-            "A usable Month or Date column was not found "
-            "for prediction analysis."
+            "Insufficient Year/Month information is available "
+            "to generate a historical monthly projection."
         )
 
         return
 
-    if len(monthly) < 2:
+    st.markdown("### 📈 Historical Monthly Trend")
 
-        st.warning(
-            "At least two historical periods are required "
-            "for trend estimation."
-        )
+    trend_data = monthly[
+        [
+            "Period",
+            "Records",
+        ]
+    ].copy()
 
-        st.dataframe(
-            monthly,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # Historical values
-    # --------------------------------------------------------
-
-    historical_values = (
-        monthly["Cases"]
-        .astype(float)
-        .tolist()
+    trend_data = trend_data.set_index(
+        "Period"
     )
 
-    # --------------------------------------------------------
-    # Next-period estimate
-    # --------------------------------------------------------
-
-    predictions = _linear_forecast(
-        historical_values,
-        periods=1
+    st.line_chart(
+        trend_data["Records"],
+        use_container_width=True,
     )
 
-    next_prediction = (
-        predictions[0]
-        if predictions
-        else historical_values[-1]
-    )
-
-    _prediction_summary(
-        monthly,
-        next_prediction
-    )
+    # =========================================================
+    # 2. MOVING AVERAGE
+    # =========================================================
 
     st.divider()
 
-    # --------------------------------------------------------
-    # TREND
-    # --------------------------------------------------------
+    st.markdown("### 📊 Moving Average")
 
-    trend = _trend_direction(
-        historical_values
-    )
-
-    st.info(
-        f"Historical trend classification: **{trend}**"
-    )
-
-    # --------------------------------------------------------
-    # HISTORICAL CHART
-    # --------------------------------------------------------
-
-    chart_df = monthly.copy()
-
-    chart_df["Type"] = "Historical"
-
-    chart_df["Value"] = chart_df["Cases"]
-
-    fig = px.line(
-        chart_df,
-        x="Month",
-        y="Value",
-        markers=True,
-        title="Historical Monthly Case Trend"
-    )
-
-    fig.update_traces(
-        name="Historical",
-        showlegend=True
-    )
-
-    st.plotly_chart(
-        _layout(fig, 500),
-        use_container_width=True
-    )
-
-    # --------------------------------------------------------
-    # FORECAST TABLE
-    # --------------------------------------------------------
-
-    st.subheader(
-        "🔮 Next-period Trend Estimate"
-    )
-
-    if month_type == "Date":
-
-        last_period = monthly[
-            "Month"
-        ].max()
-
-        next_period = (
-            last_period
-            + pd.offsets.MonthBegin(1)
+    moving_average = (
+        monthly["Records"]
+        .rolling(
+            window=3,
+            min_periods=1,
         )
+        .mean()
+        .round(2)
+    )
 
-        next_period_label = (
-            next_period.strftime(
-                "%B %Y"
-            )
+    moving_df = pd.DataFrame(
+        {
+            "Period": monthly["Period"],
+            "Actual Records": monthly["Records"],
+            "3-Period Moving Average": moving_average,
+        }
+    )
+
+    st.line_chart(
+        moving_df.set_index(
+            "Period"
+        ),
+        use_container_width=True,
+    )
+
+    # =========================================================
+    # 3. INDICATIVE NEXT PERIOD PROJECTION
+    # =========================================================
+
+    st.divider()
+
+    st.markdown(
+        "### 🔮 Indicative Next-Period Projection"
+    )
+
+    projection = _calculate_projection(
+        monthly["Records"]
+    )
+
+    if projection is None:
+
+        st.warning(
+            "Projection could not be calculated."
         )
 
     else:
 
-        month_order = [
-            "Jan",
-            "Feb",
-            "Mar",
-            "Apr",
-            "May",
-            "Jun",
-            "Jul",
-            "Aug",
-            "Sep",
-            "Oct",
-            "Nov",
-            "Dec"
-        ]
+        last_value = float(
+            monthly["Records"]
+            .iloc[-1]
+        )
 
-        observed = [
-            str(x)
-            for x in monthly["Month"]
-        ]
+        recent_values = monthly[
+            "Records"
+        ].tail(
+            min(3, len(monthly))
+        )
 
-        last_month = observed[-1]
+        recent_average = float(
+            recent_values.mean()
+        )
 
-        try:
+        c1, c2, c3 = st.columns(3)
 
-            last_index = (
-                month_order.index(
-                    last_month
-                )
+        with c1:
+            st.metric(
+                "Latest Period Records",
+                f"{int(last_value):,}",
             )
 
-            next_index = (
-                last_index + 1
-            ) % 12
-
-            next_period_label = (
-                month_order[next_index]
+        with c2:
+            st.metric(
+                "Recent 3-Period Average",
+                f"{recent_average:,.1f}",
             )
 
-        except ValueError:
-
-            next_period_label = (
-                "Next Period"
+        with c3:
+            st.metric(
+                "Indicative Next Period",
+                f"{projection:,.0f}",
             )
 
-    forecast_df = pd.DataFrame(
-        {
-            "Period": [
-                next_period_label
-            ],
-            "Estimated Cases": [
-                int(
-                    round(
-                        next_prediction
-                    )
-                )
-            ],
-            "Basis": [
-                "Historical linear trend"
+        st.caption(
+            "Projection is derived from recent record level "
+            "and historical linear trend. It should be used "
+            "for programme planning context only."
+        )
+
+    # =========================================================
+    # 4. RECENT PERIOD PERFORMANCE
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### 📋 Recent Period Performance")
+
+    recent = monthly.tail(
+        min(12, len(monthly))
+    ).copy()
+
+    recent["3-Period Moving Average"] = (
+        recent["Records"]
+        .rolling(
+            window=3,
+            min_periods=1,
+        )
+        .mean()
+        .round(2)
+    )
+
+    recent["Difference from Moving Average"] = (
+        recent["Records"]
+        - recent["3-Period Moving Average"]
+    ).round(2)
+
+    st.dataframe(
+        recent[
+            [
+                "Period",
+                "Records",
+                "3-Period Moving Average",
+                "Difference from Moving Average",
             ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # =========================================================
+    # 5. DISEASE-WISE HISTORICAL TREND
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### 🦠 Disease-wise Historical Trend")
+
+    if (
+        "Disease" in df.columns
+        and "Year" in df.columns
+        and "Month" in df.columns
+    ):
+
+        disease_df = df[
+            [
+                "Year",
+                "Month",
+                "Disease",
+            ]
+        ].copy()
+
+        disease_df["Disease"] = (
+            disease_df["Disease"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        disease_df["Year_Number"] = pd.to_numeric(
+            disease_df["Year"],
+            errors="coerce",
+        )
+
+        disease_df["Month_Number"] = (
+            disease_df["Month"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .map(_month_number)
+        )
+
+        disease_df = disease_df[
+            disease_df["Disease"].ne("")
+            & disease_df["Disease"].ne("nan")
+            & disease_df["Year_Number"].between(
+                2000,
+                2100,
+            )
+            & disease_df["Month_Number"].between(
+                1,
+                12,
+            )
+        ]
+
+        if not disease_df.empty:
+
+            disease_totals = (
+                disease_df["Disease"]
+                .value_counts()
+                .head(10)
+            )
+
+            selected_disease = st.selectbox(
+                "Select disease",
+                options=disease_totals.index.tolist(),
+                key="prediction_disease",
+            )
+
+            selected_df = disease_df[
+                disease_df["Disease"]
+                == selected_disease
+            ].copy()
+
+            disease_monthly = (
+                selected_df
+                .groupby(
+                    [
+                        "Year_Number",
+                        "Month_Number",
+                    ]
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .sort_values(
+                    [
+                        "Year_Number",
+                        "Month_Number",
+                    ]
+                )
+            )
+
+            disease_monthly["Period"] = (
+                disease_monthly["Year_Number"]
+                .astype(int)
+                .astype(str)
+                + "-"
+                + disease_monthly["Month_Number"]
+                .astype(int)
+                .astype(str)
+                .str.zfill(2)
+            )
+
+            st.line_chart(
+                disease_monthly.set_index(
+                    "Period"
+                )["Records"],
+                use_container_width=True,
+            )
+
+            disease_projection = (
+                _calculate_projection(
+                    disease_monthly["Records"]
+                )
+            )
+
+            if disease_projection is not None:
+
+                st.metric(
+                    f"Indicative Next Period - {selected_disease}",
+                    f"{disease_projection:,.0f}",
+                )
+
+                st.caption(
+                    "This is an indicative historical-trend "
+                    "projection, not a clinical or epidemiological forecast."
+                )
+
+        else:
+
+            st.info(
+                "Sufficient disease-wise monthly data "
+                "is not available."
+            )
+
+    # =========================================================
+    # 6. FACILITY-WISE TREND
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### 🏥 Facility-wise Historical Trend")
+
+    if (
+        "Facility Name" in df.columns
+        and "Year" in df.columns
+        and "Month" in df.columns
+    ):
+
+        facility_df = df[
+            [
+                "Year",
+                "Month",
+                "Facility Name",
+            ]
+        ].copy()
+
+        facility_df["Facility Name"] = (
+            facility_df["Facility Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        facility_df["Year_Number"] = pd.to_numeric(
+            facility_df["Year"],
+            errors="coerce",
+        )
+
+        facility_df["Month_Number"] = (
+            facility_df["Month"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .map(_month_number)
+        )
+
+        facility_df = facility_df[
+            facility_df["Facility Name"].ne("")
+            & facility_df["Facility Name"].ne("nan")
+            & facility_df["Year_Number"].between(
+                2000,
+                2100,
+            )
+            & facility_df["Month_Number"].between(
+                1,
+                12,
+            )
+        ]
+
+        if not facility_df.empty:
+
+            facility_totals = (
+                facility_df["Facility Name"]
+                .value_counts()
+                .head(20)
+            )
+
+            selected_facility = st.selectbox(
+                "Select facility",
+                options=facility_totals.index.tolist(),
+                key="prediction_facility",
+            )
+
+            selected_facility_df = facility_df[
+                facility_df["Facility Name"]
+                == selected_facility
+            ].copy()
+
+            facility_monthly = (
+                selected_facility_df
+                .groupby(
+                    [
+                        "Year_Number",
+                        "Month_Number",
+                    ]
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .sort_values(
+                    [
+                        "Year_Number",
+                        "Month_Number",
+                    ]
+                )
+            )
+
+            facility_monthly["Period"] = (
+                facility_monthly["Year_Number"]
+                .astype(int)
+                .astype(str)
+                + "-"
+                + facility_monthly["Month_Number"]
+                .astype(int)
+                .astype(str)
+                .str.zfill(2)
+            )
+
+            st.line_chart(
+                facility_monthly.set_index(
+                    "Period"
+                )["Records"],
+                use_container_width=True,
+            )
+
+            facility_projection = (
+                _calculate_projection(
+                    facility_monthly["Records"]
+                )
+            )
+
+            if facility_projection is not None:
+
+                st.metric(
+                    f"Indicative Next Period - {selected_facility}",
+                    f"{facility_projection:,.0f}",
+                )
+
+        else:
+
+            st.info(
+                "Sufficient facility-wise monthly data "
+                "is not available."
+            )
+
+    # =========================================================
+    # 7. MODEL / METHOD INFORMATION
+    # =========================================================
+
+    st.divider()
+
+    st.markdown("### ℹ️ Projection Method")
+
+    method_table = pd.DataFrame(
+        {
+            "Component": [
+                "Historical input",
+                "Recent baseline",
+                "Trend component",
+                "Projection type",
+                "Interpretation",
+            ],
+            "Description": [
+                "Monthly filtered programme records",
+                "Weighted average of recent periods",
+                "Simple linear historical trend",
+                "Indicative next-period estimate",
+                "Planning support only",
+            ],
         }
     )
 
     st.dataframe(
-        forecast_df,
+        method_table,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
     )
 
-    # --------------------------------------------------------
-    # HISTORICAL TABLE
-    # --------------------------------------------------------
-
-    st.subheader(
-        "📋 Historical Monthly Data"
+    st.warning(
+        "Programme managers should interpret projections "
+        "alongside surveillance quality, reporting completeness, "
+        "seasonality, outbreaks, testing practices and other "
+        "epidemiological information."
     )
-
-    historical_table = monthly.copy()
-
-    historical_table["Change (%)"] = (
-        historical_table["Cases"]
-        .pct_change()
-        .replace(
-            [np.inf, -np.inf],
-            np.nan
-        )
-        * 100
-    ).round(2)
-
-    st.dataframe(
-        historical_table,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-# ============================================================
-# WARD PREDICTION
-# ============================================================
-
-def _ward_prediction(df):
-
-    if "Ward" not in df.columns:
-
-        st.info(
-            "Ward column is not available."
-        )
-
-        return
-
-    monthly_col = _month_column(
-        df
-    )
-
-    if monthly_col is None:
-
-        st.info(
-            "Month/Date column is required "
-            "for ward-level trend estimation."
-        )
-
-        return
-
-    st.subheader(
-        "🏙️ Ward-wise Trend Estimation"
-    )
-
-    ward_counts = (
-        df["Ward"]
-        .dropna()
-        .value_counts()
-    )
-
-    if ward_counts.empty:
-
-        st.info(
-            "No ward data available."
-        )
-
-        return
-
-    ward_options = list(
-        ward_counts.head(30).index
-    )
-
-    selected_ward = st.selectbox(
-        "Select Ward",
-        ward_options
-    )
-
-    ward_df = df[
-        df["Ward"] == selected_ward
-    ].copy()
-
-    monthly, month_type = _monthly_cases(
-        ward_df
-    )
-
-    if monthly is None or monthly.empty:
-
-        st.info(
-            "No usable monthly data available "
-            "for the selected ward."
-        )
-
-        return
-
-    if len(monthly) < 2:
-
-        st.warning(
-            "At least two historical periods are required."
-        )
-
-        st.dataframe(
-            monthly,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        return
-
-    values = (
-        monthly["Cases"]
-        .astype(float)
-        .tolist()
-    )
-
-    prediction = _linear_forecast(
-        values,
-        periods=1
-    )[0]
-
-    trend = _trend_direction(
-        values
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "Ward Cases",
-        f"{len(ward_df):,}"
-    )
-
-    c2.metric(
-        "Latest Period",
-        f"{int(values[-1]):,}"
-    )
-
-    c3.metric(
-        "Next-period Estimate",
-        f"{int(round(prediction)):,}"
-    )
-
-    st.caption(
-        f"Historical trend: {trend}"
-    )
-
-    chart_df = monthly.copy()
-
-    chart_df["Type"] = "Historical"
-
-    fig = px.line(
-        chart_df,
-        x="Month",
-        y="Cases",
-        markers=True,
-        title=f"{selected_ward} — Monthly Case Trend"
-    )
-
-    st.plotly_chart(
-        _layout(fig, 450),
-        use_container_width=True
-    )
-
-
-# ============================================================
-# FACILITY PREDICTION
-# ============================================================
-
-def _facility_prediction(df):
-
-    if "Facility Name Lform" not in df.columns:
-
-        st.info(
-            "Facility Name Lform column is not available."
-        )
-
-        return
-
-    st.subheader(
-        "🏥 Facility-wise Trend Estimation"
-    )
-
-    facility_counts = (
-        df["Facility Name Lform"]
-        .dropna()
-        .value_counts()
-    )
-
-    if facility_counts.empty:
-
-        st.info(
-            "No facility data available."
-        )
-
-        return
-
-    facility_options = list(
-        facility_counts.head(30).index
-    )
-
-    selected_facility = st.selectbox(
-        "Select Facility",
-        facility_options
-    )
-
-    facility_df = df[
-        df["Facility Name Lform"]
-        == selected_facility
-    ].copy()
-
-    monthly, month_type = _monthly_cases(
-        facility_df
-    )
-
-    if monthly is None or monthly.empty:
-
-        st.info(
-            "No usable monthly data available "
-            "for the selected facility."
-        )
-
-        return
-
-    if len(monthly) < 2:
-
-        st.warning(
-            "At least two historical periods are required."
-        )
-
-        st.dataframe(
-            monthly,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        return
-
-    values = (
-        monthly["Cases"]
-        .astype(float)
-        .tolist()
-    )
-
-    prediction = _linear_forecast(
-        values,
-        periods=1
-    )[0]
-
-    trend = _trend_direction(
-        values
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "Facility Cases",
-        f"{len(facility_df):,}"
-    )
-
-    c2.metric(
-        "Latest Period",
-        f"{int(values[-1]):,}"
-    )
-
-    c3.metric(
-        "Next-period Estimate",
-        f"{int(round(prediction)):,}"
-    )
-
-    st.caption(
-        f"Historical trend: {trend}"
-    )
-
-    fig = px.line(
-        monthly,
-        x="Month",
-        y="Cases",
-        markers=True,
-        title=(
-            f"{selected_facility} — "
-            "Monthly Case Trend"
-        )
-    )
-
-    st.plotly_chart(
-        _layout(fig, 450),
-        use_container_width=True
-    )
-
-
-# ============================================================
-# MANAGEMENT INTERPRETATION
-# ============================================================
-
-def _management_notes(df):
-
-    st.subheader(
-        "📝 Management Planning Indicators"
-    )
-
-    notes = []
-
-    # --------------------------------------------------------
-    # Ward
-    # --------------------------------------------------------
-
-    if "Ward" in df.columns:
-
-        ward_counts = (
-            df["Ward"]
-            .dropna()
-            .value_counts()
-        )
-
-        if not ward_counts.empty:
-
-            top_ward = ward_counts.index[0]
-
-            top_cases = int(
-                ward_counts.iloc[0]
-            )
-
-            notes.append(
-                {
-                    "Indicator": "Highest current ward burden",
-                    "Finding": top_ward,
-                    "Current Cases": top_cases
-                }
-            )
-
-    # --------------------------------------------------------
-    # Facility
-    # --------------------------------------------------------
-
-    if "Facility Name Lform" in df.columns:
-
-        facility_counts = (
-            df["Facility Name Lform"]
-            .dropna()
-            .value_counts()
-        )
-
-        if not facility_counts.empty:
-
-            top_facility = (
-                facility_counts.index[0]
-            )
-
-            top_cases = int(
-                facility_counts.iloc[0]
-            )
-
-            notes.append(
-                {
-                    "Indicator": "Highest current facility burden",
-                    "Finding": top_facility,
-                    "Current Cases": top_cases
-                }
-            )
-
-    # --------------------------------------------------------
-    # Gender
-    # --------------------------------------------------------
-
-    if "Gender" in df.columns:
-
-        gender_counts = (
-            df["Gender"]
-            .dropna()
-            .value_counts()
-        )
-
-        if not gender_counts.empty:
-
-            notes.append(
-                {
-                    "Indicator": "Most represented gender category",
-                    "Finding": gender_counts.index[0],
-                    "Current Cases": int(
-                        gender_counts.iloc[0]
-                    )
-                }
-            )
-
-    # --------------------------------------------------------
-    # Disease
-    # --------------------------------------------------------
-
-    if "Confirmed Diagnosis" in df.columns:
-
-        disease_counts = (
-            df["Confirmed Diagnosis"]
-            .dropna()
-            .value_counts()
-        )
-
-        if not disease_counts.empty:
-
-            notes.append(
-                {
-                    "Indicator": "Most frequent diagnosis",
-                    "Finding": disease_counts.index[0],
-                    "Current Cases": int(
-                        disease_counts.iloc[0]
-                    )
-                }
-            )
-
-    if notes:
-
-        st.dataframe(
-            pd.DataFrame(notes),
-            use_container_width=True,
-            hide_index=True
-        )
-
-    else:
-
-        st.info(
-            "No management indicators could be calculated."
-        )
-
-
-# ============================================================
-# MAIN FUNCTION
-# ============================================================
-
-def render_prediction(df):
-
-    st.title(
-        "🔮 Predictive & Trend Analysis"
-    )
-
-    st.caption(
-        "Historical trend-based estimation for "
-        "programme management and planning."
-    )
-
-    # --------------------------------------------------------
-    # DATA CHECK
-    # --------------------------------------------------------
-
-    if df is None:
-
-        st.error(
-            "Data could not be loaded."
-        )
-
-        return
-
-    if not isinstance(df, pd.DataFrame):
-
-        st.error(
-            "The supplied data is not a valid DataFrame."
-        )
-
-        return
-
-    if df.empty:
-
-        st.warning(
-            "No data available for prediction analysis."
-        )
-
-        return
-
-    # Global dashboard filters are already applied in app.py.
-    filtered_df = df.copy()
-
-    # --------------------------------------------------------
-    # TABS
-    # --------------------------------------------------------
-
-    tab1, tab2, tab3, tab4 = st.tabs(
-        [
-            "📈 Overall Trend",
-            "🏙️ Ward Prediction",
-            "🏥 Facility Prediction",
-            "📝 Management Indicators"
-        ]
-    )
-
-    # ========================================================
-    # TAB 1
-    # ========================================================
-
-    with tab1:
-
-        _monthly_prediction_analysis(
-            filtered_df
-        )
-
-    # ========================================================
-    # TAB 2
-    # ========================================================
-
-    with tab2:
-
-        _ward_prediction(
-            filtered_df
-        )
-
-    # ========================================================
-    # TAB 3
-    # ========================================================
-
-    with tab3:
-
-        _facility_prediction(
-            filtered_df
-        )
-
-    # ========================================================
-    # TAB 4
-    # ========================================================
-
-    with tab4:
-
-        _management_notes(
-            filtered_df
-        )
-
-        st.divider()
-
-        st.info(
-            "Prediction values are trend-based estimates "
-            "derived from the available historical data. "
-            "They should be used for programme planning and "
-            "monitoring, not as confirmed future case counts."
-        )
-
-
-# ============================================================
-# COMPATIBILITY ALIASES
-# ============================================================
-# Multiple names are supported so that app.py can use
-# any of the following without causing an ImportError.
-
-def render_prediction_analysis(df):
-    return render_prediction(df)
-
-
-def render_predictive_analysis(df):
-    return render_prediction(df)
-
-
-def render_forecast(df):
-    return render_prediction(df)
