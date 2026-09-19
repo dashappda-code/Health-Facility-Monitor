@@ -74,22 +74,9 @@ st.caption("Live Google Sheet Based Programme Monitoring System")
 # LOAD DATA
 # ============================================================
 
-@st.cache_data(show_spinner="Loading programme data...")
+@st.cache_data(ttl=60, show_spinner="Loading programme data...")
 def get_data():
-    df = load_data()
-
-    # Basic memory optimisation
-    if df is not None and not df.empty:
-        df = df.copy()
-
-        for col in df.columns:
-            if df[col].dtype == "object":
-                # Avoid expensive category conversion for very high-cardinality columns
-                nunique = df[col].nunique(dropna=True)
-                if nunique > 0 and nunique < min(500, len(df) * 0.5):
-                    df[col] = df[col].astype("category")
-
-    return df
+    return load_data()
 
 
 df = get_data()
@@ -101,6 +88,10 @@ df = get_data()
 
 if df is None or df.empty:
     st.error("No data available from the Google Sheet.")
+    st.info(
+        "Please verify that the Google Sheet is shared as 'Anyone with the link - Viewer' "
+        "and that the configured worksheet GID is correct."
+    )
     st.stop()
 
 
