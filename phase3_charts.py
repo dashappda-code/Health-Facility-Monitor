@@ -988,3 +988,4 @@ def render_charts(df):
         "Monthly comparison depends on the availability "
         "and quality of Month/Date fields in the source data."
     )
+
