@@ -26,6 +26,93 @@ AGE_GROUP_ORDER = [
 
 
 # ============================================================
+# GLOBAL CONTROL PANEL CSS
+# ============================================================
+
+def _inject_control_css():
+
+    st.markdown(
+        """
+        <style>
+
+        /* =====================================================
+           GLOBAL DASHBOARD CONTROL PANEL
+           ===================================================== */
+
+        .global-control-panel {
+            position: sticky;
+            top: 0;
+            z-index: 999;
+
+            background: rgba(255, 255, 255, 0.98);
+
+            border: 1px solid #d9dee5;
+            border-radius: 10px;
+
+            padding: 12px 14px 8px 14px;
+
+            margin-top: -8px;
+            margin-bottom: 18px;
+
+            box-shadow:
+                0 3px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .global-control-title {
+            font-size: 18px;
+            font-weight: 700;
+
+            color: #1f3c88;
+
+            margin-bottom: 2px;
+        }
+
+        .global-control-subtitle {
+            font-size: 12px;
+            color: #666;
+
+            margin-bottom: 8px;
+        }
+
+        .global-control-divider {
+            border-top: 1px solid #e4e7eb;
+
+            margin-top: 5px;
+            margin-bottom: 8px;
+        }
+
+        /* Keep Streamlit horizontal blocks compact */
+
+        div[data-testid="stHorizontalBlock"] {
+            gap: 0.55rem;
+        }
+
+        /* Compact multiselect */
+
+        div[data-baseweb="select"] {
+            min-height: 38px;
+        }
+
+        /* Make control labels slightly smaller */
+
+        div[data-testid="stWidgetLabel"] p {
+            font-size: 13px !important;
+            font-weight: 600 !important;
+        }
+
+        /* Sticky panel should remain above page content */
+
+        section.main > div {
+            overflow: visible;
+        }
+
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
 # HELPERS
 # ============================================================
 
@@ -107,43 +194,34 @@ def _create_age_group(age_series):
 
 def create_filters(df):
 
-    st.sidebar.divider()
+    # --------------------------------------------------------
+    # CSS
+    # --------------------------------------------------------
 
-    st.sidebar.subheader(
-        "🎛️ Dashboard Controls"
+    _inject_control_css()
+
+    # --------------------------------------------------------
+    # PANEL START
+    # --------------------------------------------------------
+
+    st.markdown(
+        '<div class="global-control-panel">',
+        unsafe_allow_html=True,
     )
 
-    st.sidebar.caption(
-        "All selected filters apply to the complete dashboard."
+    st.markdown(
+        '<div class="global-control-title">'
+        '🎛️ Global Dashboard Controls'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
-    # ========================================================
-    # REFRESH / RESET
-    # ========================================================
-
-    refresh_col, reset_col = st.sidebar.columns(2)
-
-    with refresh_col:
-
-        if st.button(
-            "🔄 Refresh",
-            key="refresh_data_button",
-            use_container_width=True,
-            help="Reload latest data from Google Sheets"
-        ):
-
-            refresh_data()
-            st.rerun()
-
-    with reset_col:
-
-        st.button(
-            "↩️ Reset",
-            key="reset_filters_button",
-            use_container_width=True,
-            help="Clear all dashboard filters",
-            on_click=_reset_filter_state,
-        )
+    st.markdown(
+        '<div class="global-control-subtitle">'
+        'All selected filters apply across the complete dashboard'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     reset_version = st.session_state.get(
         "filter_reset_version",
@@ -151,8 +229,24 @@ def create_filters(df):
     )
 
     # ========================================================
-    # YEAR
+    # ROW 1
     # ========================================================
+
+    row1 = st.columns(
+        [
+            0.8,   # Year
+            1.0,   # Month
+            0.8,   # Week
+            1.5,   # Disease
+            1.6,   # Facility
+            1.2,   # Ward
+            1.0,   # Gender
+        ]
+    )
+
+    # --------------------------------------------------------
+    # YEAR
+    # --------------------------------------------------------
 
     years = []
 
@@ -173,17 +267,19 @@ def create_filters(df):
                 reverse=True
             )
 
-    selected_years = st.sidebar.multiselect(
-        "📅 Year",
-        years,
-        default=[],
-        key=f"filter_years_{reset_version}",
-        placeholder="All Years"
-    )
+    with row1[0]:
 
-    # ========================================================
+        selected_years = st.multiselect(
+            "📅 Year",
+            years,
+            default=[],
+            key=f"filter_years_{reset_version}",
+            placeholder="All"
+        )
+
+    # --------------------------------------------------------
     # MONTH
-    # ========================================================
+    # --------------------------------------------------------
 
     available_months = _unique(
         df,
@@ -201,135 +297,168 @@ def create_filters(df):
         if month not in months:
             months.append(month)
 
-    selected_months = st.sidebar.multiselect(
-        "📆 Month",
-        months,
-        default=[],
-        key=f"filter_months_{reset_version}",
-        placeholder="All Months"
-    )
+    with row1[1]:
 
-    # ========================================================
+        selected_months = st.multiselect(
+            "📆 Month",
+            months,
+            default=[],
+            key=f"filter_months_{reset_version}",
+            placeholder="All"
+        )
+
+    # --------------------------------------------------------
     # WEEK
-    # ========================================================
+    # --------------------------------------------------------
 
     weeks = _unique(
         df,
         "Week"
     )
 
-    selected_weeks = st.sidebar.multiselect(
-        "📅 Week",
-        weeks,
-        default=[],
-        key=f"filter_weeks_{reset_version}",
-        placeholder="All Weeks"
-    )
+    with row1[2]:
 
-    # ========================================================
+        selected_weeks = st.multiselect(
+            "📅 Week",
+            weeks,
+            default=[],
+            key=f"filter_weeks_{reset_version}",
+            placeholder="All"
+        )
+
+    # --------------------------------------------------------
     # DISEASE
-    # ========================================================
+    # --------------------------------------------------------
 
     diseases = _unique(
         df,
         "Confirmed Diagnosis"
     )
 
-    selected_diseases = st.sidebar.multiselect(
-        "🦠 Disease",
-        diseases,
-        default=[],
-        key=f"filter_diseases_{reset_version}",
-        placeholder="All Diseases"
-    )
+    with row1[3]:
 
-    # ========================================================
+        selected_diseases = st.multiselect(
+            "🦠 Disease",
+            diseases,
+            default=[],
+            key=f"filter_diseases_{reset_version}",
+            placeholder="All Diseases"
+        )
+
+    # --------------------------------------------------------
     # FACILITY
-    # ========================================================
+    # --------------------------------------------------------
 
     facilities = _unique(
         df,
         "Facility Name Lform"
     )
 
-    selected_facilities = st.sidebar.multiselect(
-        "🏥 Facility",
-        facilities,
-        default=[],
-        key=f"filter_facilities_{reset_version}",
-        placeholder="All Facilities"
-    )
+    with row1[4]:
 
-    # ========================================================
+        selected_facilities = st.multiselect(
+            "🏥 Facility",
+            facilities,
+            default=[],
+            key=f"filter_facilities_{reset_version}",
+            placeholder="All Facilities"
+        )
+
+    # --------------------------------------------------------
     # WARD
-    # ========================================================
+    # --------------------------------------------------------
 
     wards = _unique(
         df,
         "Ward"
     )
 
-    selected_wards = st.sidebar.multiselect(
-        "🗺️ Ward",
-        wards,
-        default=[],
-        key=f"filter_wards_{reset_version}",
-        placeholder="All Wards"
-    )
+    with row1[5]:
 
-    # ========================================================
+        selected_wards = st.multiselect(
+            "🗺️ Ward",
+            wards,
+            default=[],
+            key=f"filter_wards_{reset_version}",
+            placeholder="All Wards"
+        )
+
+    # --------------------------------------------------------
     # GENDER
-    # ========================================================
+    # --------------------------------------------------------
 
     genders = _unique(
         df,
         "Gender"
     )
 
-    selected_genders = st.sidebar.multiselect(
-        "👥 Gender",
-        genders,
-        default=[],
-        key=f"filter_genders_{reset_version}",
-        placeholder="All Genders"
-    )
+    with row1[6]:
+
+        selected_genders = st.multiselect(
+            "👥 Gender",
+            genders,
+            default=[],
+            key=f"filter_genders_{reset_version}",
+            placeholder="All"
+        )
 
     # ========================================================
-    # AGE GROUP
+    # ROW 2
     # ========================================================
+
+    row2 = st.columns(
+        [
+            1.15,  # Age Group
+            1.05,  # OPD/IPD
+            1.35,  # Area
+            1.15,  # Status
+            1.25,  # Start Date
+            1.25,  # End Date
+            0.65,  # Refresh
+            0.65,  # Reset
+        ]
+    )
+
+    # --------------------------------------------------------
+    # AGE GROUP
+    # --------------------------------------------------------
 
     selected_age_groups = []
 
     if "Age" in df.columns:
 
-        selected_age_groups = st.sidebar.multiselect(
-            "🎂 Age Group",
-            AGE_GROUP_ORDER,
-            default=[],
-            key=f"filter_age_groups_{reset_version}",
-            placeholder="All Age Groups"
-        )
+        with row2[0]:
 
-    # ========================================================
+            selected_age_groups = st.multiselect(
+                "🎂 Age Group",
+                AGE_GROUP_ORDER,
+                default=[],
+                key=f"filter_age_groups_{reset_version}",
+                placeholder="All Ages"
+            )
+
+    # --------------------------------------------------------
     # OPD / IPD
-    # ========================================================
+    # --------------------------------------------------------
 
     opd_ipd = _unique(
         df,
         "Opd Ipd"
     )
 
-    selected_opd_ipd = st.sidebar.multiselect(
-        "🏥 OPD / IPD",
-        opd_ipd,
-        default=[],
-        key=f"filter_opd_ipd_{reset_version}",
-        placeholder="All OPD / IPD"
-    )
+    with row2[1]:
 
-    # ========================================================
+        selected_opd_ipd = st.multiselect(
+            "🏥 OPD / IPD",
+            opd_ipd,
+            default=[],
+            key=f"filter_opd_ipd_{reset_version}",
+            placeholder="All"
+        )
+
+    # --------------------------------------------------------
     # AREA / LOCATION
-    # ========================================================
+    # --------------------------------------------------------
 
     area_column = None
 
@@ -355,17 +484,19 @@ def create_filters(df):
 
     if area_column:
 
-        selected_areas = st.sidebar.multiselect(
-            "📍 Area / Location",
-            areas,
-            default=[],
-            key=f"filter_areas_{reset_version}",
-            placeholder="All Areas"
-        )
+        with row2[2]:
 
-    # ========================================================
+            selected_areas = st.multiselect(
+                "📍 Area / Location",
+                areas,
+                default=[],
+                key=f"filter_areas_{reset_version}",
+                placeholder="All Areas"
+            )
+
+    # --------------------------------------------------------
     # STATUS
-    # ========================================================
+    # --------------------------------------------------------
 
     status_column = None
 
@@ -390,13 +521,15 @@ def create_filters(df):
 
     if status_column:
 
-        selected_status = st.sidebar.multiselect(
-            "📌 Status",
-            statuses,
-            default=[],
-            key=f"filter_status_{reset_version}",
-            placeholder="All Status"
-        )
+        with row2[3]:
+
+            selected_status = st.multiselect(
+                "📌 Status",
+                statuses,
+                default=[],
+                key=f"filter_status_{reset_version}",
+                placeholder="All"
+            )
 
     # ========================================================
     # REPORTING DATE
@@ -404,6 +537,9 @@ def create_filters(df):
 
     date_from = None
     date_to = None
+
+    min_date = None
+    max_date = None
 
     if "Reporting Date" in df.columns:
 
@@ -417,82 +553,169 @@ def create_filters(df):
             min_date = reporting_dates.min().date()
             max_date = reporting_dates.max().date()
 
-            st.sidebar.markdown(
-                "### 📅 Reporting Date"
-            )
+    # --------------------------------------------------------
+    # START DATE
+    # --------------------------------------------------------
 
-            st.sidebar.caption(
-                f"Available data: "
-                f"{min_date.strftime('%d-%m-%Y')} "
-                f"to "
-                f"{max_date.strftime('%d-%m-%Y')}"
-            )
+    with row2[4]:
 
-            # ------------------------------------------------
-            # START DATE
-            # ------------------------------------------------
+        if min_date is not None:
 
-            start_date = st.sidebar.date_input(
-                "Starting Date",
+            start_date = st.date_input(
+                "📅 Starting Date",
                 value=None,
                 min_value=min_date,
                 max_value=max_date,
                 key=f"filter_start_date_{reset_version}",
                 help=(
-                    "Select the starting date. "
-                    "If not selected, data starts from "
-                    "the earliest available date."
+                    "If not selected, data starts "
+                    "from earliest available date."
                 )
             )
 
-            # ------------------------------------------------
-            # END DATE
-            # ------------------------------------------------
+        else:
 
-            end_date = st.sidebar.date_input(
-                "Ending Date",
+            start_date = None
+
+    # --------------------------------------------------------
+    # END DATE
+    # --------------------------------------------------------
+
+    with row2[5]:
+
+        if min_date is not None:
+
+            end_date = st.date_input(
+                "📅 Ending Date",
                 value=None,
                 min_value=min_date,
                 max_value=max_date,
                 key=f"filter_end_date_{reset_version}",
                 help=(
-                    "Select the ending date. "
                     "If not selected, data continues "
-                    "up to the latest available date."
+                    "up to latest available date."
                 )
             )
 
-            # ------------------------------------------------
-            # DATE LOGIC
-            # ------------------------------------------------
+        else:
 
-            if start_date is None:
-                date_from = min_date
-            else:
-                date_from = start_date
+            end_date = None
 
-            if end_date is None:
-                date_to = max_date
-            else:
-                date_to = end_date
+    # --------------------------------------------------------
+    # DATE LOGIC
+    # --------------------------------------------------------
 
-            # ------------------------------------------------
-            # INVALID RANGE
-            # ------------------------------------------------
+    if min_date is not None:
 
-            if (
-                date_from is not None
-                and date_to is not None
-                and date_from > date_to
-            ):
+        if start_date is None:
 
-                st.sidebar.error(
-                    "⚠️ Ending Date cannot be earlier "
-                    "than Starting Date."
-                )
+            date_from = min_date
 
-                date_from = None
-                date_to = None
+        else:
+
+            date_from = start_date
+
+        if end_date is None:
+
+            date_to = max_date
+
+        else:
+
+            date_to = end_date
+
+        # ----------------------------------------------------
+        # INVALID RANGE
+        # ----------------------------------------------------
+
+        if (
+            date_from is not None
+            and date_to is not None
+            and date_from > date_to
+        ):
+
+            date_from = None
+            date_to = None
+
+    # ========================================================
+    # REFRESH BUTTON
+    # ========================================================
+
+    with row2[6]:
+
+        st.markdown(
+            "<div style='height:25px'></div>",
+            unsafe_allow_html=True
+        )
+
+        refresh_clicked = st.button(
+            "🔄",
+            key="refresh_data_button",
+            use_container_width=True,
+            help="Reload latest data from Google Sheets"
+        )
+
+        if refresh_clicked:
+
+            refresh_data()
+            st.rerun()
+
+    # ========================================================
+    # RESET BUTTON
+    # ========================================================
+
+    with row2[7]:
+
+        st.markdown(
+            "<div style='height:25px'></div>",
+            unsafe_allow_html=True
+        )
+
+        st.button(
+            "↩️",
+            key="reset_filters_button",
+            use_container_width=True,
+            help="Clear all dashboard filters",
+            on_click=_reset_filter_state,
+        )
+
+    # ========================================================
+    # DATE RANGE WARNING
+    # ========================================================
+
+    if (
+        min_date is not None
+        and start_date is not None
+        and end_date is not None
+        and start_date > end_date
+    ):
+
+        st.error(
+            "⚠️ Ending Date cannot be earlier "
+            "than Starting Date. "
+            "Date filter is not applied."
+        )
+
+    # ========================================================
+    # AVAILABLE DATE INFORMATION
+    # ========================================================
+
+    if min_date is not None:
+
+        st.caption(
+            f"📅 Available reporting period: "
+            f"{min_date.strftime('%d-%m-%Y')} "
+            f"to "
+            f"{max_date.strftime('%d-%m-%Y')}"
+        )
+
+    # --------------------------------------------------------
+    # PANEL END
+    # --------------------------------------------------------
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     # ========================================================
     # RETURN FILTER SETTINGS
@@ -827,10 +1050,10 @@ def render_overview(df):
 
     """
     IMPORTANT:
-    Dashboard filters are NOT created here.
+    Global filters are created in app.py.
 
-    app.py will create the global filters once
-    and pass the already-filtered dataframe here.
+    This function receives the already-filtered
+    dataframe and DOES NOT create filters again.
     """
 
     filtered = df.copy()
@@ -852,11 +1075,9 @@ def render_overview(df):
     # FILTER STATUS
     # ========================================================
 
-    total_records = len(filtered)
-
     st.info(
         f"🎛️ Currently showing "
-        f"**{total_records:,}** records"
+        f"**{len(filtered):,}** filtered records"
     )
 
     # ========================================================
@@ -867,12 +1088,12 @@ def render_overview(df):
 
         st.error(
             "⚠️ No records match the selected "
-            "Dashboard Controls."
+            "Global Dashboard Controls."
         )
 
         st.info(
             "Please change one or more filters "
-            "from the Dashboard Controls."
+            "from the Global Dashboard Controls."
         )
 
         return
