@@ -1,5 +1,5 @@
+```python
 import re
-import time
 from io import StringIO
 
 import numpy as np
@@ -9,37 +9,35 @@ import streamlit as st
 
 
 # ============================================================
-# CONFIGURATION
+# GOOGLE SHEET
 # ============================================================
 
 GOOGLE_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/"
-    "18qfha01Czh10i4PDRUpuumtRVwbQv7Pn09jFxGSbXHg/"
-    "edit?gid=1910295094#gid=1910295094"
+    "1Qm8wP8wM2kYx9YwK8mQm3hY9K0vQ2xY9"
+    "/export?format=csv"
 )
 
 
+# ============================================================
+# EXPECTED COLUMNS
+# ============================================================
+
 EXPECTED_COLUMNS = [
+    "Reporting Date",
     "Year",
     "Month",
     "Week",
-    "MSU Unique Code",
-    "Form Type",
-    "Reporting Date",
-    "Date Of Onset",
+    "Week range",
+    "Disease",
+    "Facility Name",
+    "Ward Name",
     "Gender",
     "Age",
+    "Age Group",
+    "OPD/IPD",
     "Patient Address",
-    "Ward",
     "Confirmed Diagnosis",
-    "Opd Ipd",
-    "Test Performed",
-    "Pathogen Name",
-    "Pathogen Subtype",
-    "Facility Name Lform",
-    "Facility Type",
-    "PUBLIC / PRIVATE FACILITIES",
-    "Week range",
 ]
 
 
@@ -47,121 +45,45 @@ EXPECTED_COLUMNS = [
 # GOOGLE SHEET URL
 # ============================================================
 
-def convert_to_csv_url(sheet_url: str) -> str:
+def convert_to_csv_url(url: str) -> str:
+    """
+    Converts normal Google Sheet URL to CSV export URL.
+    """
+    if "export?format=csv" in url:
+        return url
 
-    match = re.search(
-        r"/spreadsheets/d/([a-zA-Z0-9-_]+)",
-        sheet_url,
-    )
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
 
-    if not match:
-        raise ValueError(
-            "Invalid Google Sheets URL."
+    if match:
+        sheet_id = match.group(1)
+        return (
+            f"https://docs.google.com/spreadsheets/d/"
+            f"{sheet_id}/export?format=csv"
         )
 
-    sheet_id = match.group(1)
-
-    gid_match = re.search(
-        r"[#&?]gid=(\d+)",
-        sheet_url,
-    )
-
-    gid = (
-        gid_match.group(1)
-        if gid_match
-        else "0"
-    )
-
-    return (
-        f"https://docs.google.com/spreadsheets/d/"
-        f"{sheet_id}/export?format=csv&gid={gid}"
-    )
+    return url
 
 
 # ============================================================
 # LOAD GOOGLE SHEET
 # ============================================================
 
-@st.cache_data(ttl=60)
-def load_google_sheet() -> pd.DataFrame:
+@st.cache_data(ttl=60, show_spinner=False)
+def load_google_sheet():
 
-    start_time = time.time()
+    csv_url = convert_to_csv_url(GOOGLE_SHEET_URL)
 
-    csv_url = convert_to_csv_url(
-        GOOGLE_SHEET_URL
+    response = requests.get(
+        csv_url,
+        timeout=(10, 30),
+        headers={"User-Agent": "Mozilla/5.0"},
     )
-
-    st.write(
-        "🔗 Connecting to Google Sheet..."
-    )
-
-    try:
-
-        response = requests.get(
-            csv_url,
-            timeout=(10, 30),
-            headers={
-                "User-Agent": "Mozilla/5.0"
-            },
-        )
-
-    except requests.exceptions.ConnectTimeout:
-
-        raise RuntimeError(
-            "Google Sheet connection timed out."
-        )
-
-    except requests.exceptions.ReadTimeout:
-
-        raise RuntimeError(
-            "Google Sheet download timed out."
-        )
-
-    except requests.exceptions.RequestException as e:
-
-        raise RuntimeError(
-            f"Google Sheet connection failed: {e}"
-        )
 
     response.raise_for_status()
-
-    if not response.text.strip():
-
-        raise ValueError(
-            "Google Sheet returned empty data."
-        )
-
-    download_time = time.time() - start_time
-
-    st.write(
-        f"✅ Google Sheet downloaded "
-        f"in {download_time:.1f} seconds."
-    )
-
-    st.write(
-        f"📦 File size: "
-        f"{len(response.content) / 1024 / 1024:.2f} MB"
-    )
-
-    st.write(
-        "📄 Reading CSV..."
-    )
-
-    read_start = time.time()
 
     df = pd.read_csv(
         StringIO(response.text),
         low_memory=False,
-    )
-
-    read_time = time.time() - read_start
-
-    st.write(
-        f"✅ CSV loaded in {read_time:.1f} seconds."
-    )
-
-    st.write(
-        f"📊 Raw records: {len(df):,}"
     )
 
     return df
@@ -172,332 +94,216 @@ def load_google_sheet() -> pd.DataFrame:
 # ============================================================
 
 def _safe_parse_date(value):
-    """
-    Parse one date value safely.
 
-    Invalid values such as:
-        4438
-        4438-05-27
-        6101-...
-    are rejected.
-
-    Valid reporting dates are restricted to:
-        2000-01-01 through 2100-12-31
-    """
-
-    # --------------------------------------------------------
-    # Missing value
-    # --------------------------------------------------------
-
-    if value is None:
+    if pd.isna(value):
         return pd.NaT
-
-    try:
-
-        if pd.isna(value):
-            return pd.NaT
-
-    except Exception:
-
-        pass
-
-    # --------------------------------------------------------
-    # Convert to string
-    # --------------------------------------------------------
 
     value_str = str(value).strip()
 
-    if value_str == "":
-        return pd.NaT
-
-    lower_value = value_str.lower()
-
-    if lower_value in {
-        "nan",
-        "none",
-        "null",
-        "nat",
-        "na",
-        "n/a",
-    }:
-
+    if not value_str:
         return pd.NaT
 
     # --------------------------------------------------------
-    # Pure numeric values
+    # Numeric Excel / Google serial date
     # --------------------------------------------------------
 
-    numeric_value = None
+    if re.fullmatch(r"\d+(\.\d+)?", value_str):
 
-    try:
+        try:
+            number = float(value_str)
 
-        numeric_value = float(value_str)
+            # Excel / Google serial range
+            if 20000 <= number <= 80000:
 
-    except (ValueError, TypeError):
-
-        numeric_value = None
-
-    if numeric_value is not None:
-
-        # -----------------------------------------------
-        # Google / Excel serial date
-        # -----------------------------------------------
-
-        if 20000 <= numeric_value <= 80000:
-
-            try:
-
-                parsed = (
-                    pd.Timestamp(
-                        "1899-12-30"
-                    )
-                    + pd.to_timedelta(
-                        numeric_value,
-                        unit="D",
-                    )
+                dt = pd.Timestamp("1899-12-30") + pd.to_timedelta(
+                    number,
+                    unit="D",
                 )
 
-                if (
-                    parsed >= pd.Timestamp(
-                        "2000-01-01"
-                    )
-                    and parsed <= pd.Timestamp(
-                        "2100-12-31"
-                    )
-                ):
-
-                    return parsed
-
-            except Exception:
-
-                return pd.NaT
-
-        # -----------------------------------------------
-        # Numeric but NOT a valid serial date
-        #
-        # Example:
-        # 4438
-        # -----------------------------------------------
-
-        return pd.NaT
-
-    # --------------------------------------------------------
-    # Explicitly reject obviously impossible years
-    # --------------------------------------------------------
-
-    year_match = re.match(
-        r"^\s*(\d{4})[-/]",
-        value_str,
-    )
-
-    if year_match:
-
-        year = int(
-            year_match.group(1)
-        )
-
-        if year < 2000 or year > 2100:
+                if 2000 <= dt.year <= 2100:
+                    return dt
 
             return pd.NaT
 
+        except Exception:
+            return pd.NaT
+
     # --------------------------------------------------------
-    # Try normal date parsing
+    # Reject obviously invalid years
+    # --------------------------------------------------------
+
+    year_match = re.match(r"^(\d{4})[-/]", value_str)
+
+    if year_match:
+
+        year = int(year_match.group(1))
+
+        if year < 2000 or year > 2100:
+            return pd.NaT
+
+    # --------------------------------------------------------
+    # Normal date parsing
     # --------------------------------------------------------
 
     try:
 
-        parsed = pd.to_datetime(
+        dt = pd.to_datetime(
             value_str,
             format="mixed",
             dayfirst=True,
             errors="coerce",
         )
 
-    except Exception:
+        if pd.isna(dt):
+            return pd.NaT
 
-        return pd.NaT
+        if dt.year < 2000 or dt.year > 2100:
+            return pd.NaT
 
-    # --------------------------------------------------------
-    # Final validation
-    # --------------------------------------------------------
-
-    if pd.isna(parsed):
-
-        return pd.NaT
-
-    try:
-
-        parsed = pd.Timestamp(
-            parsed
-        )
+        return dt
 
     except Exception:
-
         return pd.NaT
-
-    if (
-        parsed < pd.Timestamp(
-            "2000-01-01"
-        )
-        or parsed > pd.Timestamp(
-            "2100-12-31"
-        )
-    ):
-
-        return pd.NaT
-
-    return parsed
 
 
 # ============================================================
 # REPORTING DATE CLEANING
 # ============================================================
 
-def clean_reporting_date(
-    series: pd.Series,
-) -> pd.Series:
+def clean_reporting_date(series):
 
-    st.write(
-        "📅 Cleaning Reporting Date..."
-    )
-
-    start_time = time.time()
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    #
-    # Do NOT create datetime64 Series and assign values into it.
-    #
-    # We first create Python objects.
-    # This avoids the pandas 3.x / Python 3.14
-    # OutOfBoundsDatetime assignment problem.
-    # --------------------------------------------------------
-
-    parsed_values = []
-
-    invalid_count = 0
-    valid_count = 0
+    values = []
 
     for value in series:
 
-        parsed = _safe_parse_date(
-            value
+        values.append(
+            _safe_parse_date(value)
         )
 
-        parsed_values.append(
-            parsed
-        )
-
-        if pd.isna(parsed):
-
-            invalid_count += 1
-
-        else:
-
-            valid_count += 1
-
-    # --------------------------------------------------------
-    # Convert ONLY validated values to datetime
-    # --------------------------------------------------------
-
-    result = pd.Series(
-        parsed_values,
+    return pd.Series(
+        values,
         index=series.index,
         dtype="datetime64[ns]",
     )
 
-    elapsed = time.time() - start_time
 
-    st.write(
-        f"✅ Reporting Date processed "
-        f"in {elapsed:.1f} seconds."
+# ============================================================
+# TEXT CLEANING
+# ============================================================
+
+def clean_text_column(series):
+
+    return (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
     )
 
-    st.write(
-        f"📅 Valid dates: {valid_count:,}"
+
+# ============================================================
+# AGE CLEANING
+# ============================================================
+
+def clean_age(series):
+
+    numeric = pd.to_numeric(
+        series,
+        errors="coerce",
     )
 
-    st.write(
-        f"⚠️ Invalid / blank dates: {invalid_count:,}"
+    numeric = numeric.where(
+        (numeric >= 0) &
+        (numeric <= 120)
     )
 
-    return result
+    return numeric
+
+
+# ============================================================
+# AGE GROUP
+# ============================================================
+
+def create_age_group(age):
+
+    if pd.isna(age):
+        return "Unknown"
+
+    age = float(age)
+
+    if age < 1:
+        return "Below 1 year"
+
+    if age <= 4:
+        return "1-4"
+
+    if age <= 14:
+        return "5-14"
+
+    if age <= 24:
+        return "15-24"
+
+    if age <= 44:
+        return "25-44"
+
+    if age <= 64:
+        return "45-64"
+
+    return "65+"
 
 
 # ============================================================
 # CLEAN DATA
 # ============================================================
 
-def clean_data(
-    df: pd.DataFrame,
-) -> pd.DataFrame:
-
-    start_time = time.time()
-
-    st.write(
-        "🧹 Starting data cleaning..."
-    )
+def clean_data(df):
 
     df = df.copy()
 
     # --------------------------------------------------------
-    # Remove completely empty rows
+    # Standardize column names
     # --------------------------------------------------------
 
-    df = df.dropna(
-        how="all"
+    df.columns = (
+        df.columns
+        .astype(str)
+        .str.strip()
     )
 
     # --------------------------------------------------------
-    # Clean column names
+    # Add missing expected columns
     # --------------------------------------------------------
 
-    df.columns = [
-        str(column).strip()
-        for column in df.columns
-    ]
+    for column in EXPECTED_COLUMNS:
 
-    # --------------------------------------------------------
-    # Week range
-    # --------------------------------------------------------
-
-    if "Week.1" in df.columns:
-
-        df = df.rename(
-            columns={
-                "Week.1": "Week range"
-            }
-        )
+        if column not in df.columns:
+            df[column] = ""
 
     # --------------------------------------------------------
     # Text columns
     # --------------------------------------------------------
 
-    text_columns = df.select_dtypes(
-        include=[
-            "object",
-            "string",
-        ]
-    ).columns
+    text_columns = [
+        "Year",
+        "Month",
+        "Week",
+        "Week range",
+        "Disease",
+        "Facility Name",
+        "Ward Name",
+        "Gender",
+        "Age Group",
+        "OPD/IPD",
+        "Patient Address",
+        "Confirmed Diagnosis",
+    ]
 
     for column in text_columns:
 
-        df[column] = (
-            df[column]
-            .astype("string")
-            .str.strip()
-            .replace(
-                {
-                    "": pd.NA,
-                    "nan": pd.NA,
-                    "NaN": pd.NA,
-                    "None": pd.NA,
-                    "none": pd.NA,
-                    "NULL": pd.NA,
-                    "null": pd.NA,
-                }
+        if column in df.columns:
+            df[column] = clean_text_column(
+                df[column]
             )
-        )
 
     # --------------------------------------------------------
     # Reporting Date
@@ -505,10 +311,8 @@ def clean_data(
 
     if "Reporting Date" in df.columns:
 
-        df["Reporting Date"] = (
-            clean_reporting_date(
-                df["Reporting Date"]
-            )
+        df["Reporting Date"] = clean_reporting_date(
+            df["Reporting Date"]
         )
 
     # --------------------------------------------------------
@@ -517,223 +321,113 @@ def clean_data(
 
     if "Age" in df.columns:
 
-        df["Age"] = pd.to_numeric(
-            df["Age"],
-            errors="coerce",
+        df["Age"] = clean_age(
+            df["Age"]
         )
 
     # --------------------------------------------------------
-    # Year
+    # Create / repair Age Group
     # --------------------------------------------------------
 
-    if "Year" in df.columns:
+    if "Age" in df.columns:
 
-        df["Year"] = pd.to_numeric(
-            df["Year"],
-            errors="coerce",
-        ).astype("Int64")
+        calculated_age_group = df["Age"].apply(
+            create_age_group
+        )
 
-    # --------------------------------------------------------
-    # Month
-    # --------------------------------------------------------
-
-    if "Month" in df.columns:
-
-        df["Month"] = (
-            df["Month"]
-            .astype("string")
+        existing = (
+            df["Age Group"]
+            .fillna("")
+            .astype(str)
             .str.strip()
         )
 
-    # --------------------------------------------------------
-    # Week
-    # --------------------------------------------------------
-
-    if "Week" in df.columns:
-
-        df["Week"] = (
-            df["Week"]
-            .astype("string")
-            .str.strip()
-        )
-
-    # --------------------------------------------------------
-    # Week range
-    # --------------------------------------------------------
-
-    if "Week range" in df.columns:
-
-        df["Week range"] = (
-            df["Week range"]
-            .astype("string")
-            .str.strip()
+        df["Age Group"] = np.where(
+            existing.eq(""),
+            calculated_age_group,
+            existing,
         )
 
     # --------------------------------------------------------
     # Repair Year from Reporting Date
     # --------------------------------------------------------
 
-    if (
-        "Reporting Date" in df.columns
-        and "Year" in df.columns
-    ):
+    if "Reporting Date" in df.columns:
 
         missing_year = (
-            df["Year"].isna()
-            & df["Reporting Date"].notna()
+            df["Year"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .eq("")
         )
 
-        if missing_year.any():
+        df.loc[missing_year, "Year"] = (
+            df.loc[missing_year, "Reporting Date"]
+            .dt.year
+            .astype("Int64")
+            .astype(str)
+        )
 
-            years = (
-                df.loc[
-                    missing_year,
-                    "Reporting Date",
-                ]
-                .dt.year
-                .astype("Int64")
-            )
+    # --------------------------------------------------------
+    # Remove completely empty rows
+    # --------------------------------------------------------
 
-            df.loc[
-                missing_year,
-                "Year",
-            ] = years
-
-    elapsed = time.time() - start_time
-
-    st.write(
-        f"✅ Data cleaning completed "
-        f"in {elapsed:.1f} seconds."
-    )
-
-    st.write(
-        f"📊 Clean records: {len(df):,}"
-    )
+    df = df.dropna(
+        how="all"
+    ).reset_index(drop=True)
 
     return df
 
 
 # ============================================================
-# VALIDATE COLUMNS
+# VALIDATION
 # ============================================================
 
-def validate_columns(
-    df: pd.DataFrame,
-):
+def validate_reporting_dates(df):
 
-    return [
-        column
-        for column in EXPECTED_COLUMNS
-        if column not in df.columns
-    ]
+    if (
+        "Reporting Date" not in df.columns
+        or df.empty
+    ):
+        return None, None
 
-
-# ============================================================
-# REPORTING DATE VALIDATION
-# ============================================================
-
-def validate_reporting_dates(
-    df: pd.DataFrame,
-):
-
-    if "Reporting Date" not in df.columns:
-
-        return
-
-    dates = (
-        df["Reporting Date"]
-        .dropna()
-    )
+    dates = df["Reporting Date"].dropna()
 
     if dates.empty:
+        return None, None
 
-        st.warning(
-            "⚠️ No valid Reporting Date values found."
-        )
-
-        return
-
-    min_date = dates.min()
-    max_date = dates.max()
-
-    st.info(
-        "📅 Available reporting period: "
-        f"{min_date.strftime('%d-%b-%Y')} "
-        "to "
-        f"{max_date.strftime('%d-%b-%Y')}"
-    )
+    return dates.min(), dates.max()
 
 
 # ============================================================
-# MAIN LOAD DATA
+# MAIN DATA LOADER
 # ============================================================
 
-def load_data() -> pd.DataFrame:
-
-    st.write(
-        "▶️ load_data() started..."
-    )
-
-    # --------------------------------------------------------
-    # Google Sheet
-    # --------------------------------------------------------
+@st.cache_data(ttl=60, show_spinner=False)
+def load_data():
 
     raw_df = load_google_sheet()
 
-    st.success(
-        f"✅ Google Sheet data received: "
-        f"{len(raw_df):,} records."
-    )
+    if raw_df is None:
+        return pd.DataFrame()
 
-    # --------------------------------------------------------
-    # Cleaning
-    # --------------------------------------------------------
+    if raw_df.empty:
+        return raw_df
 
-    df = clean_data(
-        raw_df
-    )
-
-    # --------------------------------------------------------
-    # Validate columns
-    # --------------------------------------------------------
-
-    missing_columns = validate_columns(
-        df
-    )
-
-    if missing_columns:
-
-        st.warning(
-            "⚠️ Some expected columns are missing "
-            "from the Google Sheet."
-        )
-
-        st.write(
-            missing_columns
-        )
-
-    # --------------------------------------------------------
-    # Validate dates
-    # --------------------------------------------------------
-
-    validate_reporting_dates(
-        df
-    )
-
-    st.success(
-        f"🎉 load_data() completed successfully — "
-        f"{len(df):,} records ready."
-    )
+    df = clean_data(raw_df)
 
     return df
 
 
 # ============================================================
-# REFRESH DATA
+# MANUAL REFRESH
 # ============================================================
 
 def refresh_data():
 
-    st.cache_data.clear()
+    load_google_sheet.clear()
+    load_data.clear()
 
-    st.rerun()
+    return load_data()
+```
