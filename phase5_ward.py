@@ -5,149 +5,515 @@ import streamlit as st
 from phase2_overview import apply_filters, create_filters
 
 
+# ============================================================
+# COMMON CHART LAYOUT
+# ============================================================
+
 def _layout(fig, height=450):
+
     fig.update_layout(
         height=height,
         margin=dict(l=20, r=20, t=60, b=20),
         legend_title_text="",
-        hovermode="x unified"
+        hovermode="x unified",
     )
+
     return fig
 
 
-def render_ward_analysis(df):
-    """
-    Ward-wise Management Analysis
+# ============================================================
+# CLEAN VALUE
+# ============================================================
 
-    Provides:
-    - Total cases
-    - Wards covered
-    - Facilities covered
-    - Top burden ward
-    - Ward-wise case ranking
-    - Ward x Disease burden
-    - Ward-wise facility coverage
-    - Ward-wise gender distribution
-    - Ward-wise monthly trend
-    - Ward management summary
-    """
+def _clean(series):
 
-    # ---------------------------------------------------------
-    # FILTERS
-    # ---------------------------------------------------------
-    filters = create_filters(df)
-    filtered_df = apply_filters(df, **filters)
-
-    # ---------------------------------------------------------
-    # PAGE HEADER
-    # ---------------------------------------------------------
-    st.title("🏙️ Ward-wise Management Analysis")
-    st.caption(
-        "Ward burden, disease pattern, facility coverage, "
-        "gender distribution and monthly trends."
+    return (
+        series
+        .astype(str)
+        .str.strip()
+        .replace(
+            {
+                "": pd.NA,
+                "nan": pd.NA,
+                "None": pd.NA,
+                "NA": pd.NA,
+                "N/A": pd.NA,
+            }
+        )
     )
 
-    # ---------------------------------------------------------
-    # EMPTY DATA CHECK
-    # ---------------------------------------------------------
-    if filtered_df.empty:
-        st.warning("No records match the selected filters.")
+
+# ============================================================
+# MAIN FUNCTION
+# ============================================================
+
+def render_ward_analysis(df):
+
+    st.title("🏥 Facility-wise + Ward-wise Management Analysis")
+
+    st.caption(
+        "Interactive facility and ward burden monitoring, "
+        "disease pattern, demographic distribution and monthly trend analysis."
+    )
+
+    # --------------------------------------------------------
+    # BASIC CHECK
+    # --------------------------------------------------------
+
+    if df is None or df.empty:
+
+        st.warning("No data available.")
+
         return
 
-    # ---------------------------------------------------------
-    # BASIC DATA CHECKS
-    # ---------------------------------------------------------
-    has_ward = "Ward" in filtered_df.columns
-    has_facility = "Facility Name Lform" in filtered_df.columns
-    has_disease = "Confirmed Diagnosis" in filtered_df.columns
-    has_gender = "Gender" in filtered_df.columns
-    has_month = "Month" in filtered_df.columns
+    # --------------------------------------------------------
+    # STANDARD COLUMN CHECK
+    # --------------------------------------------------------
 
-    # ---------------------------------------------------------
-    # TOP BURDEN WARD
-    # ---------------------------------------------------------
-    if has_ward:
-        ward_counts = (
-            filtered_df["Ward"]
-            .dropna()
-            .astype(str)
-            .str.strip()
-            .value_counts()
+    required_columns = {
+        "Ward": "Ward",
+        "Facility Name Lform": "Facility",
+        "Confirmed Diagnosis": "Disease",
+        "Gender": "Gender",
+        "Month": "Month",
+    }
+
+    available = {
+        key: value
+        for key, value in required_columns.items()
+        if key in df.columns
+    }
+
+    if "Ward" not in available and "Facility Name Lform" not in available:
+
+        st.error(
+            "Ward and Facility fields could not be found in the dataset."
         )
-    else:
-        ward_counts = pd.Series(dtype="int64")
 
-    if not ward_counts.empty:
-        top_ward = ward_counts.index[0]
-        top_ward_cases = int(ward_counts.iloc[0])
-    else:
-        top_ward = "N/A"
-        top_ward_cases = 0
+        st.write("Available columns:")
 
-    # ---------------------------------------------------------
-    # KPI CARDS
-    # ---------------------------------------------------------
+        st.write(list(df.columns))
+
+        return
+
+    # --------------------------------------------------------
+    # GLOBAL FILTERS
+    # --------------------------------------------------------
+
+    try:
+
+        filters = create_filters(df)
+
+        filtered_df = apply_filters(
+            df,
+            **filters
+        )
+
+    except Exception:
+
+        filtered_df = df.copy()
+
+    # --------------------------------------------------------
+    # EMPTY FILTER RESULT
+    # --------------------------------------------------------
+
+    if filtered_df.empty:
+
+        st.warning(
+            "No records match the selected filters."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # INTERACTIVE MANAGEMENT FILTERS
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.subheader("🎛️ Management Filters")
+
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+    # --------------------------------------------------------
+    # FACILITY FILTER
+    # --------------------------------------------------------
+
+    facility_col = "Facility Name Lform"
+
+    if facility_col in filtered_df.columns:
+
+        facilities = sorted(
+            _clean(filtered_df[facility_col])
+            .dropna()
+            .unique()
+            .tolist()
+        )
+
+        with filter_col1:
+
+            selected_facilities = st.multiselect(
+                "🏥 Facility",
+                facilities,
+                placeholder="All Facilities",
+            )
+
+    else:
+
+        selected_facilities = []
+
+    # --------------------------------------------------------
+    # WARD FILTER
+    # --------------------------------------------------------
+
+    ward_col = "Ward"
+
+    if ward_col in filtered_df.columns:
+
+        wards = sorted(
+            _clean(filtered_df[ward_col])
+            .dropna()
+            .unique()
+            .tolist()
+        )
+
+        with filter_col2:
+
+            selected_wards = st.multiselect(
+                "🗺️ Ward",
+                wards,
+                placeholder="All Wards",
+            )
+
+    else:
+
+        selected_wards = []
+
+    # --------------------------------------------------------
+    # GENDER FILTER
+    # --------------------------------------------------------
+
+    gender_col = "Gender"
+
+    if gender_col in filtered_df.columns:
+
+        genders = sorted(
+            _clean(filtered_df[gender_col])
+            .dropna()
+            .unique()
+            .tolist()
+        )
+
+        with filter_col3:
+
+            selected_genders = st.multiselect(
+                "👥 Gender",
+                genders,
+                placeholder="All Genders",
+            )
+
+    else:
+
+        selected_genders = []
+
+    # --------------------------------------------------------
+    # APPLY INTERACTIVE FILTERS
+    # --------------------------------------------------------
+
+    management_df = filtered_df.copy()
+
+    if selected_facilities:
+
+        management_df = management_df[
+            _clean(
+                management_df[facility_col]
+            ).isin(selected_facilities)
+        ]
+
+    if selected_wards:
+
+        management_df = management_df[
+            _clean(
+                management_df[ward_col]
+            ).isin(selected_wards)
+        ]
+
+    if selected_genders:
+
+        management_df = management_df[
+            _clean(
+                management_df[gender_col]
+            ).isin(selected_genders)
+        ]
+
+    # --------------------------------------------------------
+    # DISEASE FILTER
+    # --------------------------------------------------------
+
+    if "Confirmed Diagnosis" in management_df.columns:
+
+        disease_values = sorted(
+            _clean(
+                management_df["Confirmed Diagnosis"]
+            )
+            .dropna()
+            .unique()
+            .tolist()
+        )
+
+        selected_diseases = st.multiselect(
+            "🦠 Disease / Confirmed Diagnosis",
+            disease_values,
+            placeholder="All Diseases",
+        )
+
+        if selected_diseases:
+
+            management_df = management_df[
+                _clean(
+                    management_df["Confirmed Diagnosis"]
+                ).isin(selected_diseases)
+            ]
+
+    # --------------------------------------------------------
+    # NO DATA AFTER FILTER
+    # --------------------------------------------------------
+
+    if management_df.empty:
+
+        st.warning(
+            "No records available for the selected management filters."
+        )
+
+        return
+
+    # ========================================================
+    # MANAGEMENT KPI
+    # ========================================================
+
+    st.divider()
+
+    st.subheader("📊 Management KPIs")
+
+    total_cases = len(management_df)
+
+    total_facilities = (
+        management_df[facility_col]
+        .nunique(dropna=True)
+        if facility_col in management_df.columns
+        else 0
+    )
+
+    total_wards = (
+        management_df[ward_col]
+        .nunique(dropna=True)
+        if ward_col in management_df.columns
+        else 0
+    )
+
+    total_diseases = (
+        management_df["Confirmed Diagnosis"]
+        .nunique(dropna=True)
+        if "Confirmed Diagnosis" in management_df.columns
+        else 0
+    )
+
     k1, k2, k3, k4 = st.columns(4)
 
     k1.metric(
-        "Total Cases",
-        f"{len(filtered_df):,}"
+        "📋 Total Cases",
+        f"{total_cases:,}",
     )
 
     k2.metric(
-        "Wards Covered",
-        f"{filtered_df['Ward'].nunique(dropna=True):,}"
-        if has_ward else "0"
+        "🏥 Facilities",
+        f"{total_facilities:,}",
     )
 
     k3.metric(
-        "Facilities Covered",
-        f"{filtered_df['Facility Name Lform'].nunique(dropna=True):,}"
-        if has_facility else "0"
+        "🗺️ Wards",
+        f"{total_wards:,}",
     )
 
     k4.metric(
-        "Top Burden Ward",
-        f"{top_ward} ({top_ward_cases:,})"
+        "🦠 Diseases",
+        f"{total_diseases:,}",
     )
 
-    # ---------------------------------------------------------
-    # WARD-WISE CASE BURDEN
-    # ---------------------------------------------------------
-    st.divider()
-    st.subheader("🏆 Ward-wise Case Burden Ranking")
+    # ========================================================
+    # TOP FACILITY + TOP WARD
+    # ========================================================
 
-    if has_ward and not ward_counts.empty:
+    top_col1, top_col2 = st.columns(2)
+
+    # --------------------------------------------------------
+    # TOP FACILITY
+    # --------------------------------------------------------
+
+    with top_col1:
+
+        st.subheader("🏥 Top Burden Facility")
+
+        if facility_col in management_df.columns:
+
+            facility_counts = (
+                _clean(
+                    management_df[facility_col]
+                )
+                .dropna()
+                .value_counts()
+                .rename_axis("Facility")
+                .reset_index(name="Cases")
+            )
+
+            if not facility_counts.empty:
+
+                top_facility = facility_counts.iloc[0]
+
+                st.metric(
+                    "Highest Case Facility",
+                    str(top_facility["Facility"]),
+                    f"{int(top_facility['Cases']):,} cases",
+                )
+
+            else:
+
+                st.info("Facility data unavailable.")
+
+    # --------------------------------------------------------
+    # TOP WARD
+    # --------------------------------------------------------
+
+    with top_col2:
+
+        st.subheader("🗺️ Top Burden Ward")
+
+        if ward_col in management_df.columns:
+
+            ward_counts = (
+                _clean(
+                    management_df[ward_col]
+                )
+                .dropna()
+                .value_counts()
+                .rename_axis("Ward")
+                .reset_index(name="Cases")
+            )
+
+            if not ward_counts.empty:
+
+                top_ward = ward_counts.iloc[0]
+
+                st.metric(
+                    "Highest Case Ward",
+                    str(top_ward["Ward"]),
+                    f"{int(top_ward['Cases']):,} cases",
+                )
+
+            else:
+
+                st.info("Ward data unavailable.")
+
+    # ========================================================
+    # FACILITY RANKING
+    # ========================================================
+
+    st.divider()
+
+    st.subheader("🏥 Facility-wise Case Burden")
+
+    if facility_col in management_df.columns:
+
+        facility_table = (
+            _clean(
+                management_df[facility_col]
+            )
+            .dropna()
+            .value_counts()
+            .rename_axis("Facility")
+            .reset_index(name="Cases")
+        )
+
+        facility_table["Share (%)"] = (
+            facility_table["Cases"]
+            / facility_table["Cases"].sum()
+            * 100
+        ).round(2)
+
+        facility_table.insert(
+            0,
+            "Rank",
+            range(1, len(facility_table) + 1),
+        )
+
+        st.dataframe(
+            facility_table,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        chart_df = (
+            facility_table
+            .head(20)
+            .sort_values("Cases")
+        )
+
+        fig = px.bar(
+            chart_df,
+            x="Cases",
+            y="Facility",
+            orientation="h",
+            text="Cases",
+            title="Top 20 Facilities by Case Burden",
+        )
+
+        fig.update_traces(
+            textposition="outside"
+        )
+
+        st.plotly_chart(
+            _layout(fig, 650),
+            use_container_width=True,
+        )
+
+    # ========================================================
+    # WARD RANKING
+    # ========================================================
+
+    st.divider()
+
+    st.subheader("🗺️ Ward-wise Case Burden")
+
+    if ward_col in management_df.columns:
 
         ward_table = (
-            ward_counts
+            _clean(
+                management_df[ward_col]
+            )
+            .dropna()
+            .value_counts()
             .rename_axis("Ward")
             .reset_index(name="Cases")
         )
 
-        total_ward_cases = ward_table["Cases"].sum()
-
-        if total_ward_cases > 0:
-            ward_table["Share (%)"] = (
-                ward_table["Cases"] /
-                total_ward_cases * 100
-            ).round(2)
-        else:
-            ward_table["Share (%)"] = 0
+        ward_table["Share (%)"] = (
+            ward_table["Cases"]
+            / ward_table["Cases"].sum()
+            * 100
+        ).round(2)
 
         ward_table.insert(
             0,
             "Rank",
-            range(1, len(ward_table) + 1)
+            range(1, len(ward_table) + 1),
         )
 
         st.dataframe(
             ward_table,
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
         )
 
-        # Top 20 chart
         chart_df = (
             ward_table
             .head(20)
@@ -160,7 +526,7 @@ def render_ward_analysis(df):
             y="Ward",
             orientation="h",
             text="Cases",
-            title="Top 20 Wards by Case Burden"
+            title="Top 20 Wards by Case Burden",
         )
 
         fig.update_traces(
@@ -169,382 +535,252 @@ def render_ward_analysis(df):
 
         st.plotly_chart(
             _layout(fig, 650),
-            use_container_width=True
+            use_container_width=True,
         )
 
-    else:
-        st.info("Ward data is not available.")
+    # ========================================================
+    # FACILITY × WARD MATRIX
+    # ========================================================
 
-    # ---------------------------------------------------------
-    # WARD x DISEASE
-    # ---------------------------------------------------------
     st.divider()
+
+    st.subheader("🏥 Facility × 🗺️ Ward Management Matrix")
+
+    if (
+        facility_col in management_df.columns
+        and ward_col in management_df.columns
+    ):
+
+        matrix = pd.crosstab(
+            _clean(
+                management_df[facility_col]
+            ),
+            _clean(
+                management_df[ward_col]
+            ),
+        )
+
+        if not matrix.empty:
+
+            st.dataframe(
+                matrix,
+                use_container_width=True,
+            )
+
+    else:
+
+        st.info(
+            "Facility and Ward fields are required for this matrix."
+        )
+
+    # ========================================================
+    # WARD × DISEASE
+    # ========================================================
+
+    st.divider()
+
     st.subheader("🦠 Ward × Disease Burden")
 
-    if has_ward and has_disease:
+    if (
+        ward_col in management_df.columns
+        and "Confirmed Diagnosis" in management_df.columns
+    ):
 
-        top_wards = (
-            filtered_df["Ward"]
+        ward_values = (
+            _clean(
+                management_df[ward_col]
+            )
             .dropna()
-            .astype(str)
-            .str.strip()
             .value_counts()
             .head(15)
             .index
         )
 
-        top_diseases = (
-            filtered_df["Confirmed Diagnosis"]
+        disease_values = (
+            _clean(
+                management_df["Confirmed Diagnosis"]
+            )
             .dropna()
-            .astype(str)
-            .str.strip()
             .value_counts()
             .head(10)
             .index
         )
 
-        matrix_df = filtered_df[
-            filtered_df["Ward"].astype(str).str.strip().isin(top_wards)
+        heatmap_df = management_df[
+            _clean(
+                management_df[ward_col]
+            ).isin(ward_values)
             &
-            filtered_df["Confirmed Diagnosis"]
-            .astype(str)
-            .str.strip()
-            .isin(top_diseases)
+            _clean(
+                management_df["Confirmed Diagnosis"]
+            ).isin(disease_values)
         ]
 
-        if not matrix_df.empty:
+        if not heatmap_df.empty:
 
-            heatmap = pd.crosstab(
-                matrix_df["Ward"],
-                matrix_df["Confirmed Diagnosis"]
+            matrix = pd.crosstab(
+                _clean(
+                    heatmap_df[ward_col]
+                ),
+                _clean(
+                    heatmap_df["Confirmed Diagnosis"]
+                ),
             )
 
             fig = px.imshow(
-                heatmap,
+                matrix,
                 text_auto=True,
                 aspect="auto",
-                title="Top 15 Wards × Top 10 Diseases",
+                title="Top Wards × Top Diseases",
                 labels={
-                    "x": "Confirmed Diagnosis",
+                    "x": "Disease",
                     "y": "Ward",
-                    "color": "Cases"
-                }
+                    "color": "Cases",
+                },
             )
 
             st.plotly_chart(
                 _layout(fig, 650),
-                use_container_width=True
-            )
-
-        else:
-            st.info("No ward-disease data available.")
-
-    else:
-        st.info(
-            "Ward or Confirmed Diagnosis column is not available."
-        )
-
-    # ---------------------------------------------------------
-    # WARD-WISE FACILITY COVERAGE
-    # ---------------------------------------------------------
-    st.divider()
-    st.subheader("🏥 Ward-wise Facility Coverage")
-
-    if has_ward and has_facility:
-
-        coverage_df = filtered_df.dropna(
-            subset=["Ward", "Facility Name Lform"]
-        ).copy()
-
-        if not coverage_df.empty:
-
-            agg = {
-                "Cases": ("Ward", "size"),
-                "Facilities": (
-                    "Facility Name Lform",
-                    "nunique"
-                )
-            }
-
-            if has_disease:
-                agg["Diseases"] = (
-                    "Confirmed Diagnosis",
-                    "nunique"
-                )
-
-            ward_facility = (
-                coverage_df
-                .groupby("Ward")
-                .agg(**agg)
-                .reset_index()
-                .sort_values(
-                    ["Cases", "Facilities"],
-                    ascending=[False, False]
-                )
-            )
-
-            st.dataframe(
-                ward_facility.head(100),
                 use_container_width=True,
-                hide_index=True
             )
 
-        else:
-            st.info(
-                "No ward-facility data available."
-            )
+    # ========================================================
+    # GENDER DISTRIBUTION
+    # ========================================================
 
-    else:
-        st.info(
-            "Ward or Facility Name Lform column is not available."
-        )
-
-    # ---------------------------------------------------------
-    # WARD-WISE GENDER DISTRIBUTION
-    # ---------------------------------------------------------
     st.divider()
-    st.subheader("👥 Ward-wise Gender Distribution")
 
-    if has_ward and has_gender:
+    st.subheader("👥 Gender Distribution")
 
-        top_wards_gender = (
-            filtered_df["Ward"]
+    if "Gender" in management_df.columns:
+
+        gender_table = (
+            _clean(
+                management_df["Gender"]
+            )
             .dropna()
-            .astype(str)
-            .str.strip()
             .value_counts()
-            .head(15)
-            .index
-        )
-
-        gender_df = (
-            filtered_df[
-                filtered_df["Ward"]
-                .astype(str)
-                .str.strip()
-                .isin(top_wards_gender)
-                &
-                filtered_df["Gender"].notna()
-            ]
-            .groupby(["Ward", "Gender"])
-            .size()
+            .rename_axis("Gender")
             .reset_index(name="Cases")
         )
 
-        if not gender_df.empty:
+        if not gender_table.empty:
 
-            fig = px.bar(
-                gender_df,
-                x="Ward",
-                y="Cases",
-                color="Gender",
-                barmode="group",
-                title="Gender Distribution in Top 15 Wards"
-            )
+            c1, c2 = st.columns(2)
 
-            st.plotly_chart(
-                _layout(fig, 500),
-                use_container_width=True
-            )
+            with c1:
 
-            st.dataframe(
-                gender_df,
-                use_container_width=True,
-                hide_index=True
-            )
+                fig = px.pie(
+                    gender_table,
+                    names="Gender",
+                    values="Cases",
+                    title="Gender-wise Case Distribution",
+                )
 
-        else:
-            st.info(
-                "No gender data available for selected wards."
-            )
+                st.plotly_chart(
+                    fig,
+                    use_container_width=True,
+                )
 
-    else:
-        st.info(
-            "Ward or Gender column is not available."
-        )
+            with c2:
 
-    # ---------------------------------------------------------
-    # WARD-WISE MONTHLY TREND
-    # ---------------------------------------------------------
+                st.dataframe(
+                    gender_table,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+    # ========================================================
+    # MONTHLY TREND
+    # ========================================================
+
     st.divider()
-    st.subheader("📅 Ward-wise Monthly Trend")
 
-    if has_ward and has_month:
+    st.subheader("📅 Monthly Case Comparison")
 
-        top10_wards = (
-            filtered_df["Ward"]
-            .dropna()
-            .astype(str)
-            .str.strip()
-            .value_counts()
-            .head(10)
-            .index
-        )
+    if "Month" in management_df.columns:
 
         monthly = (
-            filtered_df[
-                filtered_df["Ward"]
-                .astype(str)
-                .str.strip()
-                .isin(top10_wards)
-            ]
-            .dropna(subset=["Ward", "Month"])
-            .groupby(["Month", "Ward"])
-            .size()
+            _clean(
+                management_df["Month"]
+            )
+            .dropna()
+            .value_counts()
+            .rename_axis("Month")
             .reset_index(name="Cases")
         )
 
-        if not monthly.empty:
+        month_order = [
+            "Jan", "Feb", "Mar", "Apr",
+            "May", "Jun", "Jul", "Aug",
+            "Sep", "Oct", "Nov", "Dec",
+        ]
 
-            month_order = [
-                "Jan", "Feb", "Mar", "Apr",
-                "May", "Jun", "Jul", "Aug",
-                "Sep", "Oct", "Nov", "Dec"
-            ]
+        month_map = {
+            "January": "Jan",
+            "February": "Feb",
+            "March": "Mar",
+            "April": "Apr",
+            "May": "May",
+            "June": "Jun",
+            "July": "Jul",
+            "August": "Aug",
+            "September": "Sep",
+            "October": "Oct",
+            "November": "Nov",
+            "December": "Dec",
+        }
 
-            # Handle full month names also
-            month_map = {
-                "January": "Jan",
-                "February": "Feb",
-                "March": "Mar",
-                "April": "Apr",
-                "May": "May",
-                "June": "Jun",
-                "July": "Jul",
-                "August": "Aug",
-                "September": "Sep",
-                "October": "Oct",
-                "November": "Nov",
-                "December": "Dec"
-            }
-
-            monthly["Month"] = (
-                monthly["Month"]
-                .astype(str)
-                .str.strip()
-                .replace(month_map)
-            )
-
-            monthly["Month"] = pd.Categorical(
-                monthly["Month"],
-                categories=month_order,
-                ordered=True
-            )
-
-            monthly = monthly.sort_values(
-                ["Month", "Ward"]
-            )
-
-            fig = px.line(
-                monthly,
-                x="Month",
-                y="Cases",
-                color="Ward",
-                markers=True,
-                title="Monthly Case Trend — Top 10 Wards"
-            )
-
-            st.plotly_chart(
-                _layout(fig, 520),
-                use_container_width=True
-            )
-
-            st.dataframe(
-                monthly,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        else:
-            st.info(
-                "No monthly ward data available."
-            )
-
-    else:
-        st.info(
-            "Ward or Month column is not available."
+        monthly["Month"] = (
+            monthly["Month"]
+            .replace(month_map)
         )
 
-    # ---------------------------------------------------------
-    # WARD MANAGEMENT SUMMARY
-    # ---------------------------------------------------------
+        monthly["Month"] = pd.Categorical(
+            monthly["Month"],
+            categories=month_order,
+            ordered=True,
+        )
+
+        monthly = monthly.sort_values("Month")
+
+        fig = px.bar(
+            monthly,
+            x="Month",
+            y="Cases",
+            text="Cases",
+            title="Monthly Case Comparison",
+        )
+
+        fig.update_traces(
+            textposition="outside"
+        )
+
+        st.plotly_chart(
+            _layout(fig, 500),
+            use_container_width=True,
+        )
+
+        st.dataframe(
+            monthly,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # ========================================================
+    # SELECTED DATA TABLE
+    # ========================================================
+
     st.divider()
-    st.subheader("📋 Ward Management Summary")
 
-    if has_ward:
+    st.subheader("📋 Filtered Management Dataset")
 
-        summary_df = filtered_df.dropna(
-            subset=["Ward"]
-        ).copy()
+    st.caption(
+        f"Showing {len(management_df):,} records after applying filters."
+    )
 
-        if not summary_df.empty:
-
-            agg = {
-                "Cases": ("Ward", "size")
-            }
-
-            if has_facility:
-                agg["Facilities"] = (
-                    "Facility Name Lform",
-                    "nunique"
-                )
-
-            if has_disease:
-                agg["Diseases"] = (
-                    "Confirmed Diagnosis",
-                    "nunique"
-                )
-
-            if has_gender:
-                agg["Gender Categories"] = (
-                    "Gender",
-                    "nunique"
-                )
-
-            summary = (
-                summary_df
-                .groupby("Ward")
-                .agg(**agg)
-                .reset_index()
-            )
-
-            total_cases = summary["Cases"].sum()
-
-            if total_cases > 0:
-                summary["Share (%)"] = (
-                    summary["Cases"] /
-                    total_cases * 100
-                ).round(2)
-            else:
-                summary["Share (%)"] = 0
-
-            summary = (
-                summary
-                .sort_values(
-                    "Cases",
-                    ascending=False
-                )
-                .reset_index(drop=True)
-            )
-
-            summary.insert(
-                0,
-                "Rank",
-                range(1, len(summary) + 1)
-            )
-
-            st.dataframe(
-                summary,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        else:
-            st.info(
-                "No ward summary data available."
-            )
-
-    else:
-        st.info(
-            "Ward column is not available."
-        )
+    st.dataframe(
+        management_df,
+        use_container_width=True,
+        hide_index=True,
+    )
