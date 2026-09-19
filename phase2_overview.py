@@ -1,861 +1,609 @@
 import streamlit as st
 import pandas as pd
-
 import phase1_data
 
-def find_column(df, candidates):
-if df is None or df.empty:
-return None
 
-```
-columns = {
-    str(col).strip().lower(): col
-    for col in df.columns
-}
-
-for candidate in candidates:
-    key = str(candidate).strip().lower()
-    if key in columns:
-        return columns[key]
-
-return None
-```
-
-def get_values(df, column):
-if df is None or df.empty:
-return []
-
-```
-if column is None or column not in df.columns:
-    return []
-
-values = (
-    df[column]
-    .dropna()
-    .astype(str)
-    .str.strip()
-)
-
-values = values[
-    (values != "")
-    & (values != "nan")
-    & (values != "None")
-]
-
-return sorted(
-    values.unique().tolist(),
-    key=lambda x: str(x).lower()
-)
-```
-
-def _reset_filters():
-current_version = st.session_state.get(
-"filter_reset_version",
-0
-)
-
-```
-st.session_state["filter_reset_version"] = (
-    current_version + 1
-)
-
-keys_to_remove = [
-    key
-    for key in list(st.session_state.keys())
-    if str(key).startswith("global_")
-]
-
-for key in keys_to_remove:
-    try:
-        del st.session_state[key]
-    except Exception:
-        pass
-```
+# ============================================================
+# GLOBAL FILTERS
+# ============================================================
 
 def create_filters(df):
+    """
+    Creates the global dashboard filters.
 
-```
-if df is None or df.empty:
+    Blank filter = ALL data.
+    Filters apply immediately.
+    No Apply button is required.
+    """
+
+    if df is None or df.empty:
+        return {
+            "reporting_date": None,
+            "year": [],
+            "month": [],
+            "week": [],
+            "disease": [],
+            "facility": [],
+            "ward": [],
+            "gender": [],
+            "age_group": [],
+            "opd_ipd": [],
+        }
+
+    st.markdown(
+        """
+        <div class="global-filter-heading">
+            <div class="global-filter-title">
+                🎛️ Global Dashboard Control
+            </div>
+            <div class="global-filter-subtitle">
+                Select any filter to update the entire dashboard immediately.
+                Leave a filter blank to include all records.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # Reset button
+    # --------------------------------------------------------
+
+    if "dashboard_reset_filters" not in st.session_state:
+        st.session_state.dashboard_reset_filters = False
+
+    reset_clicked = st.button(
+        "↩️ Reset Filters",
+        key="global_reset_filters",
+        use_container_width=False,
+    )
+
+    if reset_clicked:
+        keys_to_clear = [
+            "filter_year",
+            "filter_month",
+            "filter_week",
+            "filter_disease",
+            "filter_facility",
+            "filter_ward",
+            "filter_gender",
+            "filter_age_group",
+            "filter_opd_ipd",
+            "filter_reporting_date",
+        ]
+
+        for key in keys_to_clear:
+            st.session_state.pop(key, None)
+
+        st.rerun()
+
+    # --------------------------------------------------------
+    # Helper
+    # --------------------------------------------------------
+
+    def unique_values(column):
+        if column not in df.columns:
+            return []
+
+        values = (
+            df[column]
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+
+        values = values[
+            values.ne("")
+            & values.ne("nan")
+            & values.ne("NaT")
+        ]
+
+        return sorted(values.unique().tolist())
+
+    # --------------------------------------------------------
+    # Date range
+    # --------------------------------------------------------
+
+    min_date = None
+    max_date = None
+
+    if "Reporting Date" in df.columns:
+        dates = df["Reporting Date"].dropna()
+
+        if not dates.empty:
+            min_date = dates.min().date()
+            max_date = dates.max().date()
+
+    # --------------------------------------------------------
+    # Filter columns
+    # --------------------------------------------------------
+
+    years = unique_values("Year")
+    months = unique_values("Month")
+    weeks = unique_values("Week")
+    diseases = unique_values("Disease")
+    facilities = unique_values("Facility Name")
+    wards = unique_values("Ward Name")
+    genders = unique_values("Gender")
+    age_groups = unique_values("Age Group")
+    opd_ipd = unique_values("OPD/IPD")
+
+    # --------------------------------------------------------
+    # Filter layout
+    # --------------------------------------------------------
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        selected_year = st.multiselect(
+            "📅 Year",
+            options=years,
+            default=[],
+            key="filter_year",
+        )
+
+    with c2:
+        selected_month = st.multiselect(
+            "🗓️ Month",
+            options=months,
+            default=[],
+            key="filter_month",
+        )
+
+    with c3:
+        selected_week = st.multiselect(
+            "📆 Week",
+            options=weeks,
+            default=[],
+            key="filter_week",
+        )
+
+    with c4:
+        selected_disease = st.multiselect(
+            "🦠 Disease",
+            options=diseases,
+            default=[],
+            key="filter_disease",
+        )
+
+    c5, c6, c7, c8 = st.columns(4)
+
+    with c5:
+        selected_facility = st.multiselect(
+            "🏥 Facility",
+            options=facilities,
+            default=[],
+            key="filter_facility",
+        )
+
+    with c6:
+        selected_ward = st.multiselect(
+            "📍 Ward",
+            options=wards,
+            default=[],
+            key="filter_ward",
+        )
+
+    with c7:
+        selected_gender = st.multiselect(
+            "👤 Gender",
+            options=genders,
+            default=[],
+            key="filter_gender",
+        )
+
+    with c8:
+        selected_age_group = st.multiselect(
+            "🎂 Age Group",
+            options=age_groups,
+            default=[],
+            key="filter_age_group",
+        )
+
+    c9, c10 = st.columns(2)
+
+    with c9:
+        selected_opd_ipd = st.multiselect(
+            "🏨 OPD / IPD",
+            options=opd_ipd,
+            default=[],
+            key="filter_opd_ipd",
+        )
+
+    with c10:
+        selected_reporting_date = None
+
+        if min_date is not None and max_date is not None:
+            selected_reporting_date = st.date_input(
+                "📅 Reporting Date",
+                value=None,
+                min_value=min_date,
+                max_value=max_date,
+                key="filter_reporting_date",
+            )
+
     return {
-        "selected_years": [],
-        "selected_months": [],
-        "selected_weeks": [],
-        "selected_diseases": [],
-        "selected_facilities": [],
-        "selected_wards": [],
-        "selected_genders": [],
-        "selected_age_groups": [],
-        "selected_opd_ipd": [],
-        "date_column": "Reporting Date",
-        "date_from": None,
-        "date_to": None,
+        "reporting_date": selected_reporting_date,
+        "year": selected_year,
+        "month": selected_month,
+        "week": selected_week,
+        "disease": selected_disease,
+        "facility": selected_facility,
+        "ward": selected_ward,
+        "gender": selected_gender,
+        "age_group": selected_age_group,
+        "opd_ipd": selected_opd_ipd,
     }
 
-reset_version = st.session_state.get(
-    "filter_reset_version",
-    0
-)
 
-st.markdown(
-    """
-    <div class="global-filter-heading">
-        <div class="global-filter-title">
-            🎛️ Global Dashboard Control
-        </div>
-        <div class="global-filter-subtitle">
-            Select any filter to immediately update the dashboard.
-            Blank filters represent all available data.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-button_col1, button_col2, _ = st.columns(
-    [1, 1, 5]
-)
-
-with button_col1:
-    refresh_clicked = st.button(
-        "🔄 Refresh Data",
-        key=f"global_refresh_{reset_version}",
-        use_container_width=True,
-    )
-
-with button_col2:
-    reset_clicked = st.button(
-        "↺ Reset Filters",
-        key=f"global_reset_{reset_version}",
-        use_container_width=True,
-    )
-
-if refresh_clicked:
-    with st.spinner(
-        "Refreshing Google Sheet data..."
-    ):
-        phase1_data.refresh_data()
-
-    st.rerun()
-
-if reset_clicked:
-    _reset_filters()
-    st.rerun()
-
-year_col = find_column(
-    df,
-    ["Year"]
-)
-
-month_col = find_column(
-    df,
-    ["Month"]
-)
-
-week_col = find_column(
-    df,
-    ["Week"]
-)
-
-disease_col = find_column(
-    df,
-    [
-        "Disease",
-        "Confirmed Diagnosis",
-    ]
-)
-
-facility_col = find_column(
-    df,
-    [
-        "Facility Name",
-        "Facility Name Lform",
-    ]
-)
-
-ward_col = find_column(
-    df,
-    [
-        "Ward Name",
-        "Ward",
-    ]
-)
-
-gender_col = find_column(
-    df,
-    ["Gender"]
-)
-
-age_group_col = find_column(
-    df,
-    ["Age Group"]
-)
-
-opd_ipd_col = find_column(
-    df,
-    [
-        "OPD/IPD",
-        "Opd Ipd",
-    ]
-)
-
-date_column = find_column(
-    df,
-    ["Reporting Date"]
-)
-
-years = get_values(
-    df,
-    year_col
-)
-
-months = get_values(
-    df,
-    month_col
-)
-
-weeks = get_values(
-    df,
-    week_col
-)
-
-diseases = get_values(
-    df,
-    disease_col
-)
-
-facilities = get_values(
-    df,
-    facility_col
-)
-
-wards = get_values(
-    df,
-    ward_col
-)
-
-genders = get_values(
-    df,
-    gender_col
-)
-
-age_groups = get_values(
-    df,
-    age_group_col
-)
-
-opd_ipd_values = get_values(
-    df,
-    opd_ipd_col
-)
-
-row1 = st.columns(4)
-
-with row1[0]:
-    selected_years = st.multiselect(
-        "📅 Year",
-        options=years,
-        default=[],
-        key=f"global_year_filter_{reset_version}",
-        placeholder="Select Year",
-    )
-
-with row1[1]:
-    selected_months = st.multiselect(
-        "🗓️ Month",
-        options=months,
-        default=[],
-        key=f"global_month_filter_{reset_version}",
-        placeholder="Select Month",
-    )
-
-with row1[2]:
-    selected_weeks = st.multiselect(
-        "📆 Week",
-        options=weeks,
-        default=[],
-        key=f"global_week_filter_{reset_version}",
-        placeholder="Select Week",
-    )
-
-with row1[3]:
-    selected_diseases = st.multiselect(
-        "🦠 Disease",
-        options=diseases,
-        default=[],
-        key=f"global_disease_filter_{reset_version}",
-        placeholder="Select Disease",
-    )
-
-row2 = st.columns(4)
-
-with row2[0]:
-    selected_facilities = st.multiselect(
-        "🏥 Facility",
-        options=facilities,
-        default=[],
-        key=f"global_facility_filter_{reset_version}",
-        placeholder="Select Facility",
-    )
-
-with row2[1]:
-    selected_wards = st.multiselect(
-        "🏘️ Ward",
-        options=wards,
-        default=[],
-        key=f"global_ward_filter_{reset_version}",
-        placeholder="Select Ward",
-    )
-
-with row2[2]:
-    selected_genders = st.multiselect(
-        "⚥ Gender",
-        options=genders,
-        default=[],
-        key=f"global_gender_filter_{reset_version}",
-        placeholder="Select Gender",
-    )
-
-with row2[3]:
-    selected_age_groups = st.multiselect(
-        "👥 Age Group",
-        options=age_groups,
-        default=[],
-        key=f"global_age_group_filter_{reset_version}",
-        placeholder="Select Age Group",
-    )
-
-row3 = st.columns(4)
-
-with row3[0]:
-    selected_opd_ipd = st.multiselect(
-        "🏨 OPD / IPD",
-        options=opd_ipd_values,
-        default=[],
-        key=f"global_opd_ipd_filter_{reset_version}",
-        placeholder="Select OPD / IPD",
-    )
-
-with row3[1]:
-    use_reporting_date = st.checkbox(
-        "📅 Use Reporting Date",
-        value=False,
-        key=f"global_use_reporting_date_{reset_version}",
-    )
-
-date_from = None
-date_to = None
-
-if (
-    use_reporting_date
-    and date_column is not None
-    and date_column in df.columns
-):
-    valid_dates = pd.to_datetime(
-        df[date_column],
-        errors="coerce"
-    ).dropna()
-
-    if not valid_dates.empty:
-        min_date = valid_dates.min().date()
-        max_date = valid_dates.max().date()
-
-        date_col1, date_col2 = st.columns(2)
-
-        with date_col1:
-            date_from = st.date_input(
-                "From Date",
-                value=min_date,
-                min_value=min_date,
-                max_value=max_date,
-                key=f"global_date_from_{reset_version}",
-            )
-
-        with date_col2:
-            date_to = st.date_input(
-                "To Date",
-                value=max_date,
-                min_value=min_date,
-                max_value=max_date,
-                key=f"global_date_to_{reset_version}",
-            )
-
-return {
-    "selected_years": selected_years,
-    "selected_months": selected_months,
-    "selected_weeks": selected_weeks,
-    "selected_diseases": selected_diseases,
-    "selected_facilities": selected_facilities,
-    "selected_wards": selected_wards,
-    "selected_genders": selected_genders,
-    "selected_age_groups": selected_age_groups,
-    "selected_opd_ipd": selected_opd_ipd,
-    "date_column": date_column,
-    "date_from": date_from,
-    "date_to": date_to,
-}
-```
+# ============================================================
+# APPLY FILTERS
+# ============================================================
 
 def apply_filters(
-df,
-selected_years=None,
-selected_months=None,
-selected_weeks=None,
-selected_diseases=None,
-selected_facilities=None,
-selected_wards=None,
-selected_genders=None,
-selected_age_groups=None,
-selected_opd_ipd=None,
-date_column=None,
-date_from=None,
-date_to=None,
+    df,
+    reporting_date=None,
+    year=None,
+    month=None,
+    week=None,
+    disease=None,
+    facility=None,
+    ward=None,
+    gender=None,
+    age_group=None,
+    opd_ipd=None,
 ):
+    """
+    Applies all selected dashboard filters.
 
-```
-if df is None or df.empty:
-    return pd.DataFrame()
+    Empty filter means ALL records.
+    """
 
-filtered = df.copy()
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-def apply_text_filter(
-    current_df,
-    selected_values,
-    candidates,
-):
-    if not selected_values:
-        return current_df
+    filtered = df.copy()
 
-    column = find_column(
-        current_df,
-        candidates
-    )
+    # --------------------------------------------------------
+    # Date
+    # --------------------------------------------------------
 
-    if column is None:
-        return current_df
+    if reporting_date is not None and "Reporting Date" in filtered.columns:
 
-    values = (
-        current_df[column]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
+        if isinstance(reporting_date, tuple):
+            if len(reporting_date) == 2:
+                start_date, end_date = reporting_date
 
-    selected = {
-        str(value).strip()
-        for value in selected_values
-    }
+                if start_date is not None:
+                    filtered = filtered[
+                        filtered["Reporting Date"].dt.date >= start_date
+                    ]
 
-    return current_df[
-        values.isin(selected)
-    ]
+                if end_date is not None:
+                    filtered = filtered[
+                        filtered["Reporting Date"].dt.date <= end_date
+                    ]
 
-filtered = apply_text_filter(
-    filtered,
-    selected_years,
-    ["Year"],
-)
+        else:
+            try:
+                selected_date = pd.Timestamp(reporting_date)
 
-filtered = apply_text_filter(
-    filtered,
-    selected_months,
-    ["Month"],
-)
+                filtered = filtered[
+                    filtered["Reporting Date"].dt.normalize()
+                    == selected_date.normalize()
+                ]
 
-filtered = apply_text_filter(
-    filtered,
-    selected_weeks,
-    ["Week"],
-)
+            except Exception:
+                pass
 
-filtered = apply_text_filter(
-    filtered,
-    selected_diseases,
-    [
-        "Disease",
-        "Confirmed Diagnosis",
-    ],
-)
+    # --------------------------------------------------------
+    # Helper for text filters
+    # --------------------------------------------------------
 
-filtered = apply_text_filter(
-    filtered,
-    selected_facilities,
-    [
-        "Facility Name",
-        "Facility Name Lform",
-    ],
-)
+    def apply_text_filter(data, column, values):
 
-filtered = apply_text_filter(
-    filtered,
-    selected_wards,
-    [
-        "Ward Name",
-        "Ward",
-    ],
-)
+        if not values:
+            return data
 
-filtered = apply_text_filter(
-    filtered,
-    selected_genders,
-    ["Gender"],
-)
+        if column not in data.columns:
+            return data
 
-filtered = apply_text_filter(
-    filtered,
-    selected_age_groups,
-    ["Age Group"],
-)
+        values_clean = [
+            str(v).strip()
+            for v in values
+            if str(v).strip()
+        ]
 
-filtered = apply_text_filter(
-    filtered,
-    selected_opd_ipd,
-    [
-        "OPD/IPD",
-        "Opd Ipd",
-    ],
-)
+        if not values_clean:
+            return data
 
-if (
-    date_column is not None
-    and date_column in filtered.columns
-    and date_from is not None
-    and date_to is not None
-):
-    dates = pd.to_datetime(
-        filtered[date_column],
-        errors="coerce"
-    )
-
-    start_date = pd.Timestamp(
-        date_from
-    )
-
-    end_date = (
-        pd.Timestamp(date_to)
-        + pd.Timedelta(days=1)
-        - pd.Timedelta(nanoseconds=1)
-    )
-
-    filtered = filtered[
-        dates.between(
-            start_date,
-            end_date,
-            inclusive="both",
+        column_values = (
+            data[column]
+            .fillna("")
+            .astype(str)
+            .str.strip()
         )
-    ]
 
-return filtered.reset_index(
-    drop=True
-)
-```
+        return data[column_values.isin(values_clean)]
+
+    # --------------------------------------------------------
+    # Apply all filters
+    # --------------------------------------------------------
+
+    filtered = apply_text_filter(
+        filtered,
+        "Year",
+        year,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "Month",
+        month,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "Week",
+        week,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "Disease",
+        disease,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "Facility Name",
+        facility,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "Ward Name",
+        ward,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "Gender",
+        gender,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "Age Group",
+        age_group,
+    )
+
+    filtered = apply_text_filter(
+        filtered,
+        "OPD/IPD",
+        opd_ipd,
+    )
+
+    return filtered.reset_index(drop=True)
+
+
+# ============================================================
+# KPI CALCULATION
+# ============================================================
 
 def calculate_kpis(df):
 
-```
-if df is None or df.empty:
+    if df is None or df.empty:
+        return {
+            "total_records": 0,
+            "diseases": 0,
+            "facilities": 0,
+            "wards": 0,
+        }
+
+    def count_unique(column):
+        if column not in df.columns:
+            return 0
+
+        values = (
+            df[column]
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+
+        values = values[
+            values.ne("")
+            & values.ne("nan")
+        ]
+
+        return int(values.nunique())
+
     return {
-        "total_records": 0,
-        "diseases": 0,
-        "facilities": 0,
-        "wards": 0,
-        "genders": 0,
-        "age_groups": 0,
+        "total_records": int(len(df)),
+        "diseases": count_unique("Disease"),
+        "facilities": count_unique("Facility Name"),
+        "wards": count_unique("Ward Name"),
     }
 
-disease_col = find_column(
-    df,
-    [
-        "Disease",
-        "Confirmed Diagnosis",
-    ],
-)
 
-facility_col = find_column(
-    df,
-    [
-        "Facility Name",
-        "Facility Name Lform",
-    ],
-)
-
-ward_col = find_column(
-    df,
-    [
-        "Ward Name",
-        "Ward",
-    ],
-)
-
-gender_col = find_column(
-    df,
-    ["Gender"],
-)
-
-age_group_col = find_column(
-    df,
-    ["Age Group"],
-)
-
-def unique_count(column):
-
-    if (
-        column is None
-        or column not in df.columns
-    ):
-        return 0
-
-    values = (
-        df[column]
-        .dropna()
-        .astype(str)
-        .str.strip()
-    )
-
-    values = values[
-        (values != "")
-        & (values != "nan")
-        & (values != "None")
-    ]
-
-    return int(
-        values.nunique()
-    )
-
-return {
-    "total_records": int(len(df)),
-    "diseases": unique_count(disease_col),
-    "facilities": unique_count(facility_col),
-    "wards": unique_count(ward_col),
-    "genders": unique_count(gender_col),
-    "age_groups": unique_count(age_group_col),
-}
-```
+# ============================================================
+# OVERVIEW
+# ============================================================
 
 def render_overview(df):
 
-```
-st.subheader(
-    "📊 Programme Overview"
-)
+    st.subheader("📊 Programme Overview")
 
-if df is None or df.empty:
-    st.warning(
-        "No records available for the selected filters."
-    )
-    return
+    if df is None or df.empty:
+        st.warning("No records available for the selected filters.")
+        return
 
-disease_col = find_column(
-    df,
-    [
-        "Disease",
-        "Confirmed Diagnosis",
-    ],
-)
+    kpis = calculate_kpis(df)
 
-facility_col = find_column(
-    df,
-    [
-        "Facility Name",
-        "Facility Name Lform",
-    ],
-)
+    c1, c2, c3, c4 = st.columns(4)
 
-ward_col = find_column(
-    df,
-    [
-        "Ward Name",
-        "Ward",
-    ],
-)
+    with c1:
+        st.metric(
+            "Total Records",
+            f"{kpis['total_records']:,}",
+        )
 
-month_col = find_column(
-    df,
-    ["Month"],
-)
+    with c2:
+        st.metric(
+            "Diseases",
+            f"{kpis['diseases']:,}",
+        )
 
-st.markdown(
-    "### Management Summary"
-)
+    with c3:
+        st.metric(
+            "Facilities",
+            f"{kpis['facilities']:,}",
+        )
 
-kpis = calculate_kpis(df)
+    with c4:
+        st.metric(
+            "Wards",
+            f"{kpis['wards']:,}",
+        )
 
-c1, c2, c3, c4 = st.columns(4)
+    st.divider()
 
-with c1:
-    st.metric(
-        "Records",
-        f"{kpis['total_records']:,}",
-    )
+    # --------------------------------------------------------
+    # Reporting period
+    # --------------------------------------------------------
 
-with c2:
-    st.metric(
-        "Diseases",
-        f"{kpis['diseases']:,}",
-    )
+    if "Reporting Date" in df.columns:
 
-with c3:
-    st.metric(
-        "Facilities",
-        f"{kpis['facilities']:,}",
-    )
+        dates = df["Reporting Date"].dropna()
 
-with c4:
-    st.metric(
-        "Wards",
-        f"{kpis['wards']:,}",
-    )
+        if not dates.empty:
 
-st.divider()
+            start_date = dates.min().strftime("%d-%m-%Y")
+            end_date = dates.max().strftime("%d-%m-%Y")
 
-col1, col2 = st.columns(2)
+            st.info(
+                f"📅 Reporting Period: **{start_date} to {end_date}**"
+            )
 
-with col1:
+    # --------------------------------------------------------
+    # Top Disease
+    # --------------------------------------------------------
 
-    st.markdown(
-        "### 🏥 Top Facilities by Record Burden"
-    )
+    if "Disease" in df.columns:
 
-    if facility_col is not None:
-
-        facility_summary = (
-            df[facility_col]
+        disease_counts = (
+            df["Disease"]
             .fillna("")
             .astype(str)
             .str.strip()
-            .value_counts()
-            .head(10)
         )
 
-        facility_summary = facility_summary[
-            facility_summary.index != ""
+        disease_counts = disease_counts[
+            disease_counts.ne("")
         ]
 
-        if not facility_summary.empty:
+        if not disease_counts.empty:
+
+            top_disease = (
+                disease_counts
+                .value_counts()
+                .head(10)
+                .rename_axis("Disease")
+                .reset_index(name="Records")
+            )
+
+            st.markdown("### 🦠 Disease-wise Burden")
 
             st.dataframe(
-                facility_summary.rename(
-                    "Records"
-                ).to_frame(),
+                top_disease,
                 use_container_width=True,
+                hide_index=True,
             )
 
-        else:
+    # --------------------------------------------------------
+    # Top Facilities
+    # --------------------------------------------------------
 
-            st.info(
-                "Facility information not available."
-            )
+    if "Facility Name" in df.columns:
 
-    else:
-
-        st.info(
-            "Facility information not available."
-        )
-
-with col2:
-
-    st.markdown(
-        "### 🏘️ Top Wards by Record Burden"
-    )
-
-    if ward_col is not None:
-
-        ward_summary = (
-            df[ward_col]
+        facility_counts = (
+            df["Facility Name"]
             .fillna("")
             .astype(str)
             .str.strip()
-            .value_counts()
-            .head(10)
         )
 
-        ward_summary = ward_summary[
-            ward_summary.index != ""
+        facility_counts = facility_counts[
+            facility_counts.ne("")
         ]
 
-        if not ward_summary.empty:
+        if not facility_counts.empty:
+
+            top_facilities = (
+                facility_counts
+                .value_counts()
+                .head(10)
+                .rename_axis("Facility")
+                .reset_index(name="Records")
+            )
+
+            st.markdown("### 🏥 Top Facilities")
 
             st.dataframe(
-                ward_summary.rename(
-                    "Records"
-                ).to_frame(),
+                top_facilities,
                 use_container_width=True,
+                hide_index=True,
             )
 
-        else:
+    # --------------------------------------------------------
+    # Top Wards
+    # --------------------------------------------------------
 
-            st.info(
-                "Ward information not available."
+    if "Ward Name" in df.columns:
+
+        ward_counts = (
+            df["Ward Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        ward_counts = ward_counts[
+            ward_counts.ne("")
+        ]
+
+        if not ward_counts.empty:
+
+            top_wards = (
+                ward_counts
+                .value_counts()
+                .head(10)
+                .rename_axis("Ward")
+                .reset_index(name="Records")
             )
 
-    else:
+            st.markdown("### 📍 Top Burden Wards")
 
-        st.info(
-            "Ward information not available."
-        )
+            st.dataframe(
+                top_wards,
+                use_container_width=True,
+                hide_index=True,
+            )
 
-st.divider()
 
-st.markdown(
-    "### 📅 Monthly Record Trend"
-)
+# ============================================================
+# REFRESH BUTTON
+# ============================================================
 
-if month_col is not None:
+st.sidebar.markdown("---")
 
-    month_summary = (
-        df[month_col]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .value_counts()
-    )
+if st.sidebar.button(
+    "🔄 Refresh Google Sheet Data",
+    use_container_width=True,
+):
+    with st.spinner("Refreshing Google Sheet data..."):
+        phase1_data.refresh_data()
 
-    month_summary = month_summary[
-        month_summary.index != ""
-    ]
-
-    if not month_summary.empty:
-
-        st.bar_chart(
-            month_summary,
-            use_container_width=True,
-        )
-
-    else:
-
-        st.info(
-            "Monthly information not available."
-        )
-
-if disease_col is not None:
-
-    st.markdown(
-        "### 🦠 Disease Distribution"
-    )
-
-    disease_summary = (
-        df[disease_col]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .value_counts()
-        .head(15)
-    )
-
-    disease_summary = disease_summary[
-        disease_summary.index != ""
-    ]
-
-    if not disease_summary.empty:
-
-        st.dataframe(
-            disease_summary.rename(
-                "Records"
-            ).to_frame(),
-            use_container_width=True,
-        )
-
-    else:
-
-        st.info(
-            "Disease information not available."
-        )
+    st.success("Google Sheet data refreshed successfully.")
+    st.rerun()
