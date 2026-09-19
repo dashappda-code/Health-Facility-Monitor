@@ -12,11 +12,7 @@ import streamlit as st
 # GOOGLE SHEET URL
 # ============================================================
 
-GOOGLE_SHEET_URL = (
-    "https://docs.google.com/spreadsheets/d/"
-    "1Qm8wP8wM2kYx9YwK8mQm3hY9K0vQ2xY9"
-    "/export?format=csv"
-)
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/18qfha01Czh10i4PDRUpuumtRVwbQv7Pn09jFxGSbXHg/edit?gid=1910295094#gid=1910295094"
 
 
 # ============================================================
