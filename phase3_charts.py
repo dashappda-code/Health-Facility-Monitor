@@ -1,991 +1,565 @@
-import pandas as pd
-import plotly.express as px
 import streamlit as st
+import pandas as pd
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
-def clean_series(series):
+def _clean_series(df, column):
+    if df is None or df.empty or column not in df.columns:
+        return pd.Series(dtype="object")
 
     return (
-        series
+        df[column]
+        .fillna("")
         .astype(str)
         .str.strip()
-        .replace(
-            {
-                "": pd.NA,
-                "nan": pd.NA,
-                "None": pd.NA,
-                "NA": pd.NA,
-                "N/A": pd.NA,
-            }
-        )
     )
 
 
-def find_column(df, candidates):
+def _month_order(df):
+    if df is None or df.empty or "Month" not in df.columns:
+        return []
 
-    normalized = {
-        str(col).strip().lower().replace(" ", "").replace("_", ""): col
-        for col in df.columns
+    months = (
+        df["Month"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    months = [
+        value
+        for value in months.unique().tolist()
+        if value and value.lower() not in {"nan", "nat"}
+    ]
+
+    month_map = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "sept": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
     }
 
-    for candidate in candidates:
+    def month_sort(value):
+        text = str(value).strip().lower()
 
-        key = (
-            str(candidate)
-            .strip()
-            .lower()
-            .replace(" ", "")
-            .replace("_", "")
-        )
+        if text in month_map:
+            return (0, month_map[text], text)
 
-        if key in normalized:
-            return normalized[key]
+        try:
+            return (1, int(float(text)), text)
+        except Exception:
+            return (2, 999, text)
 
-    return None
+    return sorted(months, key=month_sort)
 
-
-def chart_layout(fig, height=450):
-
-    fig.update_layout(
-        height=height,
-        margin=dict(
-            l=20,
-            r=20,
-            t=60,
-            b=40
-        ),
-        legend_title_text="",
-        hovermode="x unified"
-    )
-
-    return fig
-
-
-# ============================================================
-# MONTH NORMALIZATION
-# ============================================================
-
-def create_month_sort(data, month_col):
-
-    result = data.copy()
-
-    result["_Month_Text"] = clean_series(
-        result[month_col]
-    )
-
-    # Try converting directly to date
-    parsed = pd.to_datetime(
-        result["_Month_Text"],
-        errors="coerce"
-    )
-
-    result["_Month_Date"] = parsed
-
-    # If direct conversion fails, try common month formats
-    missing = result["_Month_Date"].isna()
-
-    if missing.any():
-
-        formats = [
-            "%B %Y",
-            "%b %Y",
-            "%B-%Y",
-            "%b-%Y",
-            "%m-%Y",
-            "%m/%Y",
-            "%Y-%m",
-        ]
-
-        for fmt in formats:
-
-            parsed_try = pd.to_datetime(
-                result.loc[missing, "_Month_Text"],
-                format=fmt,
-                errors="coerce"
-            )
-
-            result.loc[
-                missing,
-                "_Month_Date"
-            ] = parsed_try
-
-            missing = result["_Month_Date"].isna()
-
-            if not missing.any():
-                break
-
-    return result
-
-
-# ============================================================
-# MAIN FUNCTION
-# ============================================================
 
 def render_charts(df):
 
-    st.title("📈 Charts & Trends")
-
-    st.caption(
-        "Month-wise, year-wise, facility-wise and ward-wise "
-        "programme trend analysis."
-    )
+    st.subheader("📈 Charts & Trends")
 
     if df is None or df.empty:
-
-        st.warning("No data available.")
-
-        return
-
-    data = df.copy()
-
-    # ========================================================
-    # COLUMN DETECTION
-    # ========================================================
-
-    month_col = find_column(
-        data,
-        [
-            "Month",
-            "Reporting Month",
-            "Month Name",
-            "Month-Year",
-            "Month Year",
-        ]
-    )
-
-    date_col = find_column(
-        data,
-        [
-            "Date",
-            "Date of Reporting",
-            "Reporting Date",
-            "Registration Date",
-            "Case Date",
-        ]
-    )
-
-    year_col = find_column(
-        data,
-        [
-            "Year",
-            "Reporting Year",
-        ]
-    )
-
-    facility_col = find_column(
-        data,
-        [
-            "Facility Name Lform",
-            "Facility",
-            "Facility Name",
-            "Health Facility",
-        ]
-    )
-
-    ward_col = find_column(
-        data,
-        [
-            "Ward",
-            "Ward Name",
-            "Ward No",
-            "Ward Number",
-        ]
-    )
-
-    disease_col = find_column(
-        data,
-        [
-            "Confirmed Diagnosis",
-            "Disease",
-            "Disease Name",
-            "Diagnosis",
-        ]
-    )
-
-    gender_col = find_column(
-        data,
-        [
-            "Gender",
-            "Sex",
-        ]
-    )
-
-    # ========================================================
-    # FILTER SECTION
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("🎛️ Trend Filters")
-
-    c1, c2, c3 = st.columns(3)
-
-    # --------------------------------------------------------
-    # FACILITY FILTER
-    # --------------------------------------------------------
-
-    if facility_col:
-
-        facilities = sorted(
-            clean_series(
-                data[facility_col]
-            )
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        selected_facilities = c1.multiselect(
-            "🏥 Facility",
-            facilities,
-            placeholder="All Facilities"
-        )
-
-    else:
-
-        selected_facilities = []
-
-    # --------------------------------------------------------
-    # WARD FILTER
-    # --------------------------------------------------------
-
-    if ward_col:
-
-        wards = sorted(
-            clean_series(
-                data[ward_col]
-            )
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        selected_wards = c2.multiselect(
-            "🗺️ Ward",
-            wards,
-            placeholder="All Wards"
-        )
-
-    else:
-
-        selected_wards = []
-
-    # --------------------------------------------------------
-    # DISEASE FILTER
-    # --------------------------------------------------------
-
-    if disease_col:
-
-        diseases = sorted(
-            clean_series(
-                data[disease_col]
-            )
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        selected_diseases = c3.multiselect(
-            "🦠 Disease / Diagnosis",
-            diseases,
-            placeholder="All Diseases"
-        )
-
-    else:
-
-        selected_diseases = []
-
-    # ========================================================
-    # APPLY FILTERS
-    # ========================================================
-
-    filtered = data.copy()
-
-    if selected_facilities:
-
-        filtered = filtered[
-            clean_series(
-                filtered[facility_col]
-            ).isin(selected_facilities)
-        ]
-
-    if selected_wards:
-
-        filtered = filtered[
-            clean_series(
-                filtered[ward_col]
-            ).isin(selected_wards)
-        ]
-
-    if selected_diseases:
-
-        filtered = filtered[
-            clean_series(
-                filtered[disease_col]
-            ).isin(selected_diseases)
-        ]
-
-    if filtered.empty:
-
         st.warning(
-            "No records match the selected filters."
+            "No records available for the selected filters."
         )
-
         return
 
-    # ========================================================
-    # MANAGEMENT KPI
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("📊 Trend Management KPIs")
-
-    k1, k2, k3, k4 = st.columns(4)
-
-    k1.metric(
-        "Total Records",
-        f"{len(filtered):,}"
+    st.caption(
+        "Month-wise, disease-wise, facility-wise and ward-wise "
+        "analysis based on the currently selected Global Dashboard Filters."
     )
 
-    k2.metric(
-        "Facilities",
-        f"{filtered[facility_col].nunique():,}"
-        if facility_col
-        else "0"
-    )
+    # ---------------------------------------------------------
+    # 1. MONTH-WISE ANALYSIS
+    # ---------------------------------------------------------
 
-    k3.metric(
-        "Wards",
-        f"{filtered[ward_col].nunique():,}"
-        if ward_col
-        else "0"
-    )
+    st.markdown("### 🗓️ Month-wise Programme Trend")
 
-    k4.metric(
-        "Diseases",
-        f"{filtered[disease_col].nunique():,}"
-        if disease_col
-        else "0"
-    )
+    if "Month" in df.columns:
 
-    # ========================================================
-    # YEAR-WISE ANALYSIS
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("📅 Year-wise Case Comparison")
-
-    if year_col:
-
-        year_table = (
-            filtered
-            .groupby(year_col)
-            .size()
-            .reset_index(name="Cases")
+        month_series = _clean_series(
+            df,
+            "Month",
         )
 
-        year_table = year_table.sort_values(
-            year_col
-        )
+        month_series = month_series[
+            month_series.ne("")
+            & month_series.ne("nan")
+            & month_series.ne("NaT")
+        ]
 
-        st.dataframe(
-            year_table,
-            use_container_width=True,
-            hide_index=True
-        )
+        if not month_series.empty:
 
-        fig = px.bar(
-            year_table,
-            x=year_col,
-            y="Cases",
-            text="Cases",
-            title="Year-wise Case Comparison"
-        )
-
-        fig.update_traces(
-            textposition="outside"
-        )
-
-        st.plotly_chart(
-            chart_layout(fig, 450),
-            use_container_width=True
-        )
-
-    # ========================================================
-    # MONTH-WISE ANALYSIS
-    # ========================================================
-
-    st.divider()
-
-    st.subheader("📆 Month-wise Complete Analysis")
-
-    if month_col:
-
-        monthly = create_month_sort(
-            filtered,
-            month_col
-        )
-
-        monthly_table = (
-            monthly
-            .groupby(
-                [
-                    "_Month_Date",
-                    "_Month_Text"
-                ],
-                dropna=False
-            )
-            .size()
-            .reset_index(name="Cases")
-        )
-
-        monthly_table = monthly_table.sort_values(
-            [
-                "_Month_Date",
-                "_Month_Text"
-            ],
-            na_position="last"
-        )
-
-        monthly_table = monthly_table.rename(
-            columns={
-                "_Month_Text": "Month"
-            }
-        )
-
-        # Month share
-        total_cases = monthly_table["Cases"].sum()
-
-        monthly_table["Share (%)"] = (
-            monthly_table["Cases"]
-            / total_cases
-            * 100
-        ).round(2)
-
-        st.dataframe(
-            monthly_table[
-                [
-                    "Month",
-                    "Cases",
-                    "Share (%)"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
-        )
-
-        fig = px.line(
-            monthly_table,
-            x="Month",
-            y="Cases",
-            markers=True,
-            text="Cases",
-            title="Month-wise Case Trend"
-        )
-
-        fig.update_traces(
-            textposition="top center"
-        )
-
-        st.plotly_chart(
-            chart_layout(fig, 500),
-            use_container_width=True
-        )
-
-    elif date_col:
-
-        # ----------------------------------------------------
-        # DATE-BASED MONTHLY ANALYSIS
-        # ----------------------------------------------------
-
-        temp = filtered.copy()
-
-        temp["_Date"] = pd.to_datetime(
-            temp[date_col],
-            errors="coerce"
-        )
-
-        temp = temp.dropna(
-            subset=["_Date"]
-        )
-
-        if not temp.empty:
-
-            temp["_Month"] = (
-                temp["_Date"]
-                .dt.to_period("M")
-                .astype(str)
+            month_counts = (
+                month_series
+                .value_counts()
+                .rename_axis("Month")
+                .reset_index(name="Records")
             )
 
-            monthly_table = (
-                temp
-                .groupby("_Month")
-                .size()
-                .reset_index(name="Cases")
-            )
+            ordered_months = _month_order(df)
 
-            monthly_table = monthly_table.sort_values(
-                "_Month"
+            if ordered_months:
+                month_counts["sort_order"] = (
+                    month_counts["Month"]
+                    .map(
+                        {
+                            month: index
+                            for index, month
+                            in enumerate(ordered_months)
+                        }
+                    )
+                    .fillna(999)
+                )
+
+                month_counts = (
+                    month_counts
+                    .sort_values(
+                        ["sort_order", "Month"]
+                    )
+                    .drop(columns=["sort_order"])
+                    .reset_index(drop=True)
+                )
+
+            st.bar_chart(
+                month_counts.set_index("Month")["Records"],
+                use_container_width=True,
             )
 
             st.dataframe(
-                monthly_table,
+                month_counts,
                 use_container_width=True,
-                hide_index=True
-            )
-
-            fig = px.line(
-                monthly_table,
-                x="_Month",
-                y="Cases",
-                markers=True,
-                text="Cases",
-                title="Month-wise Case Trend"
-            )
-
-            st.plotly_chart(
-                chart_layout(fig, 500),
-                use_container_width=True
+                hide_index=True,
             )
 
         else:
-
-            st.warning(
-                "Date column was found but valid dates "
-                "could not be identified."
+            st.info(
+                "Month information is not available for the selected records."
             )
 
-    else:
-
-        st.warning(
-            "Month or Date column was not detected."
-        )
-
-    # ========================================================
-    # MONTH × YEAR COMPARISON
-    # ========================================================
+    # ---------------------------------------------------------
+    # 2. MONTHLY COMPARISON BY DISEASE
+    # ---------------------------------------------------------
 
     st.divider()
 
-    st.subheader(
-        "📊 Month-wise Year Comparison"
-    )
+    st.markdown("### 🦠 Monthly Disease Comparison")
 
-    comparison_source = None
+    if (
+        "Month" in df.columns
+        and "Disease" in df.columns
+    ):
 
-    if date_col:
+        temp = df[
+            ["Month", "Disease"]
+        ].copy()
 
-        temp = filtered.copy()
-
-        temp["_Date"] = pd.to_datetime(
-            temp[date_col],
-            errors="coerce"
+        temp["Month"] = (
+            temp["Month"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
         )
 
-        temp = temp.dropna(
-            subset=["_Date"]
+        temp["Disease"] = (
+            temp["Disease"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
         )
+
+        temp = temp[
+            temp["Month"].ne("")
+            & temp["Disease"].ne("")
+        ]
 
         if not temp.empty:
 
-            temp["_Year"] = temp["_Date"].dt.year
-            temp["_Month_Number"] = temp["_Date"].dt.month
-            temp["_Month_Name"] = temp["_Date"].dt.strftime("%b")
-
-            comparison_source = temp
-
-    elif month_col:
-
-        temp = create_month_sort(
-            filtered,
-            month_col
-        )
-
-        temp = temp.dropna(
-            subset=["_Month_Date"]
-        )
-
-        if not temp.empty:
-
-            temp["_Year"] = (
-                temp["_Month_Date"].dt.year
+            cross_tab = pd.crosstab(
+                temp["Month"],
+                temp["Disease"],
             )
 
-            temp["_Month_Number"] = (
-                temp["_Month_Date"].dt.month
-            )
+            ordered_months = _month_order(df)
 
-            temp["_Month_Name"] = (
-                temp["_Month_Date"].dt.strftime("%b")
-            )
-
-            comparison_source = temp
-
-    if comparison_source is not None:
-
-        comparison = (
-            comparison_source
-            .groupby(
-                [
-                    "_Year",
-                    "_Month_Number",
-                    "_Month_Name"
-                ]
-            )
-            .size()
-            .reset_index(name="Cases")
-        )
-
-        comparison = comparison.sort_values(
-            [
-                "_Year",
-                "_Month_Number"
+            available_months = [
+                month
+                for month in ordered_months
+                if month in cross_tab.index
             ]
-        )
 
-        fig = px.line(
-            comparison,
-            x="_Month_Name",
-            y="Cases",
-            color="_Year",
-            markers=True,
-            title="Monthly Comparison Across Years"
-        )
+            remaining_months = [
+                month
+                for month in cross_tab.index
+                if month not in available_months
+            ]
 
-        fig.update_layout(
-            xaxis_title="Month",
-            yaxis_title="Cases"
-        )
-
-        st.plotly_chart(
-            chart_layout(fig, 550),
-            use_container_width=True
-        )
-
-        comparison_display = comparison.rename(
-            columns={
-                "_Year": "Year",
-                "_Month_Name": "Month"
-            }
-        )
-
-        st.dataframe(
-            comparison_display[
-                [
-                    "Year",
-                    "Month",
-                    "Cases"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # ========================================================
-    # FACILITY-WISE MONTHLY TREND
-    # ========================================================
-
-    st.divider()
-
-    st.subheader(
-        "🏥 Facility-wise Monthly Trend"
-    )
-
-    if facility_col and month_col:
-
-        temp = create_month_sort(
-            filtered,
-            month_col
-        )
-
-        temp = temp.dropna(
-            subset=["_Month_Date"]
-        )
-
-        if not temp.empty:
-
-            facility_month = (
-                temp
-                .groupby(
-                    [
-                        "_Month_Date",
-                        facility_col
-                    ]
-                )
-                .size()
-                .reset_index(name="Cases")
+            cross_tab = cross_tab.reindex(
+                available_months + remaining_months
             )
 
-            top_facilities = (
-                facility_month
-                .groupby(facility_col)["Cases"]
-                .sum()
+            # Keep the chart readable by selecting the
+            # most frequently reported diseases.
+            disease_totals = (
+                cross_tab.sum()
                 .sort_values(
                     ascending=False
                 )
-                .head(15)
-                .index
             )
 
-            facility_month = facility_month[
-                facility_month[
-                    facility_col
-                ].isin(top_facilities)
-            ]
-
-            fig = px.line(
-                facility_month,
-                x="_Month_Date",
-                y="Cases",
-                color=facility_col,
-                markers=True,
-                title="Top 15 Facilities - Monthly Trend"
-            )
-
-            st.plotly_chart(
-                chart_layout(fig, 600),
-                use_container_width=True
-            )
-
-    # ========================================================
-    # WARD-WISE MONTHLY TREND
-    # ========================================================
-
-    st.divider()
-
-    st.subheader(
-        "🗺️ Ward-wise Monthly Trend"
-    )
-
-    if ward_col and month_col:
-
-        temp = create_month_sort(
-            filtered,
-            month_col
-        )
-
-        temp = temp.dropna(
-            subset=["_Month_Date"]
-        )
-
-        if not temp.empty:
-
-            ward_month = (
-                temp
-                .groupby(
-                    [
-                        "_Month_Date",
-                        ward_col
-                    ]
-                )
-                .size()
-                .reset_index(name="Cases")
-            )
-
-            top_wards = (
-                ward_month
-                .groupby(ward_col)["Cases"]
-                .sum()
-                .sort_values(
-                    ascending=False
-                )
-                .head(15)
-                .index
-            )
-
-            ward_month = ward_month[
-                ward_month[
-                    ward_col
-                ].isin(top_wards)
-            ]
-
-            fig = px.line(
-                ward_month,
-                x="_Month_Date",
-                y="Cases",
-                color=ward_col,
-                markers=True,
-                title="Top 15 Wards - Monthly Trend"
-            )
-
-            st.plotly_chart(
-                chart_layout(fig, 600),
-                use_container_width=True
-            )
-
-    # ========================================================
-    # DISEASE-WISE TREND
-    # ========================================================
-
-    st.divider()
-
-    st.subheader(
-        "🦠 Disease-wise Monthly Trend"
-    )
-
-    if disease_col and month_col:
-
-        temp = create_month_sort(
-            filtered,
-            month_col
-        )
-
-        temp = temp.dropna(
-            subset=["_Month_Date"]
-        )
-
-        if not temp.empty:
-
-            disease_month = (
-                temp
-                .groupby(
-                    [
-                        "_Month_Date",
-                        disease_col
-                    ]
-                )
-                .size()
-                .reset_index(name="Cases")
-            )
-
-            top_diseases = (
-                disease_month
-                .groupby(disease_col)["Cases"]
-                .sum()
-                .sort_values(
-                    ascending=False
-                )
+            selected_diseases = (
+                disease_totals
                 .head(10)
                 .index
+                .tolist()
             )
 
-            disease_month = disease_month[
-                disease_month[
-                    disease_col
-                ].isin(top_diseases)
+            chart_data = cross_tab[
+                selected_diseases
             ]
 
-            fig = px.line(
-                disease_month,
-                x="_Month_Date",
-                y="Cases",
-                color=disease_col,
-                markers=True,
-                title="Top 10 Diseases - Monthly Trend"
+            st.line_chart(
+                chart_data,
+                use_container_width=True,
             )
 
-            st.plotly_chart(
-                chart_layout(fig, 600),
-                use_container_width=True
+            st.caption(
+                "Chart displays the top 10 diseases by total "
+                "records within the selected filters."
             )
 
-    # ========================================================
-    # GENDER MONTHLY TREND
-    # ========================================================
+        else:
+            st.info(
+                "Disease/month information is not available "
+                "for the selected records."
+            )
+
+    # ---------------------------------------------------------
+    # 3. DISEASE-WISE BURDEN
+    # ---------------------------------------------------------
 
     st.divider()
 
-    st.subheader(
-        "👥 Gender-wise Monthly Trend"
-    )
+    st.markdown("### 🦠 Disease-wise Burden")
 
-    if gender_col and month_col:
+    if "Disease" in df.columns:
 
-        temp = create_month_sort(
-            filtered,
-            month_col
+        disease_series = _clean_series(
+            df,
+            "Disease",
         )
 
-        temp = temp.dropna(
-            subset=["_Month_Date"]
+        disease_series = disease_series[
+            disease_series.ne("")
+            & disease_series.ne("nan")
+            & disease_series.ne("NaT")
+        ]
+
+        if not disease_series.empty:
+
+            disease_counts = (
+                disease_series
+                .value_counts()
+                .head(15)
+                .rename_axis("Disease")
+                .reset_index(name="Records")
+            )
+
+            st.bar_chart(
+                disease_counts.set_index("Disease")["Records"],
+                use_container_width=True,
+            )
+
+            st.dataframe(
+                disease_counts,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+            st.info(
+                "Disease information is not available."
+            )
+
+    # ---------------------------------------------------------
+    # 4. FACILITY-WISE BURDEN
+    # ---------------------------------------------------------
+
+    st.divider()
+
+    st.markdown("### 🏥 Facility-wise Burden")
+
+    if "Facility Name" in df.columns:
+
+        facility_series = _clean_series(
+            df,
+            "Facility Name",
         )
 
-        if not temp.empty:
+        facility_series = facility_series[
+            facility_series.ne("")
+            & facility_series.ne("nan")
+            & facility_series.ne("NaT")
+        ]
 
-            gender_month = (
-                temp
-                .groupby(
-                    [
-                        "_Month_Date",
-                        gender_col
-                    ]
+        if not facility_series.empty:
+
+            facility_counts = (
+                facility_series
+                .value_counts()
+                .head(20)
+                .rename_axis("Facility")
+                .reset_index(name="Records")
+            )
+
+            st.bar_chart(
+                facility_counts.set_index("Facility")["Records"],
+                use_container_width=True,
+            )
+
+            st.dataframe(
+                facility_counts,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+            st.info(
+                "Facility information is not available."
+            )
+
+    # ---------------------------------------------------------
+    # 5. WARD-WISE BURDEN
+    # ---------------------------------------------------------
+
+    st.divider()
+
+    st.markdown("### 📍 Ward-wise Burden")
+
+    if "Ward Name" in df.columns:
+
+        ward_series = _clean_series(
+            df,
+            "Ward Name",
+        )
+
+        ward_series = ward_series[
+            ward_series.ne("")
+            & ward_series.ne("nan")
+            & ward_series.ne("NaT")
+        ]
+
+        if not ward_series.empty:
+
+            ward_counts = (
+                ward_series
+                .value_counts()
+                .head(20)
+                .rename_axis("Ward")
+                .reset_index(name="Records")
+            )
+
+            st.bar_chart(
+                ward_counts.set_index("Ward")["Records"],
+                use_container_width=True,
+            )
+
+            st.dataframe(
+                ward_counts,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+            st.info(
+                "Ward information is not available."
+            )
+
+    # ---------------------------------------------------------
+    # 6. OPD / IPD COMPARISON
+    # ---------------------------------------------------------
+
+    st.divider()
+
+    st.markdown("### 🏨 OPD / IPD Distribution")
+
+    if "OPD/IPD" in df.columns:
+
+        opd_series = _clean_series(
+            df,
+            "OPD/IPD",
+        )
+
+        opd_series = opd_series[
+            opd_series.ne("")
+            & opd_series.ne("nan")
+            & opd_series.ne("NaT")
+        ]
+
+        if not opd_series.empty:
+
+            opd_counts = (
+                opd_series
+                .value_counts()
+                .rename_axis("OPD/IPD")
+                .reset_index(name="Records")
+            )
+
+            st.bar_chart(
+                opd_counts.set_index("OPD/IPD")["Records"],
+                use_container_width=True,
+            )
+
+            st.dataframe(
+                opd_counts,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+            st.info(
+                "OPD/IPD information is not available."
+            )
+
+    # ---------------------------------------------------------
+    # 7. REPORTING DATE TREND
+    # ---------------------------------------------------------
+
+    st.divider()
+
+    st.markdown("### 📅 Reporting Date Trend")
+
+    if "Reporting Date" in df.columns:
+
+        date_df = df[
+            ["Reporting Date"]
+        ].copy()
+
+        date_df["Reporting Date"] = pd.to_datetime(
+            date_df["Reporting Date"],
+            errors="coerce",
+        )
+
+        date_df = date_df.dropna(
+            subset=["Reporting Date"]
+        )
+
+        if not date_df.empty:
+
+            daily_counts = (
+                date_df
+                .assign(
+                    Date=lambda x:
+                    x["Reporting Date"].dt.normalize()
                 )
+                .groupby("Date")
                 .size()
-                .reset_index(name="Cases")
+                .rename("Records")
             )
 
-            fig = px.line(
-                gender_month,
-                x="_Month_Date",
-                y="Cases",
-                color=gender_col,
-                markers=True,
-                title="Gender-wise Monthly Trend"
+            st.line_chart(
+                daily_counts,
+                use_container_width=True,
             )
 
-            st.plotly_chart(
-                chart_layout(fig, 500),
-                use_container_width=True
+        else:
+            st.info(
+                "Valid reporting dates are not available."
             )
 
-    # ========================================================
-    # TOP MONTH
-    # ========================================================
+    # ---------------------------------------------------------
+    # 8. SUMMARY
+    # ---------------------------------------------------------
 
     st.divider()
 
-    st.subheader(
-        "🏆 Highest Burden Month"
-    )
+    st.markdown("### 📌 Trend Summary")
 
-    if month_col:
+    summary_columns = st.columns(4)
 
-        temp = create_month_sort(
-            filtered,
-            month_col
+    with summary_columns[0]:
+        st.metric(
+            "Records Analysed",
+            f"{len(df):,}",
         )
 
-        month_summary = (
-            temp
-            .groupby("_Month_Text")
-            .size()
-            .reset_index(name="Cases")
-            .sort_values(
-                "Cases",
-                ascending=False
+    with summary_columns[1]:
+        if "Disease" in df.columns:
+            disease_count = (
+                df["Disease"]
+                .dropna()
+                .astype(str)
+                .str.strip()
             )
-        )
-
-        if not month_summary.empty:
-
-            top_month = month_summary.iloc[0]
-
-            c1, c2 = st.columns(2)
-
-            c1.metric(
-                "Highest Burden Month",
-                str(top_month["_Month_Text"])
+            disease_count = disease_count[
+                disease_count.ne("")
+            ]
+            st.metric(
+                "Diseases",
+                f"{disease_count.nunique():,}",
             )
-
-            c2.metric(
-                "Cases",
-                f"{int(top_month['Cases']):,}"
+        else:
+            st.metric(
+                "Diseases",
+                "0",
             )
 
-    # ========================================================
-    # DATA NOTE
-    # ========================================================
+    with summary_columns[2]:
+        if "Facility Name" in df.columns:
+            facility_count = (
+                df["Facility Name"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+            )
+            facility_count = facility_count[
+                facility_count.ne("")
+            ]
+            st.metric(
+                "Facilities",
+                f"{facility_count.nunique():,}",
+            )
+        else:
+            st.metric(
+                "Facilities",
+                "0",
+            )
 
-    st.info(
-        "Trend analysis is based on the records available "
-        "after applying the selected filters. "
-        "Monthly comparison depends on the availability "
-        "and quality of Month/Date fields in the source data."
-    )
-
+    with summary_columns[3]:
+        if "Ward Name" in df.columns:
+            ward_count = (
+                df["Ward Name"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+            )
+            ward_count = ward_count[
+                ward_count.ne("")
+            ]
+            st.metric(
+                "Wards",
+                f"{ward_count.nunique():,}",
+            )
+        else:
+            st.metric(
+                "Wards",
+                "0",
+            )
