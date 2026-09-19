@@ -18,7 +18,8 @@ def create_filters(df):
 
     if df is None or df.empty:
         return {
-            "reporting_date": None,
+            "reporting_start_date": None,
+            "reporting_end_date": None,
             "year": [],
             "month": [],
             "week": [],
@@ -69,7 +70,8 @@ def create_filters(df):
             "filter_gender",
             "filter_age_group",
             "filter_opd_ipd",
-            "filter_reporting_date",
+            "filter_reporting_start_date",
+            "filter_reporting_end_date",
         ]
 
         for key in keys_to_clear:
@@ -211,19 +213,34 @@ def create_filters(df):
         )
 
     with c10:
-        selected_reporting_date = None
+        selected_reporting_start_date = None
+        selected_reporting_end_date = None
 
         if min_date is not None and max_date is not None:
-            selected_reporting_date = st.date_input(
-                "📅 Reporting Date",
-                value=None,
-                min_value=min_date,
-                max_value=max_date,
-                key="filter_reporting_date",
-            )
+
+            start_col, end_col = st.columns(2)
+
+            with start_col:
+                selected_reporting_start_date = st.date_input(
+                    "📅 Start Date",
+                    value=None,
+                    min_value=min_date,
+                    max_value=max_date,
+                    key="filter_reporting_start_date",
+                )
+
+            with end_col:
+                selected_reporting_end_date = st.date_input(
+                    "📅 End Date",
+                    value=None,
+                    min_value=min_date,
+                    max_value=max_date,
+                    key="filter_reporting_end_date",
+                )
 
     return {
-        "reporting_date": selected_reporting_date,
+        "reporting_start_date": selected_reporting_start_date,
+        "reporting_end_date": selected_reporting_end_date,
         "year": selected_year,
         "month": selected_month,
         "week": selected_week,
@@ -242,7 +259,8 @@ def create_filters(df):
 
 def apply_filters(
     df,
-    reporting_date=None,
+    reporting_start_date=None,
+    reporting_end_date=None,
     year=None,
     month=None,
     week=None,
@@ -256,7 +274,11 @@ def apply_filters(
     """
     Applies all selected dashboard filters.
 
-    Empty filter means ALL records.
+    Reporting Date logic:
+    - Start blank + End blank = ALL data
+    - Start selected only = Start date onwards
+    - End selected only = Up to End date
+    - Both selected = Start date to End date inclusive
     """
 
     if df is None or df.empty:
@@ -265,36 +287,29 @@ def apply_filters(
     filtered = df.copy()
 
     # --------------------------------------------------------
-    # Date
+    # Reporting Date Range
     # --------------------------------------------------------
 
-    if reporting_date is not None and "Reporting Date" in filtered.columns:
+    if "Reporting Date" in filtered.columns:
 
-        if isinstance(reporting_date, tuple):
-            if len(reporting_date) == 2:
-                start_date, end_date = reporting_date
+        if reporting_start_date is not None:
+            start_timestamp = pd.Timestamp(
+                reporting_start_date
+            )
 
-                if start_date is not None:
-                    filtered = filtered[
-                        filtered["Reporting Date"].dt.date >= start_date
-                    ]
+            filtered = filtered[
+                filtered["Reporting Date"] >= start_timestamp
+            ]
 
-                if end_date is not None:
-                    filtered = filtered[
-                        filtered["Reporting Date"].dt.date <= end_date
-                    ]
+        if reporting_end_date is not None:
+            end_timestamp = (
+                pd.Timestamp(reporting_end_date)
+                + pd.Timedelta(days=1)
+            )
 
-        else:
-            try:
-                selected_date = pd.Timestamp(reporting_date)
-
-                filtered = filtered[
-                    filtered["Reporting Date"].dt.normalize()
-                    == selected_date.normalize()
-                ]
-
-            except Exception:
-                pass
+            filtered = filtered[
+                filtered["Reporting Date"] < end_timestamp
+            ]
 
     # --------------------------------------------------------
     # Helper for text filters
