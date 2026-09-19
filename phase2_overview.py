@@ -1,4 +1,4 @@
-```python
+
 import streamlit as st
 import pandas as pd
 
@@ -445,4 +445,4 @@ def render_overview(df):
         f"Showing {len(df):,} records based on current "
         "Dashboard Control selections."
     )
-```
+
