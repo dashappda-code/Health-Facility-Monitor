@@ -7,7 +7,10 @@
 import streamlit as st
 from io import BytesIO
 
-# PDF generation
+# ============================================================
+# REPORTLAB
+# ============================================================
+
 try:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
@@ -20,7 +23,6 @@ try:
         Spacer,
         Table,
         TableStyle,
-        PageBreak,
     )
 
     REPORTLAB_AVAILABLE = True
@@ -30,10 +32,11 @@ except ImportError:
 
 
 # ============================================================
-# PAGE CONTENT
+# MANUAL CONTENT
 # ============================================================
 
 MANUAL_SECTIONS = [
+
     {
         "title": "1. Introduction",
         "content": """
@@ -420,20 +423,25 @@ What verification or management action is required?
         "title": "21. Troubleshooting",
         "content": """
 Dashboard not updating:
+
 Check internet connectivity, selected filters and data availability.
 
 No data displayed:
+
 Clear restrictive filters and check whether the selected period, ward or
 facility contains data.
 
 Unexpectedly high number:
+
 Check date, facility, ward, diagnosis, duplicate records and reporting
 completeness.
 
 Map is empty:
+
 Check whether valid geographic coordinates are available.
 
 Prediction appears unreliable:
+
 Check the number of historical months, missing months and data completeness.
 """
     },
@@ -458,23 +466,23 @@ Users should:
         "content": """
 Overall situation → Overview
 
-Monthly comparison → Monthly / Trend Analysis
+Monthly comparison → Charts & Trends
 
 Highest burden ward → Ward Analysis
 
 Highest burden facility → Facility Analysis
 
-Age distribution → Age-wise Analysis
+Age distribution → Demographics & Disease
 
-Gender distribution → Gender-wise Analysis
+Gender distribution → Demographics & Disease
 
-Geographic distribution → Map
+Geographic distribution → Map View
 
 Individual record verification → Data Explorer
 
-Missing / duplicate data → Data Quality
+Missing / duplicate data → Data Explorer / Data Quality
 
-Historical trend → Trend Analysis
+Historical trend → Charts & Trends
 
 Future planning indicator → Prediction
 """
@@ -495,21 +503,17 @@ programme knowledge and data-quality assessment.
 
 
 # ============================================================
-# PDF GENERATION
+# PDF GENERATOR
 # ============================================================
 
 def create_manual_pdf():
-    """
-    Generate the complete user manual as a PDF.
-    Returns BytesIO object.
-    """
 
     if not REPORTLAB_AVAILABLE:
         return None
 
     buffer = BytesIO()
 
-    doc = SimpleDocTemplate(
+    document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
         rightMargin=18 * mm,
@@ -517,7 +521,7 @@ def create_manual_pdf():
         topMargin=18 * mm,
         bottomMargin=18 * mm,
         title="Health Programme Management Dashboard - User Manual",
-        author="Health Programme Management Dashboard",
+        author="Health Facility Monitor",
     )
 
     styles = getSampleStyleSheet()
@@ -554,14 +558,7 @@ def create_manual_pdf():
         parent=styles["BodyText"],
         fontSize=9.5,
         leading=14,
-        spaceAfter=8,
-    )
-
-    small_style = ParagraphStyle(
-        "ManualSmall",
-        parent=styles["BodyText"],
-        fontSize=8,
-        leading=11,
+        spaceAfter=7,
     )
 
     story = []
@@ -569,14 +566,14 @@ def create_manual_pdf():
     story.append(
         Paragraph(
             "HEALTH PROGRAMME MANAGEMENT DASHBOARD",
-            title_style
+            title_style,
         )
     )
 
     story.append(
         Paragraph(
             "User Manual & Operating Instructions",
-            subtitle_style
+            subtitle_style,
         )
     )
 
@@ -588,7 +585,7 @@ def create_manual_pdf():
 
     intro_table = Table(
         intro_data,
-        colWidths=[40 * mm, 115 * mm]
+        colWidths=[40 * mm, 115 * mm],
     )
 
     intro_table.setStyle(
@@ -613,65 +610,59 @@ def create_manual_pdf():
         story.append(
             Paragraph(
                 section["title"],
-                heading_style
+                heading_style,
             )
         )
 
-        # Convert line-based content into readable PDF paragraphs
         paragraphs = section["content"].strip().split("\n\n")
 
         for para in paragraphs:
+
             cleaned = para.strip()
 
             if not cleaned:
                 continue
 
-            # Convert bullet symbols to HTML-safe text
-            cleaned = cleaned.replace("&", "&amp;")
-            cleaned = cleaned.replace("<", "&lt;")
-            cleaned = cleaned.replace(">", "&gt;")
+            # Escape special HTML characters
+            cleaned = (
+                cleaned
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
 
             lines = cleaned.split("\n")
 
             for line in lines:
+
                 line = line.strip()
 
                 if not line:
                     story.append(Spacer(1, 4))
                     continue
 
-                if line.startswith("•"):
-                    story.append(
-                        Paragraph(
-                            "• " + line[1:].strip(),
-                            body_style
-                        )
+                story.append(
+                    Paragraph(
+                        line,
+                        body_style,
                     )
-                else:
-                    story.append(
-                        Paragraph(
-                            line,
-                            body_style
-                        )
-                    )
+                )
 
-        story.append(Spacer(1, 4))
-
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 15))
 
     story.append(
         Paragraph(
             "End of User Manual",
             ParagraphStyle(
                 "EndStyle",
-                parent=small_style,
+                parent=body_style,
                 alignment=TA_CENTER,
                 fontSize=9,
-            )
+            ),
         )
     )
 
-    doc.build(story)
+    document.build(story)
 
     buffer.seek(0)
 
@@ -679,87 +670,49 @@ def create_manual_pdf():
 
 
 # ============================================================
-# HELP CARD
+# INFORMATION CARD
 # ============================================================
 
-def _help_card(title, text):
-    st.markdown(
-        f"""
-        <div style="
-            border:1px solid #d9d9d9;
-            border-radius:10px;
-            padding:16px;
-            margin:8px 0 16px 0;
-            background:#fafafa;
-        ">
-            <div style="
-                font-size:18px;
-                font-weight:700;
-                margin-bottom:8px;
-            ">
-                {title}
-            </div>
+def show_info_card(title, text):
 
-            <div style="
-                font-size:14px;
-                line-height:1.6;
-            ">
-                {text}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.info(
+        f"**{title}**\n\n{text}"
     )
 
 
 # ============================================================
-# MAIN RENDER FUNCTION
+# MAIN USER MANUAL PAGE
 # ============================================================
 
 def render_manual(df=None):
 
-    st.markdown(
-        """
-        <div style="
-            padding:18px;
-            border-radius:12px;
-            background:linear-gradient(135deg,#f4f8fb,#ffffff);
-            border:1px solid #d9e2ec;
-            margin-bottom:20px;
-        ">
-            <div style="
-                font-size:28px;
-                font-weight:800;
-            ">
-                📘 User Manual & Instructions
-            </div>
+    # --------------------------------------------------------
+    # PAGE TITLE
+    # --------------------------------------------------------
 
-            <div style="
-                font-size:15px;
-                margin-top:7px;
-                color:#555;
-            ">
-                Health Programme Management Dashboard
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title("📘 User Manual & Instructions")
+
+    st.caption(
+        "Health Programme Management Dashboard"
     )
 
+    st.divider()
+
     # --------------------------------------------------------
-    # DOWNLOAD BUTTON
+    # DOWNLOAD PDF
     # --------------------------------------------------------
 
-    pdf_data = create_manual_pdf()
-
-    col1, col2, col3 = st.columns([1.2, 1.2, 3])
+    col1, col2 = st.columns([1.4, 3])
 
     with col1:
-        if pdf_data is not None:
+
+        pdf_file = create_manual_pdf()
+
+        if pdf_file is not None:
 
             st.download_button(
                 label="📥 Download User Manual (PDF)",
-                data=pdf_data,
+                data=pdf_file,
                 file_name="Health_Programme_Dashboard_User_Manual.pdf",
                 mime="application/pdf",
                 use_container_width=True,
@@ -768,11 +721,15 @@ def render_manual(df=None):
         else:
 
             st.warning(
-                "PDF download requires the reportlab package."
+                "PDF download is unavailable because the "
+                "reportlab package is not installed."
             )
 
     with col2:
-        st.info("ℹ️ Use this page as the in-app operating guide.")
+
+        st.success(
+            "Use this page as the operating guide for the dashboard."
+        )
 
     st.divider()
 
@@ -780,45 +737,46 @@ def render_manual(df=None):
     # QUICK START
     # --------------------------------------------------------
 
-    st.subheader("🚀 Quick Start")
+    st.header("🚀 Quick Start")
 
-    _help_card(
+    show_info_card(
         "Step 1 — Select Filters",
-        "Select the required year, month, ward, facility or other available "
-        "filters. Always verify the selected filters before interpreting results."
+        "Select the required Year, Month, Ward, Facility, Disease or "
+        "other available filters. Always check the selected filters "
+        "before interpreting the results.",
     )
 
-    _help_card(
+    show_info_card(
         "Step 2 — Check Overall Situation",
-        "Start with the Overview page to understand the total programme burden "
-        "and overall coverage."
+        "Start with Overview to understand the overall programme burden "
+        "and coverage.",
     )
 
-    _help_card(
+    show_info_card(
         "Step 3 — Identify Priority Areas",
-        "Review ward-wise and facility-wise analysis to identify areas with "
-        "higher reported burden or changing trends."
+        "Use Ward Analysis and Facility Analysis to identify areas with "
+        "higher reported burden or changing trends.",
     )
 
-    _help_card(
-        "Step 4 — Verify",
-        "Use Data Explorer and Data Quality sections to verify unusual findings "
-        "before programme conclusions are made."
+    show_info_card(
+        "Step 4 — Verify Findings",
+        "Use Data Explorer and data-quality checks to verify unusual "
+        "or unexpected findings.",
     )
 
-    _help_card(
+    show_info_card(
         "Step 5 — Plan Action",
-        "Use historical trends and prediction indicators as management support "
-        "for surveillance, review and planning."
+        "Use historical trends and prediction indicators as management "
+        "support for programme review and planning.",
     )
 
     st.divider()
 
     # --------------------------------------------------------
-    # SECTION NAVIGATION
+    # SECTION SELECTOR
     # --------------------------------------------------------
 
-    st.subheader("📚 Manual Sections")
+    st.header("📚 Manual Sections")
 
     section_names = [
         section["title"]
@@ -826,15 +784,14 @@ def render_manual(df=None):
     ]
 
     selected_section = st.selectbox(
-        "Select a section to read",
+        "Select a section",
         ["All Sections"] + section_names,
-        key="manual_section_selector",
     )
 
     st.divider()
 
     # --------------------------------------------------------
-    # SHOW CONTENT
+    # CONTENT DISPLAY
     # --------------------------------------------------------
 
     if selected_section == "All Sections":
@@ -852,78 +809,82 @@ def render_manual(df=None):
                 line = line.strip()
 
                 if not line:
-                    st.write("")
                     continue
 
                 if line.startswith("•"):
+
                     st.markdown(
                         f"- {line[1:].strip()}"
                     )
 
-                elif (
-                    line.endswith(":")
-                    and len(line) < 80
-                ):
+                elif line.endswith(":") and len(line) < 80:
+
                     st.markdown(
                         f"**{line}**"
                     )
 
                 else:
-                    st.markdown(line)
 
-            st.markdown("---")
+                    st.write(line)
+
+            st.divider()
 
     else:
+
+        selected_data = None
 
         for section in MANUAL_SECTIONS:
 
             if section["title"] == selected_section:
 
-                st.subheader(section["title"])
-
-                content = section["content"].strip()
-
-                lines = content.split("\n")
-
-                for line in lines:
-
-                    line = line.strip()
-
-                    if not line:
-                        st.write("")
-                        continue
-
-                    if line.startswith("•"):
-                        st.markdown(
-                            f"- {line[1:].strip()}"
-                        )
-
-                    elif (
-                        line.endswith(":")
-                        and len(line) < 80
-                    ):
-                        st.markdown(
-                            f"**{line}**"
-                        )
-
-                    else:
-                        st.markdown(line)
-
+                selected_data = section
                 break
 
+        if selected_data:
+
+            st.subheader(
+                selected_data["title"]
+            )
+
+            content = selected_data["content"].strip()
+
+            lines = content.split("\n")
+
+            for line in lines:
+
+                line = line.strip()
+
+                if not line:
+                    continue
+
+                if line.startswith("•"):
+
+                    st.markdown(
+                        f"- {line[1:].strip()}"
+                    )
+
+                elif line.endswith(":") and len(line) < 80:
+
+                    st.markdown(
+                        f"**{line}**"
+                    )
+
+                else:
+
+                    st.write(line)
+
     # --------------------------------------------------------
-    # IMPORTANT INTERPRETATION NOTE
+    # IMPORTANT NOTE
     # --------------------------------------------------------
 
     st.divider()
 
     st.warning(
-        """
-        **Important:** Dashboard outputs are intended for programme monitoring
-        and management support. Reported burden, trends and prediction indicators
-        should be interpreted together with data quality, reporting completeness,
-        field information and programme context.
-        """
+        "Important: Dashboard outputs are intended for programme "
+        "monitoring and management support. Reported burden, trends "
+        "and prediction indicators should be interpreted together "
+        "with data quality, reporting completeness, field information "
+        "and programme context."
     )
 
 
