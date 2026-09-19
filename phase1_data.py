@@ -44,7 +44,7 @@ EXPECTED_COLUMNS = [
 
 
 # ============================================================
-# GOOGLE SHEET URL → CSV URL
+# GOOGLE SHEET URL
 # ============================================================
 
 def convert_to_csv_url(sheet_url: str) -> str:
@@ -91,10 +91,8 @@ def load_google_sheet() -> pd.DataFrame:
         GOOGLE_SHEET_URL
     )
 
-    st.write("🔗 Connecting to Google Sheet...")
-
     st.write(
-        "📡 Requesting CSV data..."
+        "🔗 Connecting to Google Sheet..."
     )
 
     try:
@@ -110,15 +108,13 @@ def load_google_sheet() -> pd.DataFrame:
     except requests.exceptions.ConnectTimeout:
 
         raise RuntimeError(
-            "Google Sheet connection timed out "
-            "while connecting."
+            "Google Sheet connection timed out."
         )
 
     except requests.exceptions.ReadTimeout:
 
         raise RuntimeError(
-            "Google Sheet connection timed out "
-            "while downloading data."
+            "Google Sheet download timed out."
         )
 
     except requests.exceptions.RequestException as e:
@@ -126,18 +122,6 @@ def load_google_sheet() -> pd.DataFrame:
         raise RuntimeError(
             f"Google Sheet connection failed: {e}"
         )
-
-    download_time = time.time() - start_time
-
-    st.write(
-        f"✅ Google Sheet response received "
-        f"in {download_time:.1f} seconds."
-    )
-
-    st.write(
-        f"📦 Downloaded data size: "
-        f"{len(response.content) / 1024 / 1024:.2f} MB"
-    )
 
     response.raise_for_status()
 
@@ -147,24 +131,28 @@ def load_google_sheet() -> pd.DataFrame:
             "Google Sheet returned empty data."
         )
 
+    download_time = time.time() - start_time
+
     st.write(
-        "📄 Reading CSV data..."
+        f"✅ Google Sheet downloaded "
+        f"in {download_time:.1f} seconds."
+    )
+
+    st.write(
+        f"📦 File size: "
+        f"{len(response.content) / 1024 / 1024:.2f} MB"
+    )
+
+    st.write(
+        "📄 Reading CSV..."
     )
 
     read_start = time.time()
 
-    try:
-
-        df = pd.read_csv(
-            StringIO(response.text),
-            low_memory=False,
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            f"CSV reading failed: {e}"
-        )
+    df = pd.read_csv(
+        StringIO(response.text),
+        low_memory=False,
+    )
 
     read_time = time.time() - read_start
 
@@ -173,133 +161,264 @@ def load_google_sheet() -> pd.DataFrame:
     )
 
     st.write(
-        f"📊 Raw rows: {len(df):,}"
-    )
-
-    st.write(
-        f"📊 Raw columns: {len(df.columns):,}"
+        f"📊 Raw records: {len(df):,}"
     )
 
     return df
 
 
 # ============================================================
-# SAFE REPORTING DATE CLEANING
+# SAFE DATE PARSER
+# ============================================================
+
+def _safe_parse_date(value):
+    """
+    Parse one date value safely.
+
+    Invalid values such as:
+        4438
+        4438-05-27
+        6101-...
+    are rejected.
+
+    Valid reporting dates are restricted to:
+        2000-01-01 through 2100-12-31
+    """
+
+    # --------------------------------------------------------
+    # Missing value
+    # --------------------------------------------------------
+
+    if value is None:
+        return pd.NaT
+
+    try:
+
+        if pd.isna(value):
+            return pd.NaT
+
+    except Exception:
+
+        pass
+
+    # --------------------------------------------------------
+    # Convert to string
+    # --------------------------------------------------------
+
+    value_str = str(value).strip()
+
+    if value_str == "":
+        return pd.NaT
+
+    lower_value = value_str.lower()
+
+    if lower_value in {
+        "nan",
+        "none",
+        "null",
+        "nat",
+        "na",
+        "n/a",
+    }:
+
+        return pd.NaT
+
+    # --------------------------------------------------------
+    # Pure numeric values
+    # --------------------------------------------------------
+
+    numeric_value = None
+
+    try:
+
+        numeric_value = float(value_str)
+
+    except (ValueError, TypeError):
+
+        numeric_value = None
+
+    if numeric_value is not None:
+
+        # -----------------------------------------------
+        # Google / Excel serial date
+        # -----------------------------------------------
+
+        if 20000 <= numeric_value <= 80000:
+
+            try:
+
+                parsed = (
+                    pd.Timestamp(
+                        "1899-12-30"
+                    )
+                    + pd.to_timedelta(
+                        numeric_value,
+                        unit="D",
+                    )
+                )
+
+                if (
+                    parsed >= pd.Timestamp(
+                        "2000-01-01"
+                    )
+                    and parsed <= pd.Timestamp(
+                        "2100-12-31"
+                    )
+                ):
+
+                    return parsed
+
+            except Exception:
+
+                return pd.NaT
+
+        # -----------------------------------------------
+        # Numeric but NOT a valid serial date
+        #
+        # Example:
+        # 4438
+        # -----------------------------------------------
+
+        return pd.NaT
+
+    # --------------------------------------------------------
+    # Explicitly reject obviously impossible years
+    # --------------------------------------------------------
+
+    year_match = re.match(
+        r"^\s*(\d{4})[-/]",
+        value_str,
+    )
+
+    if year_match:
+
+        year = int(
+            year_match.group(1)
+        )
+
+        if year < 2000 or year > 2100:
+
+            return pd.NaT
+
+    # --------------------------------------------------------
+    # Try normal date parsing
+    # --------------------------------------------------------
+
+    try:
+
+        parsed = pd.to_datetime(
+            value_str,
+            format="mixed",
+            dayfirst=True,
+            errors="coerce",
+        )
+
+    except Exception:
+
+        return pd.NaT
+
+    # --------------------------------------------------------
+    # Final validation
+    # --------------------------------------------------------
+
+    if pd.isna(parsed):
+
+        return pd.NaT
+
+    try:
+
+        parsed = pd.Timestamp(
+            parsed
+        )
+
+    except Exception:
+
+        return pd.NaT
+
+    if (
+        parsed < pd.Timestamp(
+            "2000-01-01"
+        )
+        or parsed > pd.Timestamp(
+            "2100-12-31"
+        )
+    ):
+
+        return pd.NaT
+
+    return parsed
+
+
+# ============================================================
+# REPORTING DATE CLEANING
 # ============================================================
 
 def clean_reporting_date(
     series: pd.Series,
 ) -> pd.Series:
 
-    s = (
-        series
-        .astype("string")
-        .str.strip()
+    st.write(
+        "📅 Cleaning Reporting Date..."
     )
 
-    s = s.replace(
-        {
-            "": pd.NA,
-            "nan": pd.NA,
-            "NaN": pd.NA,
-            "None": pd.NA,
-            "none": pd.NA,
-            "NULL": pd.NA,
-            "null": pd.NA,
-        }
-    )
+    start_time = time.time()
 
     # --------------------------------------------------------
-    # Numeric values
+    # IMPORTANT:
+    #
+    # Do NOT create datetime64 Series and assign values into it.
+    #
+    # We first create Python objects.
+    # This avoids the pandas 3.x / Python 3.14
+    # OutOfBoundsDatetime assignment problem.
     # --------------------------------------------------------
 
-    numeric = pd.to_numeric(
-        s,
-        errors="coerce",
-    )
+    parsed_values = []
 
-    serial_mask = (
-        numeric.notna()
-        & numeric.between(
-            20000,
-            80000,
+    invalid_count = 0
+    valid_count = 0
+
+    for value in series:
+
+        parsed = _safe_parse_date(
+            value
         )
-    )
 
-    serial_dates = pd.Series(
-        pd.NaT,
-        index=s.index,
+        parsed_values.append(
+            parsed
+        )
+
+        if pd.isna(parsed):
+
+            invalid_count += 1
+
+        else:
+
+            valid_count += 1
+
+    # --------------------------------------------------------
+    # Convert ONLY validated values to datetime
+    # --------------------------------------------------------
+
+    result = pd.Series(
+        parsed_values,
+        index=series.index,
         dtype="datetime64[ns]",
     )
 
-    if serial_mask.any():
+    elapsed = time.time() - start_time
 
-        serial_dates.loc[
-            serial_mask
-        ] = pd.to_datetime(
-            numeric.loc[serial_mask],
-            unit="D",
-            origin="1899-12-30",
-            errors="coerce",
-        )
-
-    # --------------------------------------------------------
-    # Normal text dates
-    # --------------------------------------------------------
-
-    pure_numeric = s.str.fullmatch(
-        r"\d+(\.\d+)?",
-        na=False,
+    st.write(
+        f"✅ Reporting Date processed "
+        f"in {elapsed:.1f} seconds."
     )
 
-    text_mask = (
-        s.notna()
-        & ~serial_mask
-        & ~pure_numeric
+    st.write(
+        f"📅 Valid dates: {valid_count:,}"
     )
 
-    text_dates = pd.Series(
-        pd.NaT,
-        index=s.index,
-        dtype="datetime64[ns]",
-    )
-
-    if text_mask.any():
-
-        text_dates.loc[
-            text_mask
-        ] = pd.to_datetime(
-            s.loc[text_mask],
-            format="mixed",
-            dayfirst=True,
-            errors="coerce",
-        )
-
-    # --------------------------------------------------------
-    # Combine
-    # --------------------------------------------------------
-
-    result = text_dates.combine_first(
-        serial_dates
-    )
-
-    # --------------------------------------------------------
-    # Remove impossible dates
-    # --------------------------------------------------------
-
-    invalid = (
-        result.notna()
-        & (
-            (result < pd.Timestamp("2000-01-01"))
-            | (
-                result
-                > pd.Timestamp("2100-12-31")
-            )
-        )
-    )
-
-    result = result.mask(
-        invalid
+    st.write(
+        f"⚠️ Invalid / blank dates: {invalid_count:,}"
     )
 
     return result
@@ -316,7 +435,7 @@ def clean_data(
     start_time = time.time()
 
     st.write(
-        "🧹 Cleaning data..."
+        "🧹 Starting data cleaning..."
     )
 
     df = df.copy()
@@ -355,7 +474,10 @@ def clean_data(
     # --------------------------------------------------------
 
     text_columns = df.select_dtypes(
-        include=["object", "string"]
+        include=[
+            "object",
+            "string",
+        ]
     ).columns
 
     for column in text_columns:
@@ -371,6 +493,8 @@ def clean_data(
                     "NaN": pd.NA,
                     "None": pd.NA,
                     "none": pd.NA,
+                    "NULL": pd.NA,
+                    "null": pd.NA,
                 }
             )
         )
@@ -380,10 +504,6 @@ def clean_data(
     # --------------------------------------------------------
 
     if "Reporting Date" in df.columns:
-
-        st.write(
-            "📅 Processing Reporting Date..."
-        )
 
         df["Reporting Date"] = (
             clean_reporting_date(
@@ -450,7 +570,7 @@ def clean_data(
         )
 
     # --------------------------------------------------------
-    # Repair missing Year
+    # Repair Year from Reporting Date
     # --------------------------------------------------------
 
     if (
@@ -465,27 +585,29 @@ def clean_data(
 
         if missing_year.any():
 
-            df.loc[
-                missing_year,
-                "Year"
-            ] = (
+            years = (
                 df.loc[
                     missing_year,
-                    "Reporting Date"
+                    "Reporting Date",
                 ]
                 .dt.year
                 .astype("Int64")
             )
 
-    clean_time = time.time() - start_time
+            df.loc[
+                missing_year,
+                "Year",
+            ] = years
+
+    elapsed = time.time() - start_time
 
     st.write(
         f"✅ Data cleaning completed "
-        f"in {clean_time:.1f} seconds."
+        f"in {elapsed:.1f} seconds."
     )
 
     st.write(
-        f"📊 Clean rows: {len(df):,}"
+        f"📊 Clean records: {len(df):,}"
     )
 
     return df
@@ -515,6 +637,7 @@ def validate_reporting_dates(
 ):
 
     if "Reporting Date" not in df.columns:
+
         return
 
     dates = (
@@ -542,7 +665,7 @@ def validate_reporting_dates(
 
 
 # ============================================================
-# MAIN DATA LOADER
+# MAIN LOAD DATA
 # ============================================================
 
 def load_data() -> pd.DataFrame:
@@ -559,7 +682,7 @@ def load_data() -> pd.DataFrame:
 
     st.success(
         f"✅ Google Sheet data received: "
-        f"{len(raw_df):,} rows"
+        f"{len(raw_df):,} records."
     )
 
     # --------------------------------------------------------
@@ -571,7 +694,7 @@ def load_data() -> pd.DataFrame:
     )
 
     # --------------------------------------------------------
-    # Columns
+    # Validate columns
     # --------------------------------------------------------
 
     missing_columns = validate_columns(
@@ -590,7 +713,7 @@ def load_data() -> pd.DataFrame:
         )
 
     # --------------------------------------------------------
-    # Dates
+    # Validate dates
     # --------------------------------------------------------
 
     validate_reporting_dates(
