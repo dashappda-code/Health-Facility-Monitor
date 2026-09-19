@@ -9,7 +9,7 @@ import streamlit as st
 
 
 # ============================================================
-# GOOGLE SHEET
+# GOOGLE SHEET URL
 # ============================================================
 
 GOOGLE_SHEET_URL = (
@@ -45,17 +45,20 @@ EXPECTED_COLUMNS = [
 # GOOGLE SHEET URL
 # ============================================================
 
-def convert_to_csv_url(url: str) -> str:
-    """
-    Converts normal Google Sheet URL to CSV export URL.
-    """
+def convert_to_csv_url(url):
+
     if "export?format=csv" in url:
         return url
 
-    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
+    match = re.search(
+        r"/spreadsheets/d/([a-zA-Z0-9-_]+)",
+        url
+    )
 
     if match:
+
         sheet_id = match.group(1)
+
         return (
             f"https://docs.google.com/spreadsheets/d/"
             f"{sheet_id}/export?format=csv"
@@ -68,123 +71,139 @@ def convert_to_csv_url(url: str) -> str:
 # LOAD GOOGLE SHEET
 # ============================================================
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(
+    ttl=60,
+    show_spinner=False
+)
 def load_google_sheet():
 
-    csv_url = convert_to_csv_url(GOOGLE_SHEET_URL)
+    csv_url = convert_to_csv_url(
+        GOOGLE_SHEET_URL
+    )
 
     response = requests.get(
         csv_url,
         timeout=(10, 30),
-        headers={"User-Agent": "Mozilla/5.0"},
+        headers={
+            "User-Agent": "Mozilla/5.0"
+        },
     )
 
     response.raise_for_status()
 
-    df = pd.read_csv(
+    return pd.read_csv(
         StringIO(response.text),
         low_memory=False,
     )
 
-    return df
-
 
 # ============================================================
-# SAFE DATE PARSER
-# ============================================================
-
-def _safe_parse_date(value):
-
-    if pd.isna(value):
-        return pd.NaT
-
-    value_str = str(value).strip()
-
-    if not value_str:
-        return pd.NaT
-
-    # --------------------------------------------------------
-    # Numeric Excel / Google serial date
-    # --------------------------------------------------------
-
-    if re.fullmatch(r"\d+(\.\d+)?", value_str):
-
-        try:
-            number = float(value_str)
-
-            # Excel / Google serial range
-            if 20000 <= number <= 80000:
-
-                dt = pd.Timestamp("1899-12-30") + pd.to_timedelta(
-                    number,
-                    unit="D",
-                )
-
-                if 2000 <= dt.year <= 2100:
-                    return dt
-
-            return pd.NaT
-
-        except Exception:
-            return pd.NaT
-
-    # --------------------------------------------------------
-    # Reject obviously invalid years
-    # --------------------------------------------------------
-
-    year_match = re.match(r"^(\d{4})[-/]", value_str)
-
-    if year_match:
-
-        year = int(year_match.group(1))
-
-        if year < 2000 or year > 2100:
-            return pd.NaT
-
-    # --------------------------------------------------------
-    # Normal date parsing
-    # --------------------------------------------------------
-
-    try:
-
-        dt = pd.to_datetime(
-            value_str,
-            format="mixed",
-            dayfirst=True,
-            errors="coerce",
-        )
-
-        if pd.isna(dt):
-            return pd.NaT
-
-        if dt.year < 2000 or dt.year > 2100:
-            return pd.NaT
-
-        return dt
-
-    except Exception:
-        return pd.NaT
-
-
-# ============================================================
-# REPORTING DATE CLEANING
+# FAST REPORTING DATE CLEANING
 # ============================================================
 
 def clean_reporting_date(series):
 
-    values = []
+    # Keep original as string/object
+    s = (
+        series
+        .astype("string")
+        .str.strip()
+    )
 
-    for value in series:
+    result = pd.Series(
+        pd.NaT,
+        index=series.index,
+        dtype="datetime64[ns]"
+    )
 
-        values.append(
-            _safe_parse_date(value)
+    # --------------------------------------------------------
+    # 1. Numeric Excel / Google serial dates
+    # --------------------------------------------------------
+
+    numeric = pd.to_numeric(
+        s,
+        errors="coerce"
+    )
+
+    numeric_mask = (
+        numeric.notna()
+        & numeric.between(
+            20000,
+            80000
+        )
+    )
+
+    if numeric_mask.any():
+
+        result.loc[numeric_mask] = pd.to_datetime(
+            numeric.loc[numeric_mask],
+            unit="D",
+            origin="1899-12-30",
+            errors="coerce"
         )
 
-    return pd.Series(
-        values,
-        index=series.index,
-        dtype="datetime64[ns]",
+    # --------------------------------------------------------
+    # 2. Non-numeric dates
+    # --------------------------------------------------------
+
+    text_mask = (
+        s.notna()
+        & ~numeric_mask
+        & s.ne("")
     )
+
+    if text_mask.any():
+
+        text_values = s.loc[text_mask]
+
+        # Reject obviously invalid years
+        year_values = pd.to_numeric(
+            text_values.str.extract(
+                r"^(\d{4})[-/]",
+                expand=False
+            ),
+            errors="coerce"
+        )
+
+        valid_text_mask = (
+            year_values.isna()
+            | year_values.between(
+                2000,
+                2100
+            )
+        )
+
+        valid_index = text_values.index[
+            valid_text_mask
+        ]
+
+        if len(valid_index) > 0:
+
+            parsed = pd.to_datetime(
+                text_values.loc[valid_index],
+                format="mixed",
+                dayfirst=True,
+                errors="coerce"
+            )
+
+            # Final safety check
+            valid_dates = (
+                parsed.notna()
+                & parsed.dt.year.between(
+                    2000,
+                    2100
+                )
+            )
+
+            if valid_dates.any():
+
+                result.loc[
+                    parsed.index[valid_dates]
+                ] = parsed.loc[
+                    valid_dates
+                ]
+
+    return result
 
 
 # ============================================================
@@ -207,17 +226,17 @@ def clean_text_column(series):
 
 def clean_age(series):
 
-    numeric = pd.to_numeric(
+    age = pd.to_numeric(
         series,
-        errors="coerce",
+        errors="coerce"
     )
 
-    numeric = numeric.where(
-        (numeric >= 0) &
-        (numeric <= 120)
+    return age.where(
+        age.between(
+            0,
+            120
+        )
     )
-
-    return numeric
 
 
 # ============================================================
@@ -228,8 +247,6 @@ def create_age_group(age):
 
     if pd.isna(age):
         return "Unknown"
-
-    age = float(age)
 
     if age < 1:
         return "Below 1 year"
@@ -261,7 +278,7 @@ def clean_data(df):
     df = df.copy()
 
     # --------------------------------------------------------
-    # Standardize column names
+    # Column names
     # --------------------------------------------------------
 
     df.columns = (
@@ -271,7 +288,7 @@ def clean_data(df):
     )
 
     # --------------------------------------------------------
-    # Add missing expected columns
+    # Missing expected columns
     # --------------------------------------------------------
 
     for column in EXPECTED_COLUMNS:
@@ -300,88 +317,96 @@ def clean_data(df):
 
     for column in text_columns:
 
-        if column in df.columns:
-            df[column] = clean_text_column(
-                df[column]
-            )
+        df[column] = clean_text_column(
+            df[column]
+        )
 
     # --------------------------------------------------------
     # Reporting Date
     # --------------------------------------------------------
 
-    if "Reporting Date" in df.columns:
-
-        df["Reporting Date"] = clean_reporting_date(
-            df["Reporting Date"]
-        )
+    df["Reporting Date"] = clean_reporting_date(
+        df["Reporting Date"]
+    )
 
     # --------------------------------------------------------
     # Age
     # --------------------------------------------------------
 
-    if "Age" in df.columns:
-
-        df["Age"] = clean_age(
-            df["Age"]
-        )
+    df["Age"] = clean_age(
+        df["Age"]
+    )
 
     # --------------------------------------------------------
-    # Create / repair Age Group
+    # Age Group
     # --------------------------------------------------------
 
-    if "Age" in df.columns:
+    calculated_age_group = df["Age"].map(
+        create_age_group
+    )
 
-        calculated_age_group = df["Age"].apply(
-            create_age_group
-        )
+    existing_age_group = (
+        df["Age Group"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
 
-        existing = (
-            df["Age Group"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
+    empty_age_group = (
+        existing_age_group == ""
+    )
 
-        df["Age Group"] = np.where(
-            existing.eq(""),
-            calculated_age_group,
-            existing,
-        )
+    df.loc[
+        empty_age_group,
+        "Age Group"
+    ] = calculated_age_group.loc[
+        empty_age_group
+    ]
 
     # --------------------------------------------------------
     # Repair Year from Reporting Date
     # --------------------------------------------------------
 
-    if "Reporting Date" in df.columns:
+    missing_year = (
+        df["Year"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .eq("")
+    )
 
-        missing_year = (
-            df["Year"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .eq("")
-        )
+    if missing_year.any():
 
-        df.loc[missing_year, "Year"] = (
-            df.loc[missing_year, "Reporting Date"]
+        years = (
+            df.loc[
+                missing_year,
+                "Reporting Date"
+            ]
             .dt.year
             .astype("Int64")
             .astype(str)
         )
 
+        df.loc[
+            missing_year,
+            "Year"
+        ] = years
+
     # --------------------------------------------------------
-    # Remove completely empty rows
+    # Remove fully empty rows
     # --------------------------------------------------------
 
-    df = df.dropna(
-        how="all"
-    ).reset_index(drop=True)
+    df = (
+        df
+        .dropna(how="all")
+        .reset_index(drop=True)
+    )
 
     return df
 
 
 # ============================================================
-# VALIDATION
+# VALIDATE DATES
 # ============================================================
 
 def validate_reporting_dates(df):
@@ -392,19 +417,27 @@ def validate_reporting_dates(df):
     ):
         return None, None
 
-    dates = df["Reporting Date"].dropna()
+    dates = df[
+        "Reporting Date"
+    ].dropna()
 
     if dates.empty:
         return None, None
 
-    return dates.min(), dates.max()
+    return (
+        dates.min(),
+        dates.max()
+    )
 
 
 # ============================================================
 # MAIN DATA LOADER
 # ============================================================
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(
+    ttl=60,
+    show_spinner=False
+)
 def load_data():
 
     raw_df = load_google_sheet()
@@ -415,13 +448,13 @@ def load_data():
     if raw_df.empty:
         return raw_df
 
-    df = clean_data(raw_df)
-
-    return df
+    return clean_data(
+        raw_df
+    )
 
 
 # ============================================================
-# MANUAL REFRESH
+# REFRESH
 # ============================================================
 
 def refresh_data():
