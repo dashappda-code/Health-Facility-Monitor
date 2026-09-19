@@ -18,6 +18,10 @@ from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
 
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
+
 st.set_page_config(
     page_title="Health Programme Management Dashboard",
     page_icon="🏥",
@@ -26,60 +30,85 @@ st.set_page_config(
 )
 
 
+# ============================================================
+# GLOBAL DASHBOARD STYLE
+# ============================================================
+
 st.markdown(
     """
     <style>
+
+    /* --------------------------------------------------------
+       MAIN PAGE
+       -------------------------------------------------------- */
 
     .block-container {
         padding-top: 0.8rem;
         padding-bottom: 1rem;
     }
 
-    .global-filter-heading {
-        background: linear-gradient(90deg, #eaf4ff, #f8fbff);
+
+    /* --------------------------------------------------------
+       GLOBAL FILTER PANEL HEADER
+       -------------------------------------------------------- */
+
+    .global-filter-panel {
+        background: linear-gradient(
+            90deg,
+            #eaf4ff,
+            #f8fbff
+        );
+
         border: 1px solid #c9dced;
         border-left: 5px solid #1769aa;
+
         border-radius: 12px;
+
         padding: 9px 14px;
-        margin: 4px 0 7px 0;
+
+        margin: 5px 0 7px 0;
+
+        box-shadow:
+            0 3px 12px
+            rgba(30, 60, 90, 0.08);
     }
+
+
+    .global-filter-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
 
     .global-filter-title {
         font-size: 19px;
         font-weight: 750;
         color: #123b5d;
+        line-height: 1.2;
     }
+
 
     .global-filter-subtitle {
         font-size: 12px;
         color: #607080;
         margin-top: 2px;
+        line-height: 1.3;
     }
 
-    /*
-    ============================================================
-    GLOBAL FILTER CONTAINER
-    Excel-style sticky / freeze behaviour
-    ============================================================
-    */
 
-    .st-key-global_filter_container {
-        position: sticky;
-        top: 0.25rem;
-        z-index: 999;
-        background: rgba(255, 255, 255, 0.98);
+    /* --------------------------------------------------------
+       FILTER PANEL
+       -------------------------------------------------------- */
+
+    div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 12px;
-        padding: 4px 4px 8px 4px;
-        margin-bottom: 10px;
-        box-shadow: 0 4px 16px rgba(30, 60, 90, 0.12);
-        backdrop-filter: blur(5px);
     }
 
-    /*
-    ============================================================
-    FILTER WIDGETS
-    ============================================================
-    */
+
+    /* --------------------------------------------------------
+       FILTER LABELS
+       -------------------------------------------------------- */
 
     div[data-testid="stMultiSelect"] label,
     div[data-testid="stDateInput"] label {
@@ -87,50 +116,72 @@ st.markdown(
         font-weight: 650;
     }
 
+
     div[data-testid="stMultiSelect"] {
         margin-bottom: 0;
     }
+
 
     div[data-testid="stDateInput"] {
         margin-bottom: 0;
     }
 
-    /*
-    ============================================================
-    RESET BUTTON
-    ============================================================
-    */
+
+    /* --------------------------------------------------------
+       RESET BUTTON
+       -------------------------------------------------------- */
 
     .st-key-global_reset_filters button {
         border-radius: 8px;
         font-weight: 700;
     }
 
-    /*
-    ============================================================
-    KPI
-    ============================================================
-    */
+
+    /* --------------------------------------------------------
+       DATE TITLE
+       -------------------------------------------------------- */
+
+    .filter-date-title {
+        font-size: 12px;
+        font-weight: 650;
+        color: #455a64;
+        margin-bottom: 2px;
+    }
+
+
+    /* --------------------------------------------------------
+       FILTER PANEL LABEL
+       -------------------------------------------------------- */
+
+    .filter-panel-label {
+        font-size: 13px;
+        font-weight: 700;
+        color: #456276;
+        padding: 2px 0 5px 0;
+    }
+
+
+    /* --------------------------------------------------------
+       KPI
+       -------------------------------------------------------- */
 
     [data-testid="stMetric"] {
         padding: 7px 10px;
     }
 
-    /*
-    ============================================================
-    SIDEBAR
-    ============================================================
-    */
+
+    /* --------------------------------------------------------
+       SIDEBAR
+       -------------------------------------------------------- */
 
     section[data-testid="stSidebar"] {
         width: 250px;
     }
 
-    /*
-    ============================================================
-    FOOTER
-    ============================================================
-    */
+
+    /* --------------------------------------------------------
+       FOOTER
+       -------------------------------------------------------- */
 
     .dashboard-footer {
         text-align: center;
@@ -145,9 +196,22 @@ st.markdown(
 )
 
 
-st.title("🏥 Health Programme Management Dashboard")
-st.caption("Live Google Sheet Based Programme Monitoring System")
+# ============================================================
+# DASHBOARD TITLE
+# ============================================================
 
+st.title(
+    "🏥 Health Programme Management Dashboard"
+)
+
+st.caption(
+    "Live Google Sheet Based Programme Monitoring System"
+)
+
+
+# ============================================================
+# DATA LOADING
+# ============================================================
 
 def get_data():
     return load_data()
@@ -156,9 +220,15 @@ def get_data():
 df = get_data()
 
 
+# ============================================================
+# DATA VALIDATION
+# ============================================================
+
 if df is None or df.empty:
 
-    st.error("No data available from the Google Sheet.")
+    st.error(
+        "No data available from the Google Sheet."
+    )
 
     st.info(
         "Please verify that the Google Sheet is shared as "
@@ -173,7 +243,9 @@ if df is None or df.empty:
 # SIDEBAR NAVIGATION
 # ============================================================
 
-st.sidebar.title("📌 Dashboard Menu")
+st.sidebar.title(
+    "📌 Dashboard Menu"
+)
 
 
 page = st.sidebar.radio(
@@ -195,13 +267,14 @@ page = st.sidebar.radio(
 
 st.sidebar.divider()
 
+
 st.sidebar.caption(
     f"Records loaded: {len(df):,}"
 )
 
 
 # ============================================================
-# ONE GLOBAL FILTER
+# GLOBAL FILTER
 # ============================================================
 
 filter_values = create_filters(df)
@@ -213,8 +286,14 @@ filtered_df = apply_filters(
 )
 
 
+# ============================================================
+# FILTERED RECORD COUNT
+# ============================================================
+
 st.caption(
-    f"📊 Filtered Records: **{len(filtered_df):,}** / **{len(df):,}**"
+    f"📊 Filtered Records: "
+    f"**{len(filtered_df):,}** / "
+    f"**{len(df):,}**"
 )
 
 
@@ -222,7 +301,9 @@ st.caption(
 # MANAGEMENT KPI STRIP
 # ============================================================
 
-kpis = calculate_kpis(filtered_df)
+kpis = calculate_kpis(
+    filtered_df
+)
 
 
 c1, c2, c3, c4 = st.columns(4)
@@ -264,50 +345,77 @@ st.divider()
 
 
 # ============================================================
-# EXISTING DASHBOARD SECTIONS
+# DASHBOARD SECTIONS
 # ============================================================
 
 try:
 
     if page == "Overview":
 
-        render_overview(filtered_df)
+        render_overview(
+            filtered_df
+        )
+
 
     elif page == "Charts & Trends":
 
-        render_charts(filtered_df)
+        render_charts(
+            filtered_df
+        )
+
 
     elif page == "Demographics":
 
-        render_demographics(filtered_df)
+        render_demographics(
+            filtered_df
+        )
+
 
     elif page == "Ward Analysis":
 
-        render_ward(filtered_df)
+        render_ward(
+            filtered_df
+        )
+
 
     elif page == "Map":
 
-        render_map(filtered_df)
+        render_map(
+            filtered_df
+        )
+
 
     elif page == "Data Explorer":
 
-        render_explorer(filtered_df)
+        render_explorer(
+            filtered_df
+        )
+
 
     elif page == "Prediction":
 
-        render_prediction(filtered_df)
+        render_prediction(
+            filtered_df
+        )
+
 
     elif page == "User Manual":
 
         render_manual()
 
+
     elif page == "Validation & KPI":
 
-        render_validation_kpi(filtered_df)
+        render_validation_kpi(
+            filtered_df
+        )
+
 
     elif page == "Drill-down & Export":
 
-        render_drilldown_export(filtered_df)
+        render_drilldown_export(
+            filtered_df
+        )
 
 
 except Exception as e:
