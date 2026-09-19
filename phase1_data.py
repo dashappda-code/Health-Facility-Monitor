@@ -1,4 +1,5 @@
 import re
+import time
 from io import StringIO
 
 import numpy as np
@@ -43,7 +44,7 @@ EXPECTED_COLUMNS = [
 
 
 # ============================================================
-# GOOGLE SHEET URL
+# GOOGLE SHEET URL → CSV URL
 # ============================================================
 
 def convert_to_csv_url(sheet_url: str) -> str:
@@ -84,13 +85,58 @@ def convert_to_csv_url(sheet_url: str) -> str:
 @st.cache_data(ttl=60)
 def load_google_sheet() -> pd.DataFrame:
 
+    start_time = time.time()
+
     csv_url = convert_to_csv_url(
         GOOGLE_SHEET_URL
     )
 
-    response = requests.get(
-        csv_url,
-        timeout=30,
+    st.write("🔗 Connecting to Google Sheet...")
+
+    st.write(
+        "📡 Requesting CSV data..."
+    )
+
+    try:
+
+        response = requests.get(
+            csv_url,
+            timeout=(10, 30),
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            },
+        )
+
+    except requests.exceptions.ConnectTimeout:
+
+        raise RuntimeError(
+            "Google Sheet connection timed out "
+            "while connecting."
+        )
+
+    except requests.exceptions.ReadTimeout:
+
+        raise RuntimeError(
+            "Google Sheet connection timed out "
+            "while downloading data."
+        )
+
+    except requests.exceptions.RequestException as e:
+
+        raise RuntimeError(
+            f"Google Sheet connection failed: {e}"
+        )
+
+    download_time = time.time() - start_time
+
+    st.write(
+        f"✅ Google Sheet response received "
+        f"in {download_time:.1f} seconds."
+    )
+
+    st.write(
+        f"📦 Downloaded data size: "
+        f"{len(response.content) / 1024 / 1024:.2f} MB"
     )
 
     response.raise_for_status()
@@ -101,33 +147,55 @@ def load_google_sheet() -> pd.DataFrame:
             "Google Sheet returned empty data."
         )
 
-    return pd.read_csv(
-        StringIO(response.text),
-        low_memory=False,
+    st.write(
+        "📄 Reading CSV data..."
     )
+
+    read_start = time.time()
+
+    try:
+
+        df = pd.read_csv(
+            StringIO(response.text),
+            low_memory=False,
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"CSV reading failed: {e}"
+        )
+
+    read_time = time.time() - read_start
+
+    st.write(
+        f"✅ CSV loaded in {read_time:.1f} seconds."
+    )
+
+    st.write(
+        f"📊 Raw rows: {len(df):,}"
+    )
+
+    st.write(
+        f"📊 Raw columns: {len(df.columns):,}"
+    )
+
+    return df
 
 
 # ============================================================
-# FAST REPORTING DATE CLEANING
+# SAFE REPORTING DATE CLEANING
 # ============================================================
 
 def clean_reporting_date(
     series: pd.Series,
 ) -> pd.Series:
 
-    # --------------------------------------------------------
-    # Convert to string
-    # --------------------------------------------------------
-
     s = (
         series
         .astype("string")
         .str.strip()
     )
-
-    # --------------------------------------------------------
-    # Empty values
-    # --------------------------------------------------------
 
     s = s.replace(
         {
@@ -141,20 +209,9 @@ def clean_reporting_date(
         }
     )
 
-    # ========================================================
-    # NORMAL TEXT DATES
-    # ========================================================
-
-    result = pd.to_datetime(
-        s,
-        format="mixed",
-        dayfirst=True,
-        errors="coerce",
-    )
-
-    # ========================================================
-    # GOOGLE / EXCEL SERIAL DATES
-    # ========================================================
+    # --------------------------------------------------------
+    # Numeric values
+    # --------------------------------------------------------
 
     numeric = pd.to_numeric(
         s,
@@ -162,36 +219,73 @@ def clean_reporting_date(
     )
 
     serial_mask = (
-        result.isna()
-        & numeric.notna()
-        & (numeric >= 20000)
-        & (numeric <= 80000)
+        numeric.notna()
+        & numeric.between(
+            20000,
+            80000,
+        )
+    )
+
+    serial_dates = pd.Series(
+        pd.NaT,
+        index=s.index,
+        dtype="datetime64[ns]",
     )
 
     if serial_mask.any():
 
-        serial_result = pd.to_datetime(
+        serial_dates.loc[
+            serial_mask
+        ] = pd.to_datetime(
             numeric.loc[serial_mask],
             unit="D",
             origin="1899-12-30",
             errors="coerce",
         )
 
-        # Important:
-        # assign only valid serial dates
-        valid_serial = serial_result.notna()
+    # --------------------------------------------------------
+    # Normal text dates
+    # --------------------------------------------------------
 
-        if valid_serial.any():
+    pure_numeric = s.str.fullmatch(
+        r"\d+(\.\d+)?",
+        na=False,
+    )
 
-            result.loc[
-                serial_result.index[valid_serial]
-            ] = serial_result.loc[
-                valid_serial
-            ]
+    text_mask = (
+        s.notna()
+        & ~serial_mask
+        & ~pure_numeric
+    )
 
-    # ========================================================
-    # REMOVE IMPOSSIBLE DATES
-    # ========================================================
+    text_dates = pd.Series(
+        pd.NaT,
+        index=s.index,
+        dtype="datetime64[ns]",
+    )
+
+    if text_mask.any():
+
+        text_dates.loc[
+            text_mask
+        ] = pd.to_datetime(
+            s.loc[text_mask],
+            format="mixed",
+            dayfirst=True,
+            errors="coerce",
+        )
+
+    # --------------------------------------------------------
+    # Combine
+    # --------------------------------------------------------
+
+    result = text_dates.combine_first(
+        serial_dates
+    )
+
+    # --------------------------------------------------------
+    # Remove impossible dates
+    # --------------------------------------------------------
 
     invalid = (
         result.notna()
@@ -204,7 +298,9 @@ def clean_reporting_date(
         )
     )
 
-    result.loc[invalid] = pd.NaT
+    result = result.mask(
+        invalid
+    )
 
     return result
 
@@ -217,10 +313,16 @@ def clean_data(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
 
+    start_time = time.time()
+
+    st.write(
+        "🧹 Cleaning data..."
+    )
+
     df = df.copy()
 
     # --------------------------------------------------------
-    # Remove empty rows
+    # Remove completely empty rows
     # --------------------------------------------------------
 
     df = df.dropna(
@@ -237,7 +339,7 @@ def clean_data(
     ]
 
     # --------------------------------------------------------
-    # Normalize Week range
+    # Week range
     # --------------------------------------------------------
 
     if "Week.1" in df.columns:
@@ -248,9 +350,9 @@ def clean_data(
             }
         )
 
-    # ========================================================
-    # TEXT CLEANING
-    # ========================================================
+    # --------------------------------------------------------
+    # Text columns
+    # --------------------------------------------------------
 
     text_columns = df.select_dtypes(
         include=["object", "string"]
@@ -273,11 +375,15 @@ def clean_data(
             )
         )
 
-    # ========================================================
-    # REPORTING DATE
-    # ========================================================
+    # --------------------------------------------------------
+    # Reporting Date
+    # --------------------------------------------------------
 
     if "Reporting Date" in df.columns:
+
+        st.write(
+            "📅 Processing Reporting Date..."
+        )
 
         df["Reporting Date"] = (
             clean_reporting_date(
@@ -285,9 +391,9 @@ def clean_data(
             )
         )
 
-    # ========================================================
-    # AGE
-    # ========================================================
+    # --------------------------------------------------------
+    # Age
+    # --------------------------------------------------------
 
     if "Age" in df.columns:
 
@@ -296,9 +402,9 @@ def clean_data(
             errors="coerce",
         )
 
-    # ========================================================
-    # YEAR
-    # ========================================================
+    # --------------------------------------------------------
+    # Year
+    # --------------------------------------------------------
 
     if "Year" in df.columns:
 
@@ -307,9 +413,9 @@ def clean_data(
             errors="coerce",
         ).astype("Int64")
 
-    # ========================================================
-    # MONTH
-    # ========================================================
+    # --------------------------------------------------------
+    # Month
+    # --------------------------------------------------------
 
     if "Month" in df.columns:
 
@@ -319,9 +425,9 @@ def clean_data(
             .str.strip()
         )
 
-    # ========================================================
-    # WEEK
-    # ========================================================
+    # --------------------------------------------------------
+    # Week
+    # --------------------------------------------------------
 
     if "Week" in df.columns:
 
@@ -331,9 +437,9 @@ def clean_data(
             .str.strip()
         )
 
-    # ========================================================
-    # WEEK RANGE
-    # ========================================================
+    # --------------------------------------------------------
+    # Week range
+    # --------------------------------------------------------
 
     if "Week range" in df.columns:
 
@@ -343,9 +449,9 @@ def clean_data(
             .str.strip()
         )
 
-    # ========================================================
-    # REPAIR YEAR FROM REPORTING DATE
-    # ========================================================
+    # --------------------------------------------------------
+    # Repair missing Year
+    # --------------------------------------------------------
 
     if (
         "Reporting Date" in df.columns
@@ -370,6 +476,17 @@ def clean_data(
                 .dt.year
                 .astype("Int64")
             )
+
+    clean_time = time.time() - start_time
+
+    st.write(
+        f"✅ Data cleaning completed "
+        f"in {clean_time:.1f} seconds."
+    )
+
+    st.write(
+        f"📊 Clean rows: {len(df):,}"
+    )
 
     return df
 
@@ -400,9 +517,10 @@ def validate_reporting_dates(
     if "Reporting Date" not in df.columns:
         return
 
-    dates = df[
-        "Reporting Date"
-    ].dropna()
+    dates = (
+        df["Reporting Date"]
+        .dropna()
+    )
 
     if dates.empty:
 
@@ -424,16 +542,37 @@ def validate_reporting_dates(
 
 
 # ============================================================
-# LOAD DATA
+# MAIN DATA LOADER
 # ============================================================
 
 def load_data() -> pd.DataFrame:
 
+    st.write(
+        "▶️ load_data() started..."
+    )
+
+    # --------------------------------------------------------
+    # Google Sheet
+    # --------------------------------------------------------
+
     raw_df = load_google_sheet()
+
+    st.success(
+        f"✅ Google Sheet data received: "
+        f"{len(raw_df):,} rows"
+    )
+
+    # --------------------------------------------------------
+    # Cleaning
+    # --------------------------------------------------------
 
     df = clean_data(
         raw_df
     )
+
+    # --------------------------------------------------------
+    # Columns
+    # --------------------------------------------------------
 
     missing_columns = validate_columns(
         df
@@ -442,7 +581,7 @@ def load_data() -> pd.DataFrame:
     if missing_columns:
 
         st.warning(
-            "Some expected columns are missing "
+            "⚠️ Some expected columns are missing "
             "from the Google Sheet."
         )
 
@@ -450,8 +589,17 @@ def load_data() -> pd.DataFrame:
             missing_columns
         )
 
+    # --------------------------------------------------------
+    # Dates
+    # --------------------------------------------------------
+
     validate_reporting_dates(
         df
+    )
+
+    st.success(
+        f"🎉 load_data() completed successfully — "
+        f"{len(df):,} records ready."
     )
 
     return df
