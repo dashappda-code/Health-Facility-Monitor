@@ -7,8 +7,9 @@
 import streamlit as st
 from io import BytesIO
 
+
 # ============================================================
-# REPORTLAB
+# PDF SUPPORT
 # ============================================================
 
 try:
@@ -37,473 +38,369 @@ except ImportError:
 
 MANUAL_SECTIONS = [
 
-    {
-        "title": "1. Introduction",
-        "content": """
-The Health Programme Management Dashboard is an interactive web-based
-application designed to support programme monitoring, facility-level review,
-ward-level analysis, monthly trend monitoring, data quality assessment and
-management decision-making.
-"""
-    },
-
-    {
-        "title": "2. Purpose of the Application",
-        "content": """
-The main objectives of the application are:
-
-• To monitor the overall programme burden.
-• To identify high-burden wards.
-• To identify high-burden health facilities.
-• To analyse monthly trends.
-• To understand age-wise and gender-wise distribution.
-• To compare wards and facilities.
-• To identify increasing or decreasing trends.
-• To assess data quality and completeness.
-• To support programme review and planning.
-"""
-    },
-
-    {
-        "title": "3. Recommended Users",
-        "content": """
-The dashboard may be used by:
-
-• Programme Officers
-• District / Municipal Health Officials
-• Medical Officers
-• Surveillance Officers
-• Epidemiologists
-• Health Supervisors
-• Data Managers
-• Facility In-charges
-• Other authorised programme staff
-"""
-    },
-
-    {
-        "title": "4. Recommended Order of Dashboard Use",
-        "content": """
-For routine programme review, users are advised to follow this sequence:
-
-1. Overall Situation
-2. Monthly Trend
-3. Ward Analysis
-4. Facility Analysis
-5. Map / Geographic View
-6. Data Explorer
-7. Prediction / Trend Indicators
-8. Management Action
-
-This sequence helps the user move from the overall situation to specific
-priority areas.
-"""
-    },
-
-    {
-        "title": "5. Global Filters",
-        "content": """
-Filters allow users to analyse a specific subset of the data.
-
-Depending on the available data, filters may include:
-
-• Year / Date
-• Month
-• Ward
-• Facility
-• Diagnosis / Disease
-• Gender
-• Age Group
-
-Important:
-
-Always check the selected filters before interpreting any number.
-
-If a filter is applied, all charts and indicators may represent only the
-selected subset of data.
-"""
-    },
-
-    {
-        "title": "6. Overview / Summary",
-        "content": """
-The Overview section provides the high-level programme situation.
-
-Users should review:
-
-• Total cases / records
-• Number of wards
-• Number of facilities
-• Major diagnosis categories
-• Overall burden
-• Available programme indicators
-
-The Overview page should answer:
-
-“What is the overall situation?”
-"""
-    },
-
-    {
-        "title": "7. Monthly / Time-wise Analysis",
-        "content": """
-Monthly analysis shows how the reported programme burden changes over time.
-
-Users should review:
-
-• Highest-burden month
-• Lowest-burden month
-• Month-to-month changes
-• Overall trend
-• Year-wise comparison where available
-• Diagnosis-wise monthly trend
-
-An increase in reported cases should be interpreted along with testing,
-reporting completeness, surveillance activity and other programme factors.
-"""
-    },
-
-    {
-        "title": "8. Ward-wise Analysis",
-        "content": """
-Ward Analysis helps identify the geographic concentration of reported burden.
-
-Users should review:
-
-• Total cases by ward
-• Top burden wards
-• Ward ranking
-• Ward-wise diagnosis
-• Ward-wise gender distribution
-• Ward-wise monthly trend
-• Facility distribution within wards
-
-Important:
-
-A high reported burden should be verified with field information and data
-quality before drawing programme conclusions.
-"""
-    },
-
-    {
-        "title": "9. Facility-wise Analysis",
-        "content": """
-Facility Analysis helps compare health facilities.
-
-Users should review:
-
-• Total cases by facility
-• High-burden facilities
-• Facility trend
-• Diagnosis distribution
-• Ward-wise facility distribution
-
-When a facility shows an unusual increase, review the underlying records,
-reporting completeness and relevant programme activities.
-"""
-    },
-
-    {
-        "title": "10. Age-wise Analysis",
-        "content": """
-Age-wise analysis identifies the age groups contributing to the reported
-burden.
-
-Users should review:
-
-• Age-group distribution
-• Number of cases by age group
-• Percentage distribution where available
-• Changes in age distribution over time
-
-Age findings should be interpreted according to the programme context.
-"""
-    },
-
-    {
-        "title": "11. Gender-wise Analysis",
-        "content": """
-Gender-wise analysis shows the distribution of reported cases by gender.
-
-Users should review:
-
-• Male
-• Female
-• Other
-• Not Reported / Unknown
-
-Both absolute numbers and percentages should be considered where appropriate.
-
-Missing gender information should also be reviewed during data-quality
-assessment.
-"""
-    },
-
-    {
-        "title": "12. Map / Geographic View",
-        "content": """
-The Map section provides a geographic representation of facilities and/or
-wards where location information is available.
-
-It can help users visually understand:
-
-• Facility locations
-• Ward distribution
-• Geographic concentration
-• High-burden areas
-
-The map is a management visualization tool. Incorrect or missing coordinates
-may affect geographic interpretation.
-"""
-    },
-
-    {
-        "title": "13. Data Explorer",
-        "content": """
-Data Explorer provides access to filtered records.
-
-Users can generally:
-
-• Search records
-• Select columns
-• Sort information
-• Review individual records
-• Download filtered data where enabled
-
-Recommended approach:
-
-If a chart shows an unusual value, use Data Explorer to verify the
-underlying records.
-"""
-    },
-
-    {
-        "title": "14. Data Quality",
-        "content": """
-Data quality should be checked before final programme interpretation.
-
-Review:
-
-• Missing values
-• Duplicate records
-• Missing ward
-• Missing facility
-• Missing date/month
-• Missing age
-• Missing gender
-• Missing diagnosis
-• Invalid or inconsistent entries
-
-Poor-quality data can result in misleading management indicators.
-"""
-    },
-
-    {
-        "title": "15. Prediction / Trend Analysis",
-        "content": """
-The Prediction section provides a trend-based estimate using historical
-monthly data.
-
-The current approach is intended for management planning and trend
-interpretation.
-
-It should NOT be interpreted as a confirmed future case count.
-
-Increasing Trend:
-
-Historical data show an overall upward movement.
-
-Decreasing Trend:
-
-Historical data show an overall downward movement.
-
-Stable:
-
-Historical data show no strong overall upward or downward movement.
-"""
-    },
-
-    {
-        "title": "16. How to Interpret Prediction Results",
-        "content": """
-Prediction results should be understood as:
-
-“If the historical pattern continues, the estimated future burden may follow
-a similar direction.”
-
-The estimate may be affected by:
-
-• Data completeness
-• Seasonal variation
-• Sudden outbreaks
-• Changes in surveillance
-• Changes in testing
-• Changes in reporting
-• Programme interventions
-• Population movement
-
-Therefore, prediction should support planning and discussion rather than
-replace programme judgement.
-"""
-    },
-
-    {
-        "title": "17. Management Review Framework",
-        "content": """
-For every important finding, ask:
-
-WHAT?
-What is happening?
-
-WHERE?
-Which ward or facility is affected?
-
-WHEN?
-During which month or period?
-
-WHO?
-Which age or gender group is contributing?
-
-WHY?
-What programme or reporting factors may explain the finding?
-
-WHAT NEXT?
-What verification or management action is required?
-"""
-    },
-
-    {
-        "title": "18. Suggested Monthly Review Process",
-        "content": """
-1. Open Overview.
-2. Check total burden.
-3. Review monthly trend.
-4. Identify high-burden wards.
-5. Identify high-burden facilities.
-6. Review age-wise distribution.
-7. Review gender-wise distribution.
-8. Review diagnosis-wise distribution.
-9. Check geographic map.
-10. Review data quality.
-11. Verify unusual findings in Data Explorer.
-12. Review trend / prediction indicators.
-13. Document programme actions required.
-"""
-    },
-
-    {
-        "title": "19. Important Do's",
-        "content": """
-• Always check filters before interpreting data.
-• Review monthly trends, not only totals.
-• Verify unusually high values.
-• Check data quality before final reporting.
-• Compare ward and facility information.
-• Review underlying records when required.
-• Consider reporting completeness.
-• Maintain confidentiality of beneficiary information.
-• Use the latest available data version.
-"""
-    },
-
-    {
-        "title": "20. Important Don'ts",
-        "content": """
-• Do not assume every dashboard value is correct without checking data quality.
-• Do not classify an area as an outbreak based only on a dashboard number.
-• Do not compare facilities without considering reporting and population context.
-• Do not treat prediction as a confirmed future case count.
-• Do not ignore missing or duplicate records.
-• Do not share confidential individual-level information unnecessarily.
-• Do not make programme conclusions based on a single chart.
-"""
-    },
-
-    {
-        "title": "21. Troubleshooting",
-        "content": """
-Dashboard not updating:
-
-Check internet connectivity, selected filters and data availability.
-
-No data displayed:
-
-Clear restrictive filters and check whether the selected period, ward or
-facility contains data.
-
-Unexpectedly high number:
-
-Check date, facility, ward, diagnosis, duplicate records and reporting
-completeness.
-
-Map is empty:
-
-Check whether valid geographic coordinates are available.
-
-Prediction appears unreliable:
-
-Check the number of historical months, missing months and data completeness.
-"""
-    },
-
-    {
-        "title": "22. Data Confidentiality",
-        "content": """
-The application may contain programme and beneficiary-related information.
-
-Users should:
-
-• Use the application only for authorised programme purposes.
-• Avoid unnecessary sharing of individual-level information.
-• Follow applicable departmental data-security policies.
-• Download and circulate data only when authorised.
-• Protect exported files appropriately.
-"""
-    },
-
-    {
-        "title": "23. Quick Reference",
-        "content": """
-Overall situation → Overview
-
-Monthly comparison → Charts & Trends
-
-Highest burden ward → Ward Analysis
-
-Highest burden facility → Facility Analysis
-
-Age distribution → Demographics & Disease
-
-Gender distribution → Demographics & Disease
-
-Geographic distribution → Map View
-
-Individual record verification → Data Explorer
-
-Missing / duplicate data → Data Explorer / Data Quality
-
-Historical trend → Charts & Trends
-
-Future planning indicator → Prediction
-"""
-    },
-
-    {
-        "title": "24. Final Note",
-        "content": """
-The dashboard is designed to support programme managers in moving from:
-
-DATA → INFORMATION → INTERPRETATION → VERIFICATION → ACTION
-
-Dashboard findings should be considered together with field verification,
-programme knowledge and data-quality assessment.
-"""
-    },
+    (
+        "1. Introduction",
+        [
+            "The Health Programme Management Dashboard is an interactive "
+            "web-based application designed to support programme monitoring, "
+            "facility-level review, ward-level analysis, monthly trend "
+            "monitoring, data quality assessment and management decision-making."
+        ]
+    ),
+
+    (
+        "2. Purpose of the Application",
+        [
+            "The main objectives of the application are:",
+            "• To monitor the overall programme burden.",
+            "• To identify high-burden wards.",
+            "• To identify high-burden health facilities.",
+            "• To analyse monthly trends.",
+            "• To understand age-wise and gender-wise distribution.",
+            "• To compare wards and facilities.",
+            "• To identify increasing or decreasing trends.",
+            "• To assess data quality and completeness.",
+            "• To support programme review and planning."
+        ]
+    ),
+
+    (
+        "3. Recommended Users",
+        [
+            "The dashboard may be used by:",
+            "• Programme Officers",
+            "• District / Municipal Health Officials",
+            "• Medical Officers",
+            "• Surveillance Officers",
+            "• Epidemiologists",
+            "• Health Supervisors",
+            "• Data Managers",
+            "• Facility In-charges",
+            "• Other authorised programme staff"
+        ]
+    ),
+
+    (
+        "4. Recommended Order of Dashboard Use",
+        [
+            "For routine programme review, users are advised to follow this sequence:",
+            "1. Overall Situation",
+            "2. Monthly Trend",
+            "3. Ward Analysis",
+            "4. Facility Analysis",
+            "5. Map / Geographic View",
+            "6. Data Explorer",
+            "7. Prediction / Trend Indicators",
+            "8. Management Action"
+        ]
+    ),
+
+    (
+        "5. Global Filters",
+        [
+            "Filters allow users to analyse a specific subset of the data.",
+            "Depending on the available data, filters may include:",
+            "• Year / Date",
+            "• Month",
+            "• Ward",
+            "• Facility",
+            "• Diagnosis / Disease",
+            "• Gender",
+            "• Age Group",
+            "Important: Always check the selected filters before interpreting "
+            "any number."
+        ]
+    ),
+
+    (
+        "6. Overview / Summary",
+        [
+            "The Overview section provides the high-level programme situation.",
+            "Users should review:",
+            "• Total cases / records",
+            "• Number of wards",
+            "• Number of facilities",
+            "• Major diagnosis categories",
+            "• Overall burden",
+            "• Available programme indicators",
+            "The Overview page should answer: What is the overall situation?"
+        ]
+    ),
+
+    (
+        "7. Monthly / Time-wise Analysis",
+        [
+            "Monthly analysis shows how the reported programme burden changes over time.",
+            "Users should review:",
+            "• Highest-burden month",
+            "• Lowest-burden month",
+            "• Month-to-month changes",
+            "• Overall trend",
+            "• Year-wise comparison where available",
+            "• Diagnosis-wise monthly trend",
+            "An increase in reported cases should be interpreted along with "
+            "testing, reporting completeness, surveillance activity and other "
+            "programme factors."
+        ]
+    ),
+
+    (
+        "8. Ward-wise Analysis",
+        [
+            "Ward Analysis helps identify the geographic concentration of reported burden.",
+            "Users should review:",
+            "• Total cases by ward",
+            "• Top burden wards",
+            "• Ward ranking",
+            "• Ward-wise diagnosis",
+            "• Ward-wise gender distribution",
+            "• Ward-wise monthly trend",
+            "• Facility distribution within wards",
+            "A high reported burden should be verified with field information "
+            "and data quality before drawing programme conclusions."
+        ]
+    ),
+
+    (
+        "9. Facility-wise Analysis",
+        [
+            "Facility Analysis helps compare health facilities.",
+            "Users should review:",
+            "• Total cases by facility",
+            "• High-burden facilities",
+            "• Facility trend",
+            "• Diagnosis distribution",
+            "• Ward-wise facility distribution",
+            "When a facility shows an unusual increase, review the underlying "
+            "records, reporting completeness and relevant programme activities."
+        ]
+    ),
+
+    (
+        "10. Age-wise Analysis",
+        [
+            "Age-wise analysis identifies the age groups contributing to the reported burden.",
+            "Users should review:",
+            "• Age-group distribution",
+            "• Number of cases by age group",
+            "• Percentage distribution where available",
+            "• Changes in age distribution over time",
+            "Age findings should be interpreted according to the programme context."
+        ]
+    ),
+
+    (
+        "11. Gender-wise Analysis",
+        [
+            "Gender-wise analysis shows the distribution of reported cases by gender.",
+            "Users should review:",
+            "• Male",
+            "• Female",
+            "• Other",
+            "• Not Reported / Unknown",
+            "Both absolute numbers and percentages should be considered where appropriate.",
+            "Missing gender information should also be reviewed during data-quality assessment."
+        ]
+    ),
+
+    (
+        "12. Map / Geographic View",
+        [
+            "The Map section provides a geographic representation of facilities "
+            "and/or wards where location information is available.",
+            "It can help users visually understand:",
+            "• Facility locations",
+            "• Ward distribution",
+            "• Geographic concentration",
+            "• High-burden areas",
+            "Incorrect or missing coordinates may affect geographic interpretation."
+        ]
+    ),
+
+    (
+        "13. Data Explorer",
+        [
+            "Data Explorer provides access to filtered records.",
+            "Users can generally:",
+            "• Search records",
+            "• Select columns",
+            "• Sort information",
+            "• Review individual records",
+            "• Download filtered data where enabled",
+            "If a chart shows an unusual value, use Data Explorer to verify "
+            "the underlying records."
+        ]
+    ),
+
+    (
+        "14. Data Quality",
+        [
+            "Data quality should be checked before final programme interpretation.",
+            "Review:",
+            "• Missing values",
+            "• Duplicate records",
+            "• Missing ward",
+            "• Missing facility",
+            "• Missing date/month",
+            "• Missing age",
+            "• Missing gender",
+            "• Missing diagnosis",
+            "• Invalid or inconsistent entries",
+            "Poor-quality data can result in misleading management indicators."
+        ]
+    ),
+
+    (
+        "15. Prediction / Trend Analysis",
+        [
+            "The Prediction section provides a trend-based estimate using historical monthly data.",
+            "The current approach is intended for management planning and trend interpretation.",
+            "It should NOT be interpreted as a confirmed future case count.",
+            "Increasing Trend: Historical data show an overall upward movement.",
+            "Decreasing Trend: Historical data show an overall downward movement.",
+            "Stable: Historical data show no strong overall upward or downward movement."
+        ]
+    ),
+
+    (
+        "16. How to Interpret Prediction Results",
+        [
+            "Prediction results should be understood as a trend-based planning indicator.",
+            "The estimate may be affected by:",
+            "• Data completeness",
+            "• Seasonal variation",
+            "• Sudden outbreaks",
+            "• Changes in surveillance",
+            "• Changes in testing",
+            "• Changes in reporting",
+            "• Programme interventions",
+            "• Population movement",
+            "Prediction should support planning and discussion rather than replace "
+            "programme judgement."
+        ]
+    ),
+
+    (
+        "17. Management Review Framework",
+        [
+            "For every important finding, ask:",
+            "WHAT? What is happening?",
+            "WHERE? Which ward or facility is affected?",
+            "WHEN? During which month or period?",
+            "WHO? Which age or gender group is contributing?",
+            "WHY? What programme or reporting factors may explain the finding?",
+            "WHAT NEXT? What verification or management action is required?"
+        ]
+    ),
+
+    (
+        "18. Suggested Monthly Review Process",
+        [
+            "1. Open Overview.",
+            "2. Check total burden.",
+            "3. Review monthly trend.",
+            "4. Identify high-burden wards.",
+            "5. Identify high-burden facilities.",
+            "6. Review age-wise distribution.",
+            "7. Review gender-wise distribution.",
+            "8. Review diagnosis-wise distribution.",
+            "9. Check geographic map.",
+            "10. Review data quality.",
+            "11. Verify unusual findings in Data Explorer.",
+            "12. Review trend / prediction indicators.",
+            "13. Document programme actions required."
+        ]
+    ),
+
+    (
+        "19. Important Do's",
+        [
+            "• Always check filters before interpreting data.",
+            "• Review monthly trends, not only totals.",
+            "• Verify unusually high values.",
+            "• Check data quality before final reporting.",
+            "• Compare ward and facility information.",
+            "• Review underlying records when required.",
+            "• Consider reporting completeness.",
+            "• Maintain confidentiality of beneficiary information.",
+            "• Use the latest available data version."
+        ]
+    ),
+
+    (
+        "20. Important Don'ts",
+        [
+            "• Do not assume every dashboard value is correct without checking data quality.",
+            "• Do not classify an area as an outbreak based only on a dashboard number.",
+            "• Do not compare facilities without considering reporting and population context.",
+            "• Do not treat prediction as a confirmed future case count.",
+            "• Do not ignore missing or duplicate records.",
+            "• Do not share confidential individual-level information unnecessarily.",
+            "• Do not make programme conclusions based on a single chart."
+        ]
+    ),
+
+    (
+        "21. Troubleshooting",
+        [
+            "Dashboard not updating:",
+            "Check internet connectivity, selected filters and data availability.",
+            "No data displayed:",
+            "Clear restrictive filters and check whether the selected period, "
+            "ward or facility contains data.",
+            "Unexpectedly high number:",
+            "Check date, facility, ward, diagnosis, duplicate records and reporting completeness.",
+            "Map is empty:",
+            "Check whether valid geographic coordinates are available.",
+            "Prediction appears unreliable:",
+            "Check the number of historical months, missing months and data completeness."
+        ]
+    ),
+
+    (
+        "22. Data Confidentiality",
+        [
+            "The application may contain programme and beneficiary-related information.",
+            "Users should:",
+            "• Use the application only for authorised programme purposes.",
+            "• Avoid unnecessary sharing of individual-level information.",
+            "• Follow applicable departmental data-security policies.",
+            "• Download and circulate data only when authorised.",
+            "• Protect exported files appropriately."
+        ]
+    ),
+
+    (
+        "23. Quick Reference",
+        [
+            "Overall situation → Overview",
+            "Monthly comparison → Charts & Trends",
+            "Highest burden ward → Ward Analysis",
+            "Highest burden facility → Facility Analysis",
+            "Age distribution → Demographics & Disease",
+            "Gender distribution → Demographics & Disease",
+            "Geographic distribution → Map View",
+            "Individual record verification → Data Explorer",
+            "Data quality review → Data Explorer",
+            "Historical trend → Charts & Trends",
+            "Future planning indicator → Prediction"
+        ]
+    ),
+
+    (
+        "24. Final Note",
+        [
+            "The dashboard is designed to support programme managers in moving from:",
+            "DATA → INFORMATION → INTERPRETATION → VERIFICATION → ACTION",
+            "Dashboard findings should be considered together with field verification, "
+            "programme knowledge and data-quality assessment."
+        ]
+    ),
 ]
 
 
 # ============================================================
-# PDF GENERATOR
+# PDF CREATION
 # ============================================================
 
 def create_manual_pdf():
@@ -513,7 +410,7 @@ def create_manual_pdf():
 
     buffer = BytesIO()
 
-    document = SimpleDocTemplate(
+    doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
         rightMargin=18 * mm,
@@ -558,7 +455,7 @@ def create_manual_pdf():
         parent=styles["BodyText"],
         fontSize=9.5,
         leading=14,
-        spaceAfter=7,
+        spaceAfter=6,
     )
 
     story = []
@@ -605,48 +502,30 @@ def create_manual_pdf():
     story.append(intro_table)
     story.append(Spacer(1, 12))
 
-    for section in MANUAL_SECTIONS:
+    for title, paragraphs in MANUAL_SECTIONS:
 
         story.append(
             Paragraph(
-                section["title"],
+                title,
                 heading_style,
             )
         )
 
-        paragraphs = section["content"].strip().split("\n\n")
+        for paragraph in paragraphs:
 
-        for para in paragraphs:
-
-            cleaned = para.strip()
-
-            if not cleaned:
-                continue
-
-            # Escape special HTML characters
-            cleaned = (
-                cleaned
+            safe_text = (
+                paragraph
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
             )
 
-            lines = cleaned.split("\n")
-
-            for line in lines:
-
-                line = line.strip()
-
-                if not line:
-                    story.append(Spacer(1, 4))
-                    continue
-
-                story.append(
-                    Paragraph(
-                        line,
-                        body_style,
-                    )
+            story.append(
+                Paragraph(
+                    safe_text,
+                    body_style,
                 )
+            )
 
     story.append(Spacer(1, 15))
 
@@ -657,12 +536,11 @@ def create_manual_pdf():
                 "EndStyle",
                 parent=body_style,
                 alignment=TA_CENTER,
-                fontSize=9,
             ),
         )
     )
 
-    document.build(story)
+    doc.build(story)
 
     buffer.seek(0)
 
@@ -670,24 +548,13 @@ def create_manual_pdf():
 
 
 # ============================================================
-# INFORMATION CARD
-# ============================================================
-
-def show_info_card(title, text):
-
-    st.info(
-        f"**{title}**\n\n{text}"
-    )
-
-
-# ============================================================
-# MAIN USER MANUAL PAGE
+# MAIN PAGE
 # ============================================================
 
 def render_manual(df=None):
 
     # --------------------------------------------------------
-    # PAGE TITLE
+    # TITLE
     # --------------------------------------------------------
 
     st.title("📘 User Manual & Instructions")
@@ -699,14 +566,14 @@ def render_manual(df=None):
     st.divider()
 
     # --------------------------------------------------------
-    # DOWNLOAD PDF
+    # PDF DOWNLOAD
     # --------------------------------------------------------
 
-    col1, col2 = st.columns([1.4, 3])
+    pdf_file = create_manual_pdf()
+
+    col1, col2 = st.columns([1.5, 4])
 
     with col1:
-
-        pdf_file = create_manual_pdf()
 
         if pdf_file is not None:
 
@@ -721,14 +588,13 @@ def render_manual(df=None):
         else:
 
             st.warning(
-                "PDF download is unavailable because the "
-                "reportlab package is not installed."
+                "PDF download requires the reportlab package."
             )
 
     with col2:
 
-        st.success(
-            "Use this page as the operating guide for the dashboard."
+        st.info(
+            "ℹ️ This section explains how to use and interpret the dashboard."
         )
 
     st.divider()
@@ -739,139 +605,111 @@ def render_manual(df=None):
 
     st.header("🚀 Quick Start")
 
-    show_info_card(
-        "Step 1 — Select Filters",
-        "Select the required Year, Month, Ward, Facility, Disease or "
-        "other available filters. Always check the selected filters "
-        "before interpreting the results.",
+    st.subheader("1️⃣ Select Filters")
+
+    st.write(
+        "Select the required Year, Month, Ward, Facility, Disease "
+        "or other available filters. Always check the selected filters "
+        "before interpreting results."
     )
 
-    show_info_card(
-        "Step 2 — Check Overall Situation",
-        "Start with Overview to understand the overall programme burden "
-        "and coverage.",
+    st.subheader("2️⃣ Check Overall Situation")
+
+    st.write(
+        "Start with the Overview page to understand the overall "
+        "programme burden and coverage."
     )
 
-    show_info_card(
-        "Step 3 — Identify Priority Areas",
-        "Use Ward Analysis and Facility Analysis to identify areas with "
-        "higher reported burden or changing trends.",
+    st.subheader("3️⃣ Identify Priority Areas")
+
+    st.write(
+        "Use Ward Analysis and Facility Analysis to identify areas "
+        "with higher reported burden or changing trends."
     )
 
-    show_info_card(
-        "Step 4 — Verify Findings",
+    st.subheader("4️⃣ Verify Findings")
+
+    st.write(
         "Use Data Explorer and data-quality checks to verify unusual "
-        "or unexpected findings.",
+        "or unexpected findings."
     )
 
-    show_info_card(
-        "Step 5 — Plan Action",
+    st.subheader("5️⃣ Plan Action")
+
+    st.write(
         "Use historical trends and prediction indicators as management "
-        "support for programme review and planning.",
+        "support for programme review and planning."
     )
 
     st.divider()
 
     # --------------------------------------------------------
-    # SECTION SELECTOR
+    # MANUAL SECTION SELECTOR
     # --------------------------------------------------------
 
     st.header("📚 Manual Sections")
 
-    section_names = [
-        section["title"]
-        for section in MANUAL_SECTIONS
+    section_titles = [
+        title
+        for title, content in MANUAL_SECTIONS
     ]
 
     selected_section = st.selectbox(
-        "Select a section",
-        ["All Sections"] + section_names,
+        "Select a section to read",
+        ["All Sections"] + section_titles,
     )
 
     st.divider()
 
     # --------------------------------------------------------
-    # CONTENT DISPLAY
+    # DISPLAY ALL
     # --------------------------------------------------------
 
     if selected_section == "All Sections":
 
-        for section in MANUAL_SECTIONS:
+        for title, paragraphs in MANUAL_SECTIONS:
 
-            st.subheader(section["title"])
+            st.subheader(title)
 
-            content = section["content"].strip()
+            for paragraph in paragraphs:
 
-            lines = content.split("\n")
-
-            for line in lines:
-
-                line = line.strip()
-
-                if not line:
-                    continue
-
-                if line.startswith("•"):
+                if paragraph.startswith("•"):
 
                     st.markdown(
-                        f"- {line[1:].strip()}"
-                    )
-
-                elif line.endswith(":") and len(line) < 80:
-
-                    st.markdown(
-                        f"**{line}**"
+                        f"- {paragraph[1:].strip()}"
                     )
 
                 else:
 
-                    st.write(line)
+                    st.write(paragraph)
 
             st.divider()
 
+    # --------------------------------------------------------
+    # DISPLAY SELECTED SECTION
+    # --------------------------------------------------------
+
     else:
 
-        selected_data = None
+        for title, paragraphs in MANUAL_SECTIONS:
 
-        for section in MANUAL_SECTIONS:
+            if title == selected_section:
 
-            if section["title"] == selected_section:
+                st.subheader(title)
 
-                selected_data = section
+                for paragraph in paragraphs:
+
+                    if paragraph.startswith("•"):
+
+                        st.markdown(
+                            f"- {paragraph[1:].strip()}"
+                        )
+
+                    else:
+
+                        st.write(paragraph)
+
                 break
-
-        if selected_data:
-
-            st.subheader(
-                selected_data["title"]
-            )
-
-            content = selected_data["content"].strip()
-
-            lines = content.split("\n")
-
-            for line in lines:
-
-                line = line.strip()
-
-                if not line:
-                    continue
-
-                if line.startswith("•"):
-
-                    st.markdown(
-                        f"- {line[1:].strip()}"
-                    )
-
-                elif line.endswith(":") and len(line) < 80:
-
-                    st.markdown(
-                        f"**{line}**"
-                    )
-
-                else:
-
-                    st.write(line)
 
     # --------------------------------------------------------
     # IMPORTANT NOTE
@@ -880,16 +718,15 @@ def render_manual(df=None):
     st.divider()
 
     st.warning(
-        "Important: Dashboard outputs are intended for programme "
-        "monitoring and management support. Reported burden, trends "
-        "and prediction indicators should be interpreted together "
-        "with data quality, reporting completeness, field information "
-        "and programme context."
+        "Important: Dashboard outputs are intended for programme monitoring "
+        "and management support. Reported burden, trends and prediction "
+        "indicators should be interpreted together with data quality, "
+        "reporting completeness, field information and programme context."
     )
 
 
 # ============================================================
-# COMPATIBILITY ALIASES
+# COMPATIBILITY FUNCTIONS
 # ============================================================
 
 def render_user_manual(df=None):
