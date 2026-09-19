@@ -9,17 +9,23 @@ import phase1_data
 
 def create_filters(df):
     """
-    Creates the global dashboard filters.
+    Global Dashboard Control
 
-    Blank filter = ALL data.
-    Filters apply immediately.
-    No Apply button is required.
+    Default:
+        - All data
+        - All filter widgets visually blank
+
+    Selection:
+        - Filter applies immediately
+
+    Reset:
+        - All filter widgets become blank
+        - Full dataset is restored
     """
 
     if df is None or df.empty:
         return {
-            "reporting_start_date": None,
-            "reporting_end_date": None,
+            "reporting_date": None,
             "year": [],
             "month": [],
             "week": [],
@@ -30,6 +36,17 @@ def create_filters(df):
             "age_group": [],
             "opd_ipd": [],
         }
+
+    # --------------------------------------------------------
+    # RESET STATE
+    # --------------------------------------------------------
+
+    if "dashboard_filter_reset" not in st.session_state:
+        st.session_state.dashboard_filter_reset = 0
+
+    # --------------------------------------------------------
+    # FILTER HEADER
+    # --------------------------------------------------------
 
     st.markdown(
         """
@@ -47,43 +64,28 @@ def create_filters(df):
     )
 
     # --------------------------------------------------------
-    # Reset button
+    # RESET BUTTON
     # --------------------------------------------------------
-
-    if "dashboard_reset_filters" not in st.session_state:
-        st.session_state.dashboard_reset_filters = False
 
     reset_clicked = st.button(
         "↩️ Reset Filters",
         key="global_reset_filters",
-        use_container_width=False,
     )
 
     if reset_clicked:
-        keys_to_clear = [
-            "filter_year",
-            "filter_month",
-            "filter_week",
-            "filter_disease",
-            "filter_facility",
-            "filter_ward",
-            "filter_gender",
-            "filter_age_group",
-            "filter_opd_ipd",
-            "filter_reporting_start_date",
-            "filter_reporting_end_date",
-        ]
 
-        for key in keys_to_clear:
-            st.session_state.pop(key, None)
+        # Change widget namespace.
+        # This forces Streamlit to create fresh widgets.
+        st.session_state.dashboard_filter_reset += 1
 
         st.rerun()
 
     # --------------------------------------------------------
-    # Helper
+    # UNIQUE VALUES
     # --------------------------------------------------------
 
     def unique_values(column):
+
         if column not in df.columns:
             return []
 
@@ -103,21 +105,23 @@ def create_filters(df):
         return sorted(values.unique().tolist())
 
     # --------------------------------------------------------
-    # Date range
+    # REPORTING DATE RANGE
     # --------------------------------------------------------
 
     min_date = None
     max_date = None
 
     if "Reporting Date" in df.columns:
+
         dates = df["Reporting Date"].dropna()
 
         if not dates.empty:
+
             min_date = dates.min().date()
             max_date = dates.max().date()
 
     # --------------------------------------------------------
-    # Filter columns
+    # FILTER OPTIONS
     # --------------------------------------------------------
 
     years = unique_values("Year")
@@ -131,8 +135,18 @@ def create_filters(df):
     opd_ipd = unique_values("OPD/IPD")
 
     # --------------------------------------------------------
-    # Filter layout
+    # UNIQUE WIDGET PREFIX
     # --------------------------------------------------------
+
+    reset_id = st.session_state.dashboard_filter_reset
+
+    # Every reset creates a new widget key.
+    # Old selected values therefore cannot remain visible.
+    prefix = f"dashboard_filter_{reset_id}"
+
+    # ========================================================
+    # ROW 1
+    # ========================================================
 
     c1, c2, c3, c4 = st.columns(4)
 
@@ -141,7 +155,7 @@ def create_filters(df):
             "📅 Year",
             options=years,
             default=[],
-            key="filter_year",
+            key=f"{prefix}_year",
         )
 
     with c2:
@@ -149,7 +163,7 @@ def create_filters(df):
             "🗓️ Month",
             options=months,
             default=[],
-            key="filter_month",
+            key=f"{prefix}_month",
         )
 
     with c3:
@@ -157,7 +171,7 @@ def create_filters(df):
             "📆 Week",
             options=weeks,
             default=[],
-            key="filter_week",
+            key=f"{prefix}_week",
         )
 
     with c4:
@@ -165,8 +179,12 @@ def create_filters(df):
             "🦠 Disease",
             options=diseases,
             default=[],
-            key="filter_disease",
+            key=f"{prefix}_disease",
         )
+
+    # ========================================================
+    # ROW 2
+    # ========================================================
 
     c5, c6, c7, c8 = st.columns(4)
 
@@ -175,7 +193,7 @@ def create_filters(df):
             "🏥 Facility",
             options=facilities,
             default=[],
-            key="filter_facility",
+            key=f"{prefix}_facility",
         )
 
     with c6:
@@ -183,7 +201,7 @@ def create_filters(df):
             "📍 Ward",
             options=wards,
             default=[],
-            key="filter_ward",
+            key=f"{prefix}_ward",
         )
 
     with c7:
@@ -191,7 +209,7 @@ def create_filters(df):
             "👤 Gender",
             options=genders,
             default=[],
-            key="filter_gender",
+            key=f"{prefix}_gender",
         )
 
     with c8:
@@ -199,8 +217,12 @@ def create_filters(df):
             "🎂 Age Group",
             options=age_groups,
             default=[],
-            key="filter_age_group",
+            key=f"{prefix}_age_group",
         )
+
+    # ========================================================
+    # ROW 3
+    # ========================================================
 
     c9, c10 = st.columns(2)
 
@@ -209,38 +231,29 @@ def create_filters(df):
             "🏨 OPD / IPD",
             options=opd_ipd,
             default=[],
-            key="filter_opd_ipd",
+            key=f"{prefix}_opd_ipd",
         )
 
     with c10:
-        selected_reporting_start_date = None
-        selected_reporting_end_date = None
+
+        selected_reporting_date = None
 
         if min_date is not None and max_date is not None:
 
-            start_col, end_col = st.columns(2)
+            selected_reporting_date = st.date_input(
+                "📅 Reporting Date",
+                value=None,
+                min_value=min_date,
+                max_value=max_date,
+                key=f"{prefix}_reporting_date",
+            )
 
-            with start_col:
-                selected_reporting_start_date = st.date_input(
-                    "📅 Start Date",
-                    value=None,
-                    min_value=min_date,
-                    max_value=max_date,
-                    key="filter_reporting_start_date",
-                )
-
-            with end_col:
-                selected_reporting_end_date = st.date_input(
-                    "📅 End Date",
-                    value=None,
-                    min_value=min_date,
-                    max_value=max_date,
-                    key="filter_reporting_end_date",
-                )
+    # ========================================================
+    # RETURN FILTER VALUES
+    # ========================================================
 
     return {
-        "reporting_start_date": selected_reporting_start_date,
-        "reporting_end_date": selected_reporting_end_date,
+        "reporting_date": selected_reporting_date,
         "year": selected_year,
         "month": selected_month,
         "week": selected_week,
@@ -259,8 +272,7 @@ def create_filters(df):
 
 def apply_filters(
     df,
-    reporting_start_date=None,
-    reporting_end_date=None,
+    reporting_date=None,
     year=None,
     month=None,
     week=None,
@@ -274,11 +286,7 @@ def apply_filters(
     """
     Applies all selected dashboard filters.
 
-    Reporting Date logic:
-    - Start blank + End blank = ALL data
-    - Start selected only = Start date onwards
-    - End selected only = Up to End date
-    - Both selected = Start date to End date inclusive
+    Empty filter means ALL records.
     """
 
     if df is None or df.empty:
@@ -287,35 +295,60 @@ def apply_filters(
     filtered = df.copy()
 
     # --------------------------------------------------------
-    # Reporting Date Range
+    # REPORTING DATE
     # --------------------------------------------------------
 
-    if "Reporting Date" in filtered.columns:
+    if (
+        reporting_date is not None
+        and "Reporting Date" in filtered.columns
+    ):
 
-        if reporting_start_date is not None:
-            start_timestamp = pd.Timestamp(
-                reporting_start_date
-            )
+        if isinstance(reporting_date, tuple):
 
-            filtered = filtered[
-                filtered["Reporting Date"] >= start_timestamp
-            ]
+            if len(reporting_date) == 2:
 
-        if reporting_end_date is not None:
-            end_timestamp = (
-                pd.Timestamp(reporting_end_date)
-                + pd.Timedelta(days=1)
-            )
+                start_date, end_date = reporting_date
 
-            filtered = filtered[
-                filtered["Reporting Date"] < end_timestamp
-            ]
+                if start_date is not None:
+
+                    filtered = filtered[
+                        filtered["Reporting Date"].dt.date
+                        >= start_date
+                    ]
+
+                if end_date is not None:
+
+                    filtered = filtered[
+                        filtered["Reporting Date"].dt.date
+                        <= end_date
+                    ]
+
+        else:
+
+            try:
+
+                selected_date = pd.Timestamp(
+                    reporting_date
+                )
+
+                filtered = filtered[
+                    filtered["Reporting Date"].dt.normalize()
+                    == selected_date.normalize()
+                ]
+
+            except Exception:
+
+                pass
 
     # --------------------------------------------------------
-    # Helper for text filters
+    # TEXT FILTER HELPER
     # --------------------------------------------------------
 
-    def apply_text_filter(data, column, values):
+    def apply_text_filter(
+        data,
+        column,
+        values,
+    ):
 
         if not values:
             return data
@@ -339,10 +372,12 @@ def apply_filters(
             .str.strip()
         )
 
-        return data[column_values.isin(values_clean)]
+        return data[
+            column_values.isin(values_clean)
+        ]
 
     # --------------------------------------------------------
-    # Apply all filters
+    # APPLY ALL FILTERS
     # --------------------------------------------------------
 
     filtered = apply_text_filter(
@@ -409,6 +444,7 @@ def apply_filters(
 def calculate_kpis(df):
 
     if df is None or df.empty:
+
         return {
             "total_records": 0,
             "diseases": 0,
@@ -417,6 +453,7 @@ def calculate_kpis(df):
         }
 
     def count_unique(column):
+
         if column not in df.columns:
             return 0
 
@@ -432,7 +469,9 @@ def calculate_kpis(df):
             & values.ne("nan")
         ]
 
-        return int(values.nunique())
+        return int(
+            values.nunique()
+        )
 
     return {
         "total_records": int(len(df)),
@@ -448,35 +487,49 @@ def calculate_kpis(df):
 
 def render_overview(df):
 
-    st.subheader("📊 Programme Overview")
+    st.subheader(
+        "📊 Programme Overview"
+    )
 
     if df is None or df.empty:
-        st.warning("No records available for the selected filters.")
+
+        st.warning(
+            "No records available for the selected filters."
+        )
+
         return
+
+    # --------------------------------------------------------
+    # KPI
+    # --------------------------------------------------------
 
     kpis = calculate_kpis(df)
 
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
+
         st.metric(
             "Total Records",
             f"{kpis['total_records']:,}",
         )
 
     with c2:
+
         st.metric(
             "Diseases",
             f"{kpis['diseases']:,}",
         )
 
     with c3:
+
         st.metric(
             "Facilities",
             f"{kpis['facilities']:,}",
         )
 
     with c4:
+
         st.metric(
             "Wards",
             f"{kpis['wards']:,}",
@@ -485,7 +538,7 @@ def render_overview(df):
     st.divider()
 
     # --------------------------------------------------------
-    # Reporting period
+    # REPORTING PERIOD
     # --------------------------------------------------------
 
     if "Reporting Date" in df.columns:
@@ -494,15 +547,21 @@ def render_overview(df):
 
         if not dates.empty:
 
-            start_date = dates.min().strftime("%d-%m-%Y")
-            end_date = dates.max().strftime("%d-%m-%Y")
+            start_date = dates.min().strftime(
+                "%d-%m-%Y"
+            )
+
+            end_date = dates.max().strftime(
+                "%d-%m-%Y"
+            )
 
             st.info(
-                f"📅 Reporting Period: **{start_date} to {end_date}**"
+                f"📅 Reporting Period: "
+                f"**{start_date} to {end_date}**"
             )
 
     # --------------------------------------------------------
-    # Top Disease
+    # DISEASE-WISE BURDEN
     # --------------------------------------------------------
 
     if "Disease" in df.columns:
@@ -525,10 +584,14 @@ def render_overview(df):
                 .value_counts()
                 .head(10)
                 .rename_axis("Disease")
-                .reset_index(name="Records")
+                .reset_index(
+                    name="Records"
+                )
             )
 
-            st.markdown("### 🦠 Disease-wise Burden")
+            st.markdown(
+                "### 🦠 Disease-wise Burden"
+            )
 
             st.dataframe(
                 top_disease,
@@ -537,7 +600,7 @@ def render_overview(df):
             )
 
     # --------------------------------------------------------
-    # Top Facilities
+    # TOP FACILITIES
     # --------------------------------------------------------
 
     if "Facility Name" in df.columns:
@@ -560,10 +623,14 @@ def render_overview(df):
                 .value_counts()
                 .head(10)
                 .rename_axis("Facility")
-                .reset_index(name="Records")
+                .reset_index(
+                    name="Records"
+                )
             )
 
-            st.markdown("### 🏥 Top Facilities")
+            st.markdown(
+                "### 🏥 Top Facilities"
+            )
 
             st.dataframe(
                 top_facilities,
@@ -572,7 +639,7 @@ def render_overview(df):
             )
 
     # --------------------------------------------------------
-    # Top Wards
+    # TOP BURDEN WARDS
     # --------------------------------------------------------
 
     if "Ward Name" in df.columns:
@@ -595,10 +662,14 @@ def render_overview(df):
                 .value_counts()
                 .head(10)
                 .rename_axis("Ward")
-                .reset_index(name="Records")
+                .reset_index(
+                    name="Records"
+                )
             )
 
-            st.markdown("### 📍 Top Burden Wards")
+            st.markdown(
+                "### 📍 Top Burden Wards"
+            )
 
             st.dataframe(
                 top_wards,
@@ -608,7 +679,7 @@ def render_overview(df):
 
 
 # ============================================================
-# REFRESH BUTTON
+# REFRESH GOOGLE SHEET DATA
 # ============================================================
 
 st.sidebar.markdown("---")
@@ -617,8 +688,15 @@ if st.sidebar.button(
     "🔄 Refresh Google Sheet Data",
     use_container_width=True,
 ):
-    with st.spinner("Refreshing Google Sheet data..."):
+
+    with st.spinner(
+        "Refreshing Google Sheet data..."
+    ):
+
         phase1_data.refresh_data()
 
-    st.success("Google Sheet data refreshed successfully.")
+    st.success(
+        "Google Sheet data refreshed successfully."
+    )
+
     st.rerun()
