@@ -9,6 +9,7 @@ from phase6_map import render_map
 from phase7_explorer import render_explorer
 from phase8_prediction import render_prediction
 from phase9_manual import render_manual
+from phase10_validation_kpi import render_validation_kpi
 
 
 # ============================================================
@@ -80,6 +81,7 @@ page = st.sidebar.radio(
     "📌 Navigation",
     [
         "Overview",
+        "📊 Management KPI & Validation",
         "Charts & Trends",
         "Demographics & Disease",
         "Ward Analysis",
@@ -98,6 +100,10 @@ page = st.sidebar.radio(
 if page == "Overview":
 
     render_overview(df)
+
+elif page == "📊 Management KPI & Validation":
+
+    render_validation_kpi(df)
 
 
 elif page == "Charts & Trends":
