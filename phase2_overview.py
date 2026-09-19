@@ -8,20 +8,6 @@ import phase1_data
 # ============================================================
 
 def create_filters(df):
-    """
-    Single horizontal Global Dashboard Control panel.
-
-    Default:
-        - All records included
-        - Filter widgets visually blank
-
-    Selection:
-        - Filters apply immediately
-
-    Reset:
-        - All filter widgets become blank
-        - Full dataset restored
-    """
 
     empty_filters = {
         "reporting_date": None,
@@ -40,7 +26,7 @@ def create_filters(df):
         return empty_filters
 
     # --------------------------------------------------------
-    # Reset counter
+    # Reset system
     # --------------------------------------------------------
 
     if "dashboard_filter_reset" not in st.session_state:
@@ -50,7 +36,7 @@ def create_filters(df):
     prefix = f"dashboard_filter_{reset_id}"
 
     # --------------------------------------------------------
-    # Helper
+    # Unique values
     # --------------------------------------------------------
 
     def unique_values(column):
@@ -75,10 +61,6 @@ def create_filters(df):
             values.unique().tolist()
         )
 
-    # --------------------------------------------------------
-    # Filter options
-    # --------------------------------------------------------
-
     years = unique_values("Year")
     months = unique_values("Month")
     weeks = unique_values("Week")
@@ -90,7 +72,7 @@ def create_filters(df):
     opd_ipd = unique_values("OPD/IPD")
 
     # --------------------------------------------------------
-    # Reporting date range
+    # Date range
     # --------------------------------------------------------
 
     min_date = None
@@ -105,51 +87,33 @@ def create_filters(df):
             max_date = dates.max().date()
 
     # ========================================================
-    # SINGLE PANEL
+    # ONE SINGLE PANEL
     # ========================================================
 
     with st.container(border=True):
 
         # ----------------------------------------------------
-        # Panel header
+        # Panel Header
         # ----------------------------------------------------
 
-        header_left, header_right = st.columns(
-            [8, 1.4],
+        header_col, reset_col = st.columns(
+            [8, 1.3],
             vertical_alignment="center",
         )
 
-        with header_left:
+        with header_col:
 
             st.markdown(
-                """
-                <div style="
-                    padding: 2px 0 3px 0;
-                ">
-                    <div style="
-                        font-size:20px;
-                        font-weight:750;
-                        color:#123b5d;
-                        line-height:1.2;
-                    ">
-                        🎛️ Global Dashboard Control
-                    </div>
-
-                    <div style="
-                        font-size:12px;
-                        color:#607080;
-                        margin-top:3px;
-                    ">
-                        Select any filter to update the entire
-                        dashboard immediately.
-                        Leave a filter blank to include all records.
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+                "### 🎛️ Global Dashboard Control"
             )
 
-        with header_right:
+            st.caption(
+                "Select any filter to update the entire "
+                "dashboard immediately. Leave a filter blank "
+                "to include all records."
+            )
+
+        with reset_col:
 
             reset_clicked = st.button(
                 "↩️ Reset",
@@ -160,21 +124,11 @@ def create_filters(df):
         if reset_clicked:
 
             st.session_state.dashboard_filter_reset += 1
-
             st.rerun()
 
-        st.markdown(
-            """
-            <div style="
-                height:5px;
-            "></div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # ====================================================
+        # ----------------------------------------------------
         # ROW 1
-        # ====================================================
+        # ----------------------------------------------------
 
         row1 = st.columns(
             [1, 1, 1, 1.4, 2.2],
@@ -231,23 +185,12 @@ def create_filters(df):
                 placeholder="All Facilities",
             )
 
-        # ====================================================
-        # SMALL GAP
-        # ====================================================
-
-        st.markdown(
-            """
-            <div style="height:3px;"></div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # ====================================================
+        # ----------------------------------------------------
         # ROW 2
-        # ====================================================
+        # ----------------------------------------------------
 
         row2 = st.columns(
-            [1.5, 1, 1, 1.2, 2.8],
+            [1.5, 1, 1.1, 1.2, 2.8],
             gap="small",
         )
 
@@ -293,12 +236,12 @@ def create_filters(df):
 
         with row2[4]:
 
-            date_area = st.columns(
-                [1, 1],
+            date_columns = st.columns(
+                2,
                 gap="small",
             )
 
-            with date_area[0]:
+            with date_columns[0]:
 
                 from_date = st.date_input(
                     "📅 From Date",
@@ -308,7 +251,7 @@ def create_filters(df):
                     key=f"{prefix}_from_date",
                 )
 
-            with date_area[1]:
+            with date_columns[1]:
 
                 to_date = st.date_input(
                     "📅 To Date",
@@ -324,13 +267,14 @@ def create_filters(df):
                 from_date is not None
                 or to_date is not None
             ):
+
                 selected_reporting_date = (
                     from_date,
                     to_date,
                 )
 
     # ========================================================
-    # RETURN FILTER VALUES
+    # RETURN
     # ========================================================
 
     return {
@@ -387,7 +331,6 @@ def apply_filters(
             if isinstance(reporting_date, tuple):
 
                 if len(reporting_date) == 2:
-
                     start_date = reporting_date[0]
                     end_date = reporting_date[1]
 
@@ -396,8 +339,6 @@ def apply_filters(
                 start_date = reporting_date
                 end_date = reporting_date
 
-            date_series = filtered["Reporting Date"]
-
             if start_date is not None:
 
                 start_timestamp = pd.Timestamp(
@@ -405,9 +346,9 @@ def apply_filters(
                 )
 
                 filtered = filtered[
-                    date_series.notna()
+                    filtered["Reporting Date"].notna()
                     & (
-                        date_series.dt.normalize()
+                        filtered["Reporting Date"].dt.normalize()
                         >= start_timestamp.normalize()
                     )
                 ]
@@ -446,9 +387,9 @@ def apply_filters(
             return data
 
         values_clean = [
-            str(v).strip()
-            for v in values
-            if str(v).strip()
+            str(value).strip()
+            for value in values
+            if str(value).strip()
         ]
 
         if not values_clean:
@@ -466,7 +407,7 @@ def apply_filters(
         ]
 
     # --------------------------------------------------------
-    # Apply all filters
+    # Apply filters
     # --------------------------------------------------------
 
     filtered = apply_text_filter(
@@ -623,15 +564,12 @@ def render_overview(df):
     st.divider()
 
     # --------------------------------------------------------
-    # Reporting period
+    # Reporting Period
     # --------------------------------------------------------
 
     if "Reporting Date" in df.columns:
 
-        dates = (
-            df["Reporting Date"]
-            .dropna()
-        )
+        dates = df["Reporting Date"].dropna()
 
         if not dates.empty:
 
@@ -649,7 +587,7 @@ def render_overview(df):
             )
 
     # --------------------------------------------------------
-    # Disease-wise burden
+    # Disease-wise Burden
     # --------------------------------------------------------
 
     if "Disease" in df.columns:
@@ -688,7 +626,7 @@ def render_overview(df):
             )
 
     # --------------------------------------------------------
-    # Top facilities
+    # Top Facilities
     # --------------------------------------------------------
 
     if "Facility Name" in df.columns:
@@ -727,7 +665,7 @@ def render_overview(df):
             )
 
     # --------------------------------------------------------
-    # Top burden wards
+    # Top Burden Wards
     # --------------------------------------------------------
 
     if "Ward Name" in df.columns:
