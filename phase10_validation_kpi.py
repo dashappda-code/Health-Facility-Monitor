@@ -442,3 +442,4 @@ def render_management_kpis(df):
 def render_validation_kpi(df):
 
     render_management_kpis(df)
+
