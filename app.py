@@ -189,6 +189,42 @@ st.sidebar.caption(
 
 
 # =========================================================
+# GLOBAL CHART DISPLAY CONTROL
+# =========================================================
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader(
+    "📊 Chart Display Controls"
+)
+
+show_data_labels = st.sidebar.checkbox(
+    "🏷️ Show Data Labels",
+    value=st.session_state.get(
+        "show_data_labels",
+        False,
+    ),
+    key="show_data_labels",
+    help=(
+        "Turn ON to display values directly "
+        "on dashboard charts."
+    ),
+)
+
+if show_data_labels:
+
+    st.sidebar.success(
+        "Data Labels: ON"
+    )
+
+else:
+
+    st.sidebar.info(
+        "Data Labels: OFF"
+    )
+
+
+# =========================================================
 # GLOBAL FILTERS
 # =========================================================
 
@@ -448,10 +484,6 @@ def build_page_report_data(
     if data is None or data.empty:
         return tables, charts
 
-    # -----------------------------------------------------
-    # Disease
-    # -----------------------------------------------------
-
     disease_table = make_frequency_table(
         data,
         "Disease",
@@ -475,10 +507,6 @@ def build_page_report_data(
                 "title": "Disease-wise Burden",
             }
         )
-
-    # -----------------------------------------------------
-    # Facility
-    # -----------------------------------------------------
 
     facility_table = make_frequency_table(
         data,
@@ -504,10 +532,6 @@ def build_page_report_data(
             }
         )
 
-    # -----------------------------------------------------
-    # Ward
-    # -----------------------------------------------------
-
     ward_table = make_frequency_table(
         data,
         "Ward Name",
@@ -532,10 +556,6 @@ def build_page_report_data(
             }
         )
 
-    # -----------------------------------------------------
-    # Gender
-    # -----------------------------------------------------
-
     gender_table = make_frequency_table(
         data,
         "Gender",
@@ -550,10 +570,6 @@ def build_page_report_data(
                 gender_table,
             )
         )
-
-    # -----------------------------------------------------
-    # Age Group
-    # -----------------------------------------------------
 
     age_table = make_frequency_table(
         data,
@@ -570,10 +586,6 @@ def build_page_report_data(
             )
         )
 
-    # -----------------------------------------------------
-    # OPD / IPD
-    # -----------------------------------------------------
-
     opd_table = make_frequency_table(
         data,
         "OPD/IPD",
@@ -588,10 +600,6 @@ def build_page_report_data(
                 opd_table,
             )
         )
-
-    # -----------------------------------------------------
-    # Monthly analysis
-    # -----------------------------------------------------
 
     if (
         "Month" in data.columns
