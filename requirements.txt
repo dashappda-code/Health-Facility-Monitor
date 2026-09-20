@@ -8,3 +8,4 @@ xlsxwriter
 gspread
 google-auth
 reportlab
+matplotlib
