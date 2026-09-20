@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 
 
 AGE_GROUP_ORDER = [
-    "Below 1 year",
+    "<1",
     "1-4",
     "5-14",
     "15-24",
@@ -26,15 +27,79 @@ def _clean_text(df, column):
     )
 
 
-def _sort_age_groups(series):
+def _standardize_age_group(series):
     """
-    Apply a fixed logical age-group order.
-    Below 1 year must always appear first.
+    Convert source age-group labels into the standard
+    dashboard display labels.
     """
-    return pd.Categorical(
-        series,
-        categories=AGE_GROUP_ORDER,
+
+    values = (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    replacement_map = {
+        "Below 1 year": "<1",
+        "Below 1 Year": "<1",
+        "below 1 year": "<1",
+        "below 1 Year": "<1",
+        "0": "<1",
+        "0 year": "<1",
+        "0 years": "<1",
+        "< 1": "<1",
+        "<1 year": "<1",
+        "< 1 year": "<1",
+        "< 1 Year": "<1",
+    }
+
+    values = values.replace(replacement_map)
+
+    return values
+
+
+def _age_group_sort(df, column="Age Group"):
+    """
+    Apply the fixed logical age-group order.
+    """
+
+    if df.empty or column not in df.columns:
+        return df
+
+    result = df.copy()
+
+    result[column] = _standardize_age_group(
+        result[column]
+    )
+
+    known = [
+        value
+        for value in AGE_GROUP_ORDER
+        if value in result[column].tolist()
+    ]
+
+    remaining = [
+        value
+        for value in result[column].dropna().unique()
+        if value not in AGE_GROUP_ORDER
+    ]
+
+    final_order = (
+        known
+        + sorted(remaining)
+    )
+
+    result[column] = pd.Categorical(
+        result[column],
+        categories=final_order,
         ordered=True,
+    )
+
+    return (
+        result
+        .sort_values(column)
+        .reset_index(drop=True)
     )
 
 
@@ -66,9 +131,11 @@ def render_demographics(df):
             df["Age"],
             errors="coerce",
         )
+
         valid_age = age_numeric[
             age_numeric.between(0, 120)
         ]
+
     else:
         valid_age = pd.Series(
             dtype="float64"
@@ -79,6 +146,7 @@ def render_demographics(df):
         median_age = valid_age.median()
         min_age = valid_age.min()
         max_age = valid_age.max()
+
     else:
         mean_age = None
         median_age = None
@@ -86,15 +154,19 @@ def render_demographics(df):
         max_age = None
 
     if "Gender" in df.columns:
+
         gender_values = _clean_text(
             df,
             "Gender",
         )
+
         gender_values = gender_values[
             gender_values.ne("")
             & gender_values.ne("nan")
         ]
+
         gender_count = gender_values.nunique()
+
     else:
         gender_count = 0
 
@@ -164,9 +236,8 @@ def render_demographics(df):
 
     if "Age Group" in df.columns:
 
-        age_group = _clean_text(
-            df,
-            "Age Group",
+        age_group = _standardize_age_group(
+            df["Age Group"]
         )
 
         age_group = age_group[
@@ -184,38 +255,8 @@ def render_demographics(df):
                 .reset_index(name="Records")
             )
 
-            known_groups = [
-                value
-                for value in AGE_GROUP_ORDER
-                if value in age_group_counts["Age Group"].tolist()
-            ]
-
-            remaining_groups = [
-                value
-                for value in age_group_counts["Age Group"]
-                if value not in AGE_GROUP_ORDER
-            ]
-
-            final_order = (
-                known_groups
-                + sorted(remaining_groups)
-            )
-
-            age_group_counts["Age Group"] = pd.Categorical(
-                age_group_counts["Age Group"],
-                categories=final_order,
-                ordered=True,
-            )
-
-            age_group_counts = (
+            age_group_counts = _age_group_sort(
                 age_group_counts
-                .sort_values("Age Group")
-                .reset_index(drop=True)
-            )
-
-            age_group_counts["Age Group"] = (
-                age_group_counts["Age Group"]
-                .astype(str)
             )
 
             age_group_counts["Percentage"] = (
@@ -224,10 +265,49 @@ def render_demographics(df):
                 * 100
             ).round(2)
 
-            st.bar_chart(
-                age_group_counts.set_index(
-                    "Age Group"
-                )["Records"],
+            chart_df = age_group_counts.copy()
+
+            chart_df["Age Group"] = pd.Categorical(
+                chart_df["Age Group"],
+                categories=AGE_GROUP_ORDER,
+                ordered=True,
+            )
+
+            chart_df = chart_df.sort_values(
+                "Age Group"
+            )
+
+            age_chart = (
+                alt.Chart(chart_df)
+                .mark_bar()
+                .encode(
+                    x=alt.X(
+                        "Age Group:N",
+                        sort=AGE_GROUP_ORDER,
+                        title="Age Group",
+                    ),
+                    y=alt.Y(
+                        "Records:Q",
+                        title="Records",
+                    ),
+                    tooltip=[
+                        alt.Tooltip(
+                            "Age Group:N",
+                            title="Age Group",
+                        ),
+                        alt.Tooltip(
+                            "Records:Q",
+                            title="Records",
+                        ),
+                    ],
+                )
+                .properties(
+                    height=400,
+                )
+            )
+
+            st.altair_chart(
+                age_chart,
                 use_container_width=True,
             )
 
@@ -291,6 +371,7 @@ def render_demographics(df):
             )
 
             with left:
+
                 st.bar_chart(
                     gender_counts.set_index(
                         "Gender"
@@ -299,6 +380,7 @@ def render_demographics(df):
                 )
 
             with right:
+
                 display_gender = gender_counts.copy()
 
                 display_gender["Percentage"] = (
@@ -393,11 +475,8 @@ def render_demographics(df):
             .str.strip()
         )
 
-        cross_df["Age Group"] = (
+        cross_df["Age Group"] = _standardize_age_group(
             cross_df["Age Group"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
         )
 
         cross_df = cross_df[
@@ -429,6 +508,15 @@ def render_demographics(df):
             gender_age = gender_age.reindex(
                 available + sorted(remaining)
             )
+
+            gender_age.index = pd.CategoricalIndex(
+                gender_age.index,
+                categories=AGE_GROUP_ORDER,
+                ordered=True,
+                name="Age Group",
+            )
+
+            gender_age = gender_age.sort_index()
 
             st.bar_chart(
                 gender_age,
@@ -489,6 +577,7 @@ def render_demographics(df):
             )
 
             with c1:
+
                 st.bar_chart(
                     opd_counts.set_index(
                         "OPD/IPD"
@@ -536,11 +625,8 @@ def render_demographics(df):
             ]
         ].copy()
 
-        age_opd["Age Group"] = (
+        age_opd["Age Group"] = _standardize_age_group(
             age_opd["Age Group"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
         )
 
         age_opd["OPD/IPD"] = (
@@ -580,13 +666,75 @@ def render_demographics(df):
                 available + sorted(remaining)
             )
 
-            st.bar_chart(
-                age_opd_table,
+            chart_df = age_opd_table.reset_index()
+
+            chart_df["Age Group"] = pd.Categorical(
+                chart_df["Age Group"],
+                categories=AGE_GROUP_ORDER,
+                ordered=True,
+            )
+
+            chart_df = chart_df.sort_values(
+                "Age Group"
+            )
+
+            chart_long = chart_df.melt(
+                id_vars=["Age Group"],
+                var_name="OPD/IPD",
+                value_name="Records",
+            )
+
+            chart_long["Age Group"] = (
+                chart_long["Age Group"]
+                .astype(str)
+            )
+
+            age_opd_chart = (
+                alt.Chart(chart_long)
+                .mark_bar()
+                .encode(
+                    x=alt.X(
+                        "Age Group:N",
+                        sort=AGE_GROUP_ORDER,
+                        title="Age Group",
+                    ),
+                    y=alt.Y(
+                        "Records:Q",
+                        title="Records",
+                    ),
+                    color=alt.Color(
+                        "OPD/IPD:N",
+                        title="OPD/IPD",
+                    ),
+                    tooltip=[
+                        alt.Tooltip(
+                            "Age Group:N",
+                            title="Age Group",
+                        ),
+                        alt.Tooltip(
+                            "OPD/IPD:N",
+                            title="OPD/IPD",
+                        ),
+                        alt.Tooltip(
+                            "Records:Q",
+                            title="Records",
+                        ),
+                    ],
+                )
+                .properties(
+                    height=450,
+                )
+            )
+
+            st.altair_chart(
+                age_opd_chart,
                 use_container_width=True,
             )
 
+            display_age_opd = chart_df.copy()
+
             st.dataframe(
-                age_opd_table.reset_index(),
+                display_age_opd,
                 use_container_width=True,
                 hide_index=True,
             )
@@ -695,28 +843,33 @@ def render_demographics(df):
     missing_age_group = 0
 
     if "Age" in df.columns:
+
         age_numeric = pd.to_numeric(
             df["Age"],
             errors="coerce",
         )
+
         missing_age = int(
             age_numeric.isna().sum()
         )
 
     if "Gender" in df.columns:
+
         gender_values = _clean_text(
             df,
             "Gender",
         )
+
         missing_gender = int(
             gender_values.eq("").sum()
         )
 
     if "Age Group" in df.columns:
-        age_group_values = _clean_text(
-            df,
-            "Age Group",
+
+        age_group_values = _standardize_age_group(
+            df["Age Group"]
         )
+
         missing_age_group = int(
             age_group_values.eq("").sum()
         )
