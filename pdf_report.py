@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
@@ -30,8 +30,15 @@ DASHBOARD_SUBTITLE = (
 
 
 def _safe_text(value):
-    if pd.isna(value):
+    if value is None:
         return ""
+
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+
     return str(value)
 
 
@@ -92,6 +99,17 @@ def _styles():
         )
     )
 
+    styles.add(
+        ParagraphStyle(
+            name="ManagementCustom",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=8,
+            leading=11,
+            spaceAfter=6,
+        )
+    )
+
     return styles
 
 
@@ -128,9 +146,7 @@ def _make_table(dataframe, max_rows=50):
         for column in df.columns
     ]
 
-    rows = [
-        headers
-    ]
+    rows = [headers]
 
     for _, row in df.iterrows():
         rows.append(
@@ -270,13 +286,17 @@ def _add_kpi_table(
     rows = []
 
     for key, value in kpis.items():
+
         label = (
             str(key)
             .replace("_", " ")
             .title()
         )
 
-        if isinstance(value, (int, float)):
+        if isinstance(
+            value,
+            (int, float)
+        ):
             value = _format_number(value)
 
         rows.append(
@@ -449,71 +469,14 @@ def _create_chart_image(
     )
 
 
-def generate_pdf_report(
+def _add_report_header(
+    story,
+    styles,
     report_title,
-    df=None,
-    kpis=None,
-    tables=None,
-    charts=None,
     report_period=None,
     filter_summary=None,
+    record_count=None,
 ):
-    """
-    Generate a PDF report for one dashboard page.
-
-    Parameters
-    ----------
-    report_title : str
-        Name of the dashboard page.
-
-    df : pandas.DataFrame
-        Current filtered dataset.
-
-    kpis : dict
-        KPI dictionary.
-
-    tables : list of tuples
-        Example:
-        [
-            ("Top Facilities", dataframe),
-            ("Top Wards", dataframe),
-        ]
-
-    charts : list of dictionaries
-        Example:
-        [
-            {
-                "dataframe": dataframe,
-                "x_column": "Facility",
-                "y_column": "Records",
-                "title": "Facility-wise Burden",
-            }
-        ]
-
-    report_period : str
-        Reporting period shown in the report.
-
-    filter_summary : str
-        Description of currently applied filters.
-    """
-
-    buffer = BytesIO()
-
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=15 * mm,
-        leftMargin=15 * mm,
-        topMargin=15 * mm,
-        bottomMargin=17 * mm,
-        title=report_title,
-        author="MSU Mumbai Public Health Surveillance Dashboard",
-    )
-
-    styles = _styles()
-
-    story = []
-
     story.append(
         Paragraph(
             DASHBOARD_TITLE,
@@ -567,17 +530,63 @@ def generate_pdf_report(
             )
         )
 
-    if df is not None:
+    if record_count is not None:
         story.append(
             Paragraph(
                 "Records in current scope: "
-                + _format_number(len(df)),
+                + _format_number(record_count),
                 styles["SmallCustom"],
             )
         )
 
     story.append(
         Spacer(1, 8)
+    )
+
+
+def generate_pdf_report(
+    report_title,
+    df=None,
+    kpis=None,
+    tables=None,
+    charts=None,
+    report_period=None,
+    filter_summary=None,
+):
+    """
+    Generate a PDF report for one dashboard page.
+    """
+
+    buffer = BytesIO()
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=15 * mm,
+        leftMargin=15 * mm,
+        topMargin=15 * mm,
+        bottomMargin=17 * mm,
+        title=report_title,
+        author=DASHBOARD_TITLE,
+    )
+
+    styles = _styles()
+
+    story = []
+
+    record_count = (
+        len(df)
+        if df is not None
+        else None
+    )
+
+    _add_report_header(
+        story,
+        styles,
+        report_title,
+        report_period,
+        filter_summary,
+        record_count,
     )
 
     _add_kpi_table(
@@ -588,6 +597,7 @@ def generate_pdf_report(
 
     if charts:
         for chart in charts:
+
             chart_image = _create_chart_image(
                 chart.get("dataframe"),
                 chart.get("x_column"),
@@ -596,6 +606,7 @@ def generate_pdf_report(
             )
 
             if chart_image:
+
                 story.append(
                     Paragraph(
                         chart.get(
@@ -606,13 +617,17 @@ def generate_pdf_report(
                     )
                 )
 
-                story.append(chart_image)
+                story.append(
+                    chart_image
+                )
+
                 story.append(
                     Spacer(1, 6)
                 )
 
     if tables:
         for title, dataframe in tables:
+
             _add_dataframe_section(
                 story,
                 styles,
@@ -621,6 +636,7 @@ def generate_pdf_report(
             )
 
     if df is not None and not df.empty:
+
         story.append(
             Paragraph(
                 "Report Scope",
@@ -643,14 +659,480 @@ def generate_pdf_report(
 
     story.append(
         Paragraph(
-            "MSU Mumbai Public Health Surveillance Dashboard",
+            DASHBOARD_TITLE,
             styles["SmallCustom"],
         )
     )
 
     story.append(
         Paragraph(
-            "Surveillance • Monitoring • Analysis • Management",
+            DASHBOARD_SUBTITLE,
+            styles["SmallCustom"],
+        )
+    )
+
+    document.build(
+        story,
+        onFirstPage=_header_footer,
+        onLaterPages=_header_footer,
+    )
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
+def generate_complete_dashboard_pdf(
+    pages,
+    report_period=None,
+    filter_summary=None,
+):
+    """
+    Generate one consolidated PDF containing
+    all dashboard page reports.
+
+    Parameters
+    ----------
+    pages : list of dictionaries
+
+        Example:
+
+        [
+            {
+                "title": "Overview",
+                "df": dataframe,
+                "kpis": {...},
+                "tables": [...],
+                "charts": [...],
+            },
+            ...
+        ]
+
+    report_period : str
+        Current reporting period.
+
+    filter_summary : str
+        Current dashboard filter scope.
+    """
+
+    buffer = BytesIO()
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=15 * mm,
+        leftMargin=15 * mm,
+        topMargin=15 * mm,
+        bottomMargin=17 * mm,
+        title=(
+            "Complete Dashboard Report - "
+            + DASHBOARD_TITLE
+        ),
+        author=DASHBOARD_TITLE,
+    )
+
+    styles = _styles()
+
+    story = []
+
+    # -------------------------------------------------
+    # COVER / EXECUTIVE HEADER
+    # -------------------------------------------------
+
+    story.append(
+        Spacer(1, 25 * mm)
+    )
+
+    story.append(
+        Paragraph(
+            DASHBOARD_TITLE,
+            styles["ReportTitleCustom"],
+        )
+    )
+
+    story.append(
+        Paragraph(
+            DASHBOARD_SUBTITLE,
+            styles["ReportSubtitleCustom"],
+        )
+    )
+
+    story.append(
+        Spacer(1, 12)
+    )
+
+    story.append(
+        Paragraph(
+            "Complete Dashboard Management Report",
+            styles["Heading1"],
+        )
+    )
+
+    story.append(
+        Spacer(1, 8)
+    )
+
+    story.append(
+        Paragraph(
+            "Report generated on: "
+            + datetime.now().strftime(
+                "%d-%m-%Y %H:%M"
+            ),
+            styles["SmallCustom"],
+        )
+    )
+
+    if report_period:
+
+        story.append(
+            Paragraph(
+                "Reporting Period: "
+                + _safe_text(report_period),
+                styles["SmallCustom"],
+            )
+        )
+
+    if filter_summary:
+
+        story.append(
+            Paragraph(
+                "Global Filter Scope: "
+                + _safe_text(filter_summary),
+                styles["SmallCustom"],
+            )
+        )
+
+    story.append(
+        Spacer(1, 15)
+    )
+
+    story.append(
+        Paragraph(
+            "This consolidated report contains "
+            "the available management outputs from "
+            "all dashboard sections under the "
+            "current Global Dashboard Control.",
+            styles["ManagementCustom"],
+        )
+    )
+
+    story.append(
+        Spacer(1, 8)
+    )
+
+    story.append(
+        Paragraph(
+            "Dashboard Sections Included",
+            styles["SectionCustom"],
+        )
+    )
+
+    page_names = []
+
+    for page in pages or []:
+
+        title = page.get(
+            "title",
+            "Dashboard Section",
+        )
+
+        page_names.append(
+            [str(len(page_names) + 1), title]
+        )
+
+    if page_names:
+
+        contents_table = Table(
+            [
+                ["No.", "Dashboard Section"]
+            ]
+            + page_names,
+            colWidths=[
+                20 * mm,
+                130 * mm,
+            ],
+            repeatRows=1,
+        )
+
+        contents_table.setStyle(
+            TableStyle(
+                [
+                    (
+                        "BACKGROUND",
+                        (0, 0),
+                        (-1, 0),
+                        colors.HexColor("#1f4e78"),
+                    ),
+                    (
+                        "TEXTCOLOR",
+                        (0, 0),
+                        (-1, 0),
+                        colors.white,
+                    ),
+                    (
+                        "FONTNAME",
+                        (0, 0),
+                        (-1, 0),
+                        "Helvetica-Bold",
+                    ),
+                    (
+                        "FONTSIZE",
+                        (0, 0),
+                        (-1, -1),
+                        8,
+                    ),
+                    (
+                        "GRID",
+                        (0, 0),
+                        (-1, -1),
+                        0.3,
+                        colors.grey,
+                    ),
+                    (
+                        "ROWBACKGROUNDS",
+                        (0, 1),
+                        (-1, -1),
+                        [
+                            colors.white,
+                            colors.HexColor("#f3f6f9"),
+                        ],
+                    ),
+                    (
+                        "VALIGN",
+                        (0, 0),
+                        (-1, -1),
+                        "MIDDLE",
+                    ),
+                    (
+                        "TOPPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        5,
+                    ),
+                    (
+                        "BOTTOMPADDING",
+                        (0, 0),
+                        (-1, -1),
+                        5,
+                    ),
+                ]
+            )
+        )
+
+        story.append(
+            contents_table
+        )
+
+    # -------------------------------------------------
+    # EACH DASHBOARD PAGE
+    # -------------------------------------------------
+
+    for page_index, page in enumerate(
+        pages or [],
+        start=1,
+    ):
+
+        title = page.get(
+            "title",
+            f"Dashboard Section {page_index}",
+        )
+
+        df = page.get("df")
+
+        kpis = page.get("kpis")
+
+        tables = page.get("tables")
+
+        charts = page.get("charts")
+
+        story.append(
+            PageBreak()
+        )
+
+        story.append(
+            Paragraph(
+                DASHBOARD_TITLE,
+                styles["ReportTitleCustom"],
+            )
+        )
+
+        story.append(
+            Paragraph(
+                DASHBOARD_SUBTITLE,
+                styles["ReportSubtitleCustom"],
+            )
+        )
+
+        story.append(
+            Paragraph(
+                title,
+                styles["Heading1"],
+            )
+        )
+
+        story.append(
+            Spacer(1, 5)
+        )
+
+        story.append(
+            Paragraph(
+                "Section "
+                + str(page_index)
+                + " of "
+                + str(len(pages)),
+                styles["SmallCustom"],
+            )
+        )
+
+        if report_period:
+
+            story.append(
+                Paragraph(
+                    "Reporting Period: "
+                    + _safe_text(report_period),
+                    styles["SmallCustom"],
+                )
+            )
+
+        if filter_summary:
+
+            story.append(
+                Paragraph(
+                    "Filter Scope: "
+                    + _safe_text(filter_summary),
+                    styles["SmallCustom"],
+                )
+            )
+
+        if df is not None:
+
+            story.append(
+                Paragraph(
+                    "Records in current scope: "
+                    + _format_number(len(df)),
+                    styles["SmallCustom"],
+                )
+            )
+
+        story.append(
+            Spacer(1, 8)
+        )
+
+        _add_kpi_table(
+            story,
+            styles,
+            kpis,
+        )
+
+        if charts:
+
+            for chart in charts:
+
+                chart_image = _create_chart_image(
+                    chart.get("dataframe"),
+                    chart.get("x_column"),
+                    chart.get("y_column"),
+                    chart.get(
+                        "title",
+                        "",
+                    ),
+                )
+
+                if chart_image:
+
+                    story.append(
+                        Paragraph(
+                            chart.get(
+                                "title",
+                                "Chart",
+                            ),
+                            styles["SectionCustom"],
+                        )
+                    )
+
+                    story.append(
+                        chart_image
+                    )
+
+                    story.append(
+                        Spacer(1, 6)
+                    )
+
+        if tables:
+
+            for table_title, dataframe in tables:
+
+                _add_dataframe_section(
+                    story,
+                    styles,
+                    table_title,
+                    dataframe,
+                )
+
+        if df is not None and not df.empty:
+
+            story.append(
+                Paragraph(
+                    "Management Scope",
+                    styles["SectionCustom"],
+                )
+            )
+
+            story.append(
+                Paragraph(
+                    "The above outputs represent "
+                    "the records available under "
+                    "the Global Dashboard Control "
+                    "filters active at the time of "
+                    "report generation.",
+                    styles["ManagementCustom"],
+                )
+            )
+
+    # -------------------------------------------------
+    # FINAL PAGE NOTE
+    # -------------------------------------------------
+
+    story.append(
+        PageBreak()
+    )
+
+    story.append(
+        Spacer(1, 25 * mm)
+    )
+
+    story.append(
+        Paragraph(
+            "Report Completion Note",
+            styles["SectionCustom"],
+        )
+    )
+
+    story.append(
+        Paragraph(
+            "This consolidated PDF is intended for "
+            "programme monitoring, management review, "
+            "data interpretation and official reporting. "
+            "The report reflects the dashboard data "
+            "available at the time of generation.",
+            styles["ManagementCustom"],
+        )
+    )
+
+    story.append(
+        Spacer(1, 10)
+    )
+
+    story.append(
+        Paragraph(
+            DASHBOARD_TITLE,
+            styles["SmallCustom"],
+        )
+    )
+
+    story.append(
+        Paragraph(
+            DASHBOARD_SUBTITLE,
             styles["SmallCustom"],
         )
     )
