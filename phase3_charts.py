@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
 
+from chart_helpers import (
+    render_bar_chart,
+    render_line_chart,
+)
+
 
 def _clean_series(df, column):
     if df is None or df.empty or column not in df.columns:
@@ -139,7 +144,7 @@ def render_charts(df):
                     .reset_index(drop=True)
                 )
 
-            st.bar_chart(
+            render_bar_chart(
                 month_counts.set_index("Month")["Records"],
                 use_container_width=True,
             )
@@ -216,8 +221,6 @@ def render_charts(df):
                 available_months + remaining_months
             )
 
-            # Keep the chart readable by selecting the
-            # most frequently reported diseases.
             disease_totals = (
                 cross_tab.sum()
                 .sort_values(
@@ -236,7 +239,7 @@ def render_charts(df):
                 selected_diseases
             ]
 
-            st.line_chart(
+            render_line_chart(
                 chart_data,
                 use_container_width=True,
             )
@@ -283,7 +286,7 @@ def render_charts(df):
                 .reset_index(name="Records")
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 disease_counts.set_index("Disease")["Records"],
                 use_container_width=True,
             )
@@ -330,7 +333,7 @@ def render_charts(df):
                 .reset_index(name="Records")
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 facility_counts.set_index("Facility")["Records"],
                 use_container_width=True,
             )
@@ -377,7 +380,7 @@ def render_charts(df):
                 .reset_index(name="Records")
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 ward_counts.set_index("Ward")["Records"],
                 use_container_width=True,
             )
@@ -423,7 +426,7 @@ def render_charts(df):
                 .reset_index(name="Records")
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 opd_counts.set_index("OPD/IPD")["Records"],
                 use_container_width=True,
             )
@@ -475,7 +478,7 @@ def render_charts(df):
                 .rename("Records")
             )
 
-            st.line_chart(
+            render_line_chart(
                 daily_counts,
                 use_container_width=True,
             )
