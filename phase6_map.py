@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 
+from chart_helpers import render_bar_chart
+
 
 def _clean_text(df, column):
     if df is None or df.empty or column not in df.columns:
@@ -47,10 +49,6 @@ def render_map(df):
         "available in the current Google Sheet data."
     )
 
-    # =========================================================
-    # 1. CHECK FOR COORDINATE COLUMNS
-    # =========================================================
-
     latitude_column = _find_column(
         df,
         [
@@ -73,92 +71,41 @@ def render_map(df):
         ],
     )
 
-    # =========================================================
-    # 2. GEOGRAPHIC SUMMARY
-    # =========================================================
-
     st.markdown("### 📍 Geographic Data Availability")
 
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        st.metric(
-            "Filtered Records",
-            f"{len(df):,}",
-        )
+        st.metric("Filtered Records", f"{len(df):,}")
 
     with c2:
         if "Ward Name" in df.columns:
-            ward_count = (
-                _clean_text(
-                    df,
-                    "Ward Name",
-                )
-            )
+            ward_count = _clean_text(df, "Ward Name")
             ward_count = ward_count[
-                ward_count.ne("")
-                & ward_count.ne("nan")
+                ward_count.ne("") & ward_count.ne("nan")
             ]
-
-            st.metric(
-                "Wards",
-                f"{ward_count.nunique():,}",
-            )
+            st.metric("Wards", f"{ward_count.nunique():,}")
         else:
-            st.metric(
-                "Wards",
-                "0",
-            )
+            st.metric("Wards", "0")
 
     with c3:
         if "Facility Name" in df.columns:
-            facility_count = (
-                _clean_text(
-                    df,
-                    "Facility Name",
-                )
-            )
+            facility_count = _clean_text(df, "Facility Name")
             facility_count = facility_count[
-                facility_count.ne("")
-                & facility_count.ne("nan")
+                facility_count.ne("") & facility_count.ne("nan")
             ]
-
-            st.metric(
-                "Facilities",
-                f"{facility_count.nunique():,}",
-            )
+            st.metric("Facilities", f"{facility_count.nunique():,}")
         else:
-            st.metric(
-                "Facilities",
-                "0",
-            )
+            st.metric("Facilities", "0")
 
     with c4:
-        if (
-            latitude_column is not None
-            and longitude_column is not None
-        ):
-            st.metric(
-                "Coordinates",
-                "Available",
-            )
+        if latitude_column is not None and longitude_column is not None:
+            st.metric("Coordinates", "Available")
         else:
-            st.metric(
-                "Coordinates",
-                "Not available",
-            )
+            st.metric("Coordinates", "Not available")
 
-    # =========================================================
-    # 3. REAL MAP WHEN LAT/LONG ARE AVAILABLE
-    # =========================================================
-
-    if (
-        latitude_column is not None
-        and longitude_column is not None
-    ):
-
+    if latitude_column is not None and longitude_column is not None:
         st.divider()
-
         st.markdown("### 🗺️ Facility / Record Map")
 
         map_df = df[
@@ -179,14 +126,8 @@ def render_map(df):
         )
 
         map_df = map_df[
-            map_df["latitude"].between(
-                -90,
-                90,
-            )
-            & map_df["longitude"].between(
-                -180,
-                180,
-            )
+            map_df["latitude"].between(-90, 90)
+            & map_df["longitude"].between(-180, 180)
         ]
 
         if not map_df.empty:
@@ -207,41 +148,32 @@ def render_map(df):
             )
 
         else:
+
             st.warning(
                 "Latitude and Longitude columns exist, "
                 "but no valid coordinates are available "
                 "for the selected records."
             )
 
-    # =========================================================
-    # 4. LOCATION FIELDS AVAILABLE IN CURRENT DATA
-    # =========================================================
-
     st.divider()
 
-    st.markdown("### 📌 Location-wise Programme Distribution")
+    st.markdown(
+        "### 📌 Location-wise Programme Distribution"
+    )
 
     location_columns = []
 
     if "Ward Name" in df.columns:
-        location_columns.append(
-            "Ward Name"
-        )
+        location_columns.append("Ward Name")
 
     if "Facility Name" in df.columns:
-        location_columns.append(
-            "Facility Name"
-        )
+        location_columns.append("Facility Name")
 
     if "Facility Type" in df.columns:
-        location_columns.append(
-            "Facility Type"
-        )
+        location_columns.append("Facility Type")
 
     if "Patient Address" in df.columns:
-        location_columns.append(
-            "Patient Address"
-        )
+        location_columns.append("Patient Address")
 
     if not location_columns:
 
@@ -281,12 +213,8 @@ def render_map(df):
             location_counts = (
                 location_values
                 .value_counts()
-                .rename_axis(
-                    selected_location
-                )
-                .reset_index(
-                    name="Records"
-                )
+                .rename_axis(selected_location)
+                .reset_index(name="Records")
             )
 
             location_counts.insert(
@@ -304,12 +232,10 @@ def render_map(df):
                 * 100
             ).round(2)
 
-            st.bar_chart(
+            render_bar_chart(
                 location_counts
                 .head(25)
-                .set_index(
-                    selected_location
-                )["Records"],
+                .set_index(selected_location)["Records"],
                 use_container_width=True,
             )
 
@@ -333,13 +259,11 @@ def render_map(df):
                 hide_index=True,
             )
 
-    # =========================================================
-    # 5. WARD-WISE LOCATION SUMMARY
-    # =========================================================
-
     st.divider()
 
-    st.markdown("### 📍 Ward-wise Geographic Summary")
+    st.markdown(
+        "### 📍 Ward-wise Geographic Summary"
+    )
 
     if "Ward Name" in df.columns:
 
@@ -360,9 +284,7 @@ def render_map(df):
                 ward_values
                 .value_counts()
                 .rename_axis("Ward")
-                .reset_index(
-                    name="Records"
-                )
+                .reset_index(name="Records")
             )
 
             ward_summary["Percentage"] = (
@@ -383,13 +305,11 @@ def render_map(df):
                 "Ward information is not available."
             )
 
-    # =========================================================
-    # 6. FACILITY-WISE LOCATION SUMMARY
-    # =========================================================
-
     st.divider()
 
-    st.markdown("### 🏥 Facility-wise Geographic Summary")
+    st.markdown(
+        "### 🏥 Facility-wise Geographic Summary"
+    )
 
     if "Facility Name" in df.columns:
 
@@ -410,9 +330,7 @@ def render_map(df):
                 facility_values
                 .value_counts()
                 .rename_axis("Facility")
-                .reset_index(
-                    name="Records"
-                )
+                .reset_index(name="Records")
             )
 
             facility_summary.insert(
@@ -436,13 +354,11 @@ def render_map(df):
                 "Facility information is not available."
             )
 
-    # =========================================================
-    # 7. PATIENT ADDRESS SUMMARY
-    # =========================================================
-
     st.divider()
 
-    st.markdown("### 🏠 Patient Address Information")
+    st.markdown(
+        "### 🏠 Patient Address Information"
+    )
 
     if "Patient Address" in df.columns:
 
@@ -470,30 +386,30 @@ def render_map(df):
                 f"{len(address_values):,}",
             )
 
+            address_counts = (
+                address_values
+                .value_counts()
+                .head(100)
+            )
+
             st.dataframe(
                 pd.DataFrame(
                     {
-                        "Patient Address": address_values
-                        .value_counts()
-                        .head(100)
-                        .index,
-                        "Records": address_values
-                        .value_counts()
-                        .head(100)
-                        .values,
+                        "Patient Address":
+                            address_counts.index,
+                        "Records":
+                            address_counts.values,
                     }
                 ),
                 use_container_width=True,
                 hide_index=True,
             )
 
-    # =========================================================
-    # 8. MAP DATA REQUIREMENT
-    # =========================================================
-
     st.divider()
 
-    st.markdown("### ℹ️ Geographic Data Requirement")
+    st.markdown(
+        "### ℹ️ Geographic Data Requirement"
+    )
 
     if (
         latitude_column is None
