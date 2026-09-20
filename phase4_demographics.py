@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
+from chart_helpers import (
+    data_labels_enabled,
+    render_bar_chart,
+    render_line_chart,
+)
+
 
 AGE_GROUP_ORDER = [
     "<1",
@@ -28,10 +34,6 @@ def _clean_text(df, column):
 
 
 def _standardize_age_group(series):
-    """
-    Convert source age-group labels into the standard
-    dashboard display labels.
-    """
 
     values = (
         series
@@ -60,9 +62,6 @@ def _standardize_age_group(series):
 
 
 def _age_group_sort(df, column="Age Group"):
-    """
-    Apply the fixed logical age-group order.
-    """
 
     if df.empty or column not in df.columns:
         return df
@@ -306,6 +305,32 @@ def render_demographics(df):
                 )
             )
 
+            if data_labels_enabled():
+
+                age_labels = (
+                    alt.Chart(chart_df)
+                    .mark_text(
+                        dy=-8,
+                    )
+                    .encode(
+                        x=alt.X(
+                            "Age Group:N",
+                            sort=AGE_GROUP_ORDER,
+                        ),
+                        y=alt.Y(
+                            "Records:Q"
+                        ),
+                        text=alt.Text(
+                            "Records:Q"
+                        ),
+                    )
+                )
+
+                age_chart = (
+                    age_chart
+                    + age_labels
+                )
+
             st.altair_chart(
                 age_chart,
                 use_container_width=True,
@@ -372,7 +397,7 @@ def render_demographics(df):
 
             with left:
 
-                st.bar_chart(
+                render_bar_chart(
                     gender_counts.set_index(
                         "Gender"
                     )["Records"],
@@ -430,7 +455,7 @@ def render_demographics(df):
                 .reset_index(name="Records")
             )
 
-            st.line_chart(
+            render_line_chart(
                 age_counts.set_index(
                     "Age"
                 )["Records"],
@@ -518,7 +543,7 @@ def render_demographics(df):
 
             gender_age = gender_age.sort_index()
 
-            st.bar_chart(
+            render_bar_chart(
                 gender_age,
                 use_container_width=True,
             )
@@ -578,7 +603,7 @@ def render_demographics(df):
 
             with c1:
 
-                st.bar_chart(
+                render_bar_chart(
                     opd_counts.set_index(
                         "OPD/IPD"
                     )["Records"],
@@ -726,6 +751,36 @@ def render_demographics(df):
                 )
             )
 
+            if data_labels_enabled():
+
+                age_opd_labels = (
+                    alt.Chart(chart_long)
+                    .mark_text(
+                        dy=-8,
+                    )
+                    .encode(
+                        x=alt.X(
+                            "Age Group:N",
+                            sort=AGE_GROUP_ORDER,
+                        ),
+                        y=alt.Y(
+                            "Records:Q"
+                        ),
+                        color=alt.Color(
+                            "OPD/IPD:N",
+                            legend=None,
+                        ),
+                        text=alt.Text(
+                            "Records:Q"
+                        ),
+                    )
+                )
+
+                age_opd_chart = (
+                    age_opd_chart
+                    + age_opd_labels
+                )
+
             st.altair_chart(
                 age_opd_chart,
                 use_container_width=True,
@@ -808,7 +863,7 @@ def render_demographics(df):
                 .loc[top_diseases]
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 disease_gender_table,
                 use_container_width=True,
             )
