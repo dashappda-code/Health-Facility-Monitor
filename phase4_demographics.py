@@ -2,6 +2,18 @@ import streamlit as st
 import pandas as pd
 
 
+AGE_GROUP_ORDER = [
+    "Below 1 year",
+    "1-4",
+    "5-14",
+    "15-24",
+    "25-44",
+    "45-64",
+    "65+",
+    "Unknown",
+]
+
+
 def _clean_text(df, column):
     if df is None or df.empty or column not in df.columns:
         return pd.Series(dtype="object")
@@ -11,6 +23,18 @@ def _clean_text(df, column):
         .fillna("")
         .astype(str)
         .str.strip()
+    )
+
+
+def _sort_age_groups(series):
+    """
+    Apply a fixed logical age-group order.
+    Below 1 year must always appear first.
+    """
+    return pd.Categorical(
+        series,
+        categories=AGE_GROUP_ORDER,
+        ordered=True,
     )
 
 
@@ -160,38 +184,38 @@ def render_demographics(df):
                 .reset_index(name="Records")
             )
 
-            preferred_order = [
-                "Below 1 year",
-                "1-4",
-                "5-14",
-                "15-24",
-                "25-44",
-                "45-64",
-                "65+",
-                "Unknown",
+            known_groups = [
+                value
+                for value in AGE_GROUP_ORDER
+                if value in age_group_counts["Age Group"].tolist()
             ]
 
-            order_map = {
-                value: index
-                for index, value
-                in enumerate(preferred_order)
-            }
+            remaining_groups = [
+                value
+                for value in age_group_counts["Age Group"]
+                if value not in AGE_GROUP_ORDER
+            ]
 
-            age_group_counts["sort_order"] = (
-                age_group_counts["Age Group"]
-                .map(order_map)
-                .fillna(999)
+            final_order = (
+                known_groups
+                + sorted(remaining_groups)
+            )
+
+            age_group_counts["Age Group"] = pd.Categorical(
+                age_group_counts["Age Group"],
+                categories=final_order,
+                ordered=True,
             )
 
             age_group_counts = (
                 age_group_counts
-                .sort_values(
-                    ["sort_order", "Age Group"]
-                )
-                .drop(
-                    columns=["sort_order"]
-                )
+                .sort_values("Age Group")
                 .reset_index(drop=True)
+            )
+
+            age_group_counts["Age Group"] = (
+                age_group_counts["Age Group"]
+                .astype(str)
             )
 
             age_group_counts["Percentage"] = (
@@ -390,31 +414,20 @@ def render_demographics(df):
                 cross_df["Gender"],
             )
 
-            preferred_order = [
-                "Below 1 year",
-                "1-4",
-                "5-14",
-                "15-24",
-                "25-44",
-                "45-64",
-                "65+",
-                "Unknown",
-            ]
-
             available = [
                 value
-                for value in preferred_order
+                for value in AGE_GROUP_ORDER
                 if value in gender_age.index
             ]
 
             remaining = [
                 value
                 for value in gender_age.index
-                if value not in available
+                if value not in AGE_GROUP_ORDER
             ]
 
             gender_age = gender_age.reindex(
-                available + remaining
+                available + sorted(remaining)
             )
 
             st.bar_chart(
@@ -551,31 +564,20 @@ def render_demographics(df):
                 age_opd["OPD/IPD"],
             )
 
-            preferred_order = [
-                "Below 1 year",
-                "1-4",
-                "5-14",
-                "15-24",
-                "25-44",
-                "45-64",
-                "65+",
-                "Unknown",
-            ]
-
             available = [
                 value
-                for value in preferred_order
+                for value in AGE_GROUP_ORDER
                 if value in age_opd_table.index
             ]
 
             remaining = [
                 value
                 for value in age_opd_table.index
-                if value not in available
+                if value not in AGE_GROUP_ORDER
             ]
 
             age_opd_table = age_opd_table.reindex(
-                available + remaining
+                available + sorted(remaining)
             )
 
             st.bar_chart(
