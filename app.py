@@ -23,6 +23,8 @@ from pdf_report import (
     generate_complete_dashboard_pdf,
 )
 
+from ppt_report import generate_ppt_report
+
 
 # =========================================================
 # PAGE CONFIG
@@ -265,7 +267,7 @@ st.divider()
 
 
 # =========================================================
-# PDF HELPER FUNCTIONS
+# REPORT FILTER / DATE HELPERS
 # =========================================================
 
 def get_filter_summary():
@@ -387,6 +389,10 @@ def get_reporting_period(data):
         return None
 
 
+# =========================================================
+# FREQUENCY TABLE
+# =========================================================
+
 def make_frequency_table(
     data,
     column,
@@ -426,6 +432,10 @@ def make_frequency_table(
         )
     )
 
+
+# =========================================================
+# BUILD PAGE REPORT DATA
+# =========================================================
 
 def build_page_report_data(
     page_name,
@@ -636,6 +646,10 @@ def build_page_report_data(
     return tables, charts
 
 
+# =========================================================
+# PAGE PDF
+# =========================================================
+
 def create_page_pdf(
     page_name,
     data,
@@ -716,138 +730,37 @@ def create_complete_dashboard_pdf():
 
     filter_summary = get_filter_summary()
 
-    dashboard_pages = [
-        {
-            "title": "Overview",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Overview",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Overview",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Charts & Trends",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Charts & Trends",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Charts & Trends",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Demographics",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Demographics",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Demographics",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Ward Analysis",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Ward Analysis",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Ward Analysis",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Map",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Map",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Map",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Data Explorer",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Data Explorer",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Data Explorer",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Prediction",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Prediction",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Prediction",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "User Manual",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "User Manual",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "User Manual",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Validation & KPI",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Validation & KPI",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Validation & KPI",
-                filtered_df,
-            )[1],
-        },
-        {
-            "title": "Drill-down & Export",
-            "df": filtered_df,
-            "kpis": kpis,
-            "tables": build_page_report_data(
-                "Drill-down & Export",
-                filtered_df,
-            )[0],
-            "charts": build_page_report_data(
-                "Drill-down & Export",
-                filtered_df,
-            )[1],
-        },
+    dashboard_pages = []
+
+    page_names = [
+        "Overview",
+        "Charts & Trends",
+        "Demographics",
+        "Ward Analysis",
+        "Map",
+        "Data Explorer",
+        "Prediction",
+        "User Manual",
+        "Validation & KPI",
+        "Drill-down & Export",
     ]
+
+    for page_name in page_names:
+
+        page_tables, page_charts = build_page_report_data(
+            page_name,
+            filtered_df,
+        )
+
+        dashboard_pages.append(
+            {
+                "title": page_name,
+                "df": filtered_df,
+                "kpis": kpis,
+                "tables": page_tables,
+                "charts": page_charts,
+            }
+        )
 
     return generate_complete_dashboard_pdf(
         pages=dashboard_pages,
@@ -857,7 +770,28 @@ def create_complete_dashboard_pdf():
 
 
 # =========================================================
-# SIDEBAR - COMPLETE PDF
+# COMPLETE DASHBOARD PPT
+# =========================================================
+
+def create_complete_dashboard_ppt():
+
+    report_period = get_reporting_period(
+        filtered_df
+    )
+
+    filter_summary = get_filter_summary()
+
+    ppt_bytes = generate_ppt_report(
+        df=filtered_df,
+        report_period=report_period,
+        filter_summary=filter_summary,
+    )
+
+    return ppt_bytes
+
+
+# =========================================================
+# SIDEBAR - PDF REPORTS
 # =========================================================
 
 st.sidebar.markdown("---")
@@ -936,6 +870,92 @@ if (
         st.sidebar.info(
             "Dashboard filters have changed. "
             "Generate the complete PDF again."
+        )
+
+
+# =========================================================
+# SIDEBAR - POWERPOINT REPORT
+# =========================================================
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader(
+    "📊 PowerPoint Report"
+)
+
+st.sidebar.caption(
+    "Generate a management presentation from "
+    "the currently selected dashboard filters."
+)
+
+
+if st.sidebar.button(
+    "📊 Generate PowerPoint",
+    use_container_width=True,
+):
+
+    try:
+
+        with st.spinner(
+            "Generating PowerPoint report..."
+        ):
+
+            st.session_state[
+                "complete_dashboard_ppt"
+            ] = create_complete_dashboard_ppt()
+
+            st.session_state[
+                "complete_dashboard_ppt_filter"
+            ] = get_filter_summary()
+
+        st.sidebar.success(
+            "PowerPoint generated successfully."
+        )
+
+    except Exception as e:
+
+        st.sidebar.error(
+            "PowerPoint report could not be generated."
+        )
+
+        st.sidebar.exception(e)
+
+
+if (
+    "complete_dashboard_ppt"
+    in st.session_state
+):
+
+    current_filter = get_filter_summary()
+
+    generated_ppt_filter = st.session_state.get(
+        "complete_dashboard_ppt_filter",
+        "",
+    )
+
+    if current_filter == generated_ppt_filter:
+
+        st.sidebar.download_button(
+            label="⬇️ Download PowerPoint",
+            data=st.session_state[
+                "complete_dashboard_ppt"
+            ],
+            file_name=(
+                "MSU_Mumbai_Dashboard_Management_Report.pptx"
+            ),
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "presentationml.presentation"
+            ),
+            use_container_width=True,
+            key="download_complete_dashboard_ppt",
+        )
+
+    else:
+
+        st.sidebar.info(
+            "Dashboard filters have changed. "
+            "Generate the PowerPoint again."
         )
 
 
