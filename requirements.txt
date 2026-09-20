@@ -9,3 +9,4 @@ gspread
 google-auth
 reportlab
 matplotlib
+python-pptx
