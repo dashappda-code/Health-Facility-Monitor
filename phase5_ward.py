@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 
+from chart_helpers import render_bar_chart
+
 
 def _clean_text(df, column):
     if df is None or df.empty or column not in df.columns:
@@ -144,7 +146,7 @@ def render_ward(df):
 
     chart_wards = ward_counts.head(25)
 
-    st.bar_chart(
+    render_bar_chart(
         chart_wards.set_index("Ward")["Records"],
         use_container_width=True,
     )
@@ -230,7 +232,6 @@ def render_ward(df):
                 disease_ward["Disease"],
             )
 
-            # Keep top 10 diseases overall.
             top_diseases = (
                 disease_ward_table
                 .sum(axis=0)
@@ -248,7 +249,6 @@ def render_ward(df):
                 ]
             )
 
-            # Keep top 25 wards for visual readability.
             top_wards = (
                 disease_ward_table
                 .sum(axis=1)
@@ -264,7 +264,7 @@ def render_ward(df):
                 .loc[top_wards]
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 disease_ward_table,
                 use_container_width=True,
             )
@@ -362,7 +362,7 @@ def render_ward(df):
                 .loc[top_wards]
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 facility_ward_table,
                 use_container_width=True,
             )
@@ -443,7 +443,7 @@ def render_ward(df):
                 .loc[top_wards]
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 gender_table,
                 use_container_width=True,
             )
@@ -519,7 +519,7 @@ def render_ward(df):
                 .loc[top_wards]
             )
 
-            st.bar_chart(
+            render_bar_chart(
                 age_table,
                 use_container_width=True,
             )
