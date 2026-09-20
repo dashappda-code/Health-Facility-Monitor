@@ -18,7 +18,10 @@ from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
-from pdf_report import generate_pdf_report
+from pdf_report import (
+    generate_pdf_report,
+    generate_complete_dashboard_pdf,
+)
 
 
 # =========================================================
@@ -699,6 +702,241 @@ def render_page_pdf_button(
         )
 
         st.exception(e)
+
+
+# =========================================================
+# COMPLETE DASHBOARD PDF
+# =========================================================
+
+def create_complete_dashboard_pdf():
+
+    report_period = get_reporting_period(
+        filtered_df
+    )
+
+    filter_summary = get_filter_summary()
+
+    dashboard_pages = [
+        {
+            "title": "Overview",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Overview",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Overview",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Charts & Trends",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Charts & Trends",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Charts & Trends",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Demographics",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Demographics",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Demographics",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Ward Analysis",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Ward Analysis",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Ward Analysis",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Map",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Map",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Map",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Data Explorer",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Data Explorer",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Data Explorer",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Prediction",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Prediction",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Prediction",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "User Manual",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "User Manual",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "User Manual",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Validation & KPI",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Validation & KPI",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Validation & KPI",
+                filtered_df,
+            )[1],
+        },
+        {
+            "title": "Drill-down & Export",
+            "df": filtered_df,
+            "kpis": kpis,
+            "tables": build_page_report_data(
+                "Drill-down & Export",
+                filtered_df,
+            )[0],
+            "charts": build_page_report_data(
+                "Drill-down & Export",
+                filtered_df,
+            )[1],
+        },
+    ]
+
+    return generate_complete_dashboard_pdf(
+        pages=dashboard_pages,
+        report_period=report_period,
+        filter_summary=filter_summary,
+    )
+
+
+# =========================================================
+# SIDEBAR - COMPLETE PDF
+# =========================================================
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader(
+    "📄 PDF Reports"
+)
+
+st.sidebar.caption(
+    "Download the current dashboard view as "
+    "a complete consolidated PDF."
+)
+
+
+if st.sidebar.button(
+    "📚 Generate Complete Dashboard PDF",
+    use_container_width=True,
+):
+
+    try:
+
+        with st.spinner(
+            "Generating complete dashboard PDF..."
+        ):
+
+            st.session_state[
+                "complete_dashboard_pdf"
+            ] = create_complete_dashboard_pdf()
+
+            st.session_state[
+                "complete_dashboard_pdf_filter"
+            ] = get_filter_summary()
+
+        st.sidebar.success(
+            "Complete PDF generated."
+        )
+
+    except Exception as e:
+
+        st.sidebar.error(
+            "Complete dashboard PDF could not be generated."
+        )
+
+        st.sidebar.exception(e)
+
+
+if (
+    "complete_dashboard_pdf"
+    in st.session_state
+):
+
+    current_filter = get_filter_summary()
+
+    generated_filter = st.session_state.get(
+        "complete_dashboard_pdf_filter",
+        "",
+    )
+
+    if current_filter == generated_filter:
+
+        st.sidebar.download_button(
+            label="⬇️ Download Complete Dashboard PDF",
+            data=st.session_state[
+                "complete_dashboard_pdf"
+            ],
+            file_name=(
+                "MSU_Mumbai_Complete_Dashboard_Report.pdf"
+            ),
+            mime="application/pdf",
+            use_container_width=True,
+            key="download_complete_dashboard_pdf",
+        )
+
+    else:
+
+        st.sidebar.info(
+            "Dashboard filters have changed. "
+            "Generate the complete PDF again."
+        )
 
 
 # =========================================================
