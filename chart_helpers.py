@@ -48,6 +48,21 @@ def _prepare_chart_data(data):
     return pd.DataFrame()
 
 
+def _field_type(series):
+    """
+    Detect a suitable Altair field type
+    without changing the original data.
+    """
+
+    if pd.api.types.is_numeric_dtype(series):
+        return "Q"
+
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "T"
+
+    return "N"
+
+
 def render_bar_chart(
     data,
     use_container_width=True,
@@ -66,10 +81,16 @@ def render_bar_chart(
         return
 
     x_column = chart_df.columns[0]
-    value_columns = list(chart_df.columns[1:])
+    value_columns = list(
+        chart_df.columns[1:]
+    )
 
     if not value_columns:
         return
+
+    x_type = _field_type(
+        chart_df[x_column]
+    )
 
     if len(value_columns) == 1:
 
@@ -80,7 +101,7 @@ def render_bar_chart(
             .mark_bar()
             .encode(
                 x=alt.X(
-                    f"{x_column}:N",
+                    f"{x_column}:{x_type}",
                     title=x_column,
                 ),
                 y=alt.Y(
@@ -89,7 +110,7 @@ def render_bar_chart(
                 ),
                 tooltip=[
                     alt.Tooltip(
-                        f"{x_column}:N",
+                        f"{x_column}:{x_type}",
                         title=x_column,
                     ),
                     alt.Tooltip(
@@ -112,7 +133,7 @@ def render_bar_chart(
                 )
                 .encode(
                     x=alt.X(
-                        f"{x_column}:N",
+                        f"{x_column}:{x_type}",
                         title=x_column,
                     ),
                     y=alt.Y(
@@ -139,7 +160,7 @@ def render_bar_chart(
             .mark_bar()
             .encode(
                 x=alt.X(
-                    f"{x_column}:N",
+                    f"{x_column}:{x_type}",
                     title=x_column,
                 ),
                 y=alt.Y(
@@ -152,7 +173,7 @@ def render_bar_chart(
                 ),
                 tooltip=[
                     alt.Tooltip(
-                        f"{x_column}:N",
+                        f"{x_column}:{x_type}",
                         title=x_column,
                     ),
                     alt.Tooltip(
@@ -179,7 +200,7 @@ def render_bar_chart(
                 )
                 .encode(
                     x=alt.X(
-                        f"{x_column}:N"
+                        f"{x_column}:{x_type}"
                     ),
                     y=alt.Y(
                         "Value:Q"
@@ -211,6 +232,7 @@ def render_line_chart(
     Global line-chart renderer.
 
     Existing chart values and ordering are preserved.
+    Data labels are controlled only by the global switch.
     """
 
     chart_df = _prepare_chart_data(data)
@@ -219,10 +241,16 @@ def render_line_chart(
         return
 
     x_column = chart_df.columns[0]
-    value_columns = list(chart_df.columns[1:])
+    value_columns = list(
+        chart_df.columns[1:]
+    )
 
     if not value_columns:
         return
+
+    x_type = _field_type(
+        chart_df[x_column]
+    )
 
     chart_long = chart_df.melt(
         id_vars=[x_column],
@@ -237,7 +265,7 @@ def render_line_chart(
         )
         .encode(
             x=alt.X(
-                f"{x_column}:N",
+                f"{x_column}:{x_type}",
                 title=x_column,
             ),
             y=alt.Y(
@@ -250,7 +278,7 @@ def render_line_chart(
             ),
             tooltip=[
                 alt.Tooltip(
-                    f"{x_column}:N",
+                    f"{x_column}:{x_type}",
                     title=x_column,
                 ),
                 alt.Tooltip(
@@ -277,7 +305,7 @@ def render_line_chart(
             )
             .encode(
                 x=alt.X(
-                    f"{x_column}:N"
+                    f"{x_column}:{x_type}"
                 ),
                 y=alt.Y(
                     "Value:Q"
