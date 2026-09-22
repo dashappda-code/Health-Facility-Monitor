@@ -49,10 +49,6 @@ def _prepare_chart_data(data):
 
 
 def _field_type(series):
-    """
-    Detect a suitable Altair field type
-    without changing the original data.
-    """
 
     if pd.api.types.is_numeric_dtype(series):
         return "Q"
@@ -71,8 +67,8 @@ def render_bar_chart(
     """
     Global bar-chart renderer.
 
-    Existing chart data is not recalculated or changed.
-    Data labels are controlled only by the global switch.
+    Existing data and calculations are preserved.
+    Data labels are controlled by the global switch.
     """
 
     chart_df = _prepare_chart_data(data)
@@ -81,6 +77,7 @@ def render_bar_chart(
         return
 
     x_column = chart_df.columns[0]
+
     value_columns = list(
         chart_df.columns[1:]
     )
@@ -91,6 +88,10 @@ def render_bar_chart(
     x_type = _field_type(
         chart_df[x_column]
     )
+
+    # =====================================================
+    # SINGLE SERIES BAR CHART
+    # =====================================================
 
     if len(value_columns) == 1:
 
@@ -108,6 +109,10 @@ def render_bar_chart(
                     f"{value_column}:Q",
                     title=value_column,
                 ),
+                color=alt.Color(
+                    f"{x_column}:N",
+                    legend=None,
+                ),
                 tooltip=[
                     alt.Tooltip(
                         f"{x_column}:{x_type}",
@@ -124,20 +129,29 @@ def render_bar_chart(
             )
         )
 
+        # -------------------------------------------------
+        # DATA LABELS
+        # -------------------------------------------------
+
         if data_labels_enabled():
 
             labels = (
                 alt.Chart(chart_df)
                 .mark_text(
                     dy=-8,
+                    fontWeight="bold",
+                    fontSize=13,
                 )
                 .encode(
                     x=alt.X(
-                        f"{x_column}:{x_type}",
-                        title=x_column,
+                        f"{x_column}:{x_type}"
                     ),
                     y=alt.Y(
                         f"{value_column}:Q"
+                    ),
+                    color=alt.Color(
+                        f"{x_column}:N",
+                        legend=None,
                     ),
                     text=alt.Text(
                         f"{value_column}:Q"
@@ -146,6 +160,10 @@ def render_bar_chart(
             )
 
             chart = chart + labels
+
+    # =====================================================
+    # MULTI SERIES BAR CHART
+    # =====================================================
 
     else:
 
@@ -191,12 +209,18 @@ def render_bar_chart(
             )
         )
 
+        # -------------------------------------------------
+        # DATA LABELS
+        # -------------------------------------------------
+
         if data_labels_enabled():
 
             labels = (
                 alt.Chart(chart_long)
                 .mark_text(
                     dy=-8,
+                    fontWeight="bold",
+                    fontSize=13,
                 )
                 .encode(
                     x=alt.X(
@@ -231,8 +255,8 @@ def render_line_chart(
     """
     Global line-chart renderer.
 
-    Existing chart values and ordering are preserved.
-    Data labels are controlled only by the global switch.
+    Existing values and ordering are preserved.
+    Data labels are controlled by the global switch.
     """
 
     chart_df = _prepare_chart_data(data)
@@ -241,6 +265,7 @@ def render_line_chart(
         return
 
     x_column = chart_df.columns[0]
+
     value_columns = list(
         chart_df.columns[1:]
     )
@@ -296,12 +321,18 @@ def render_line_chart(
         )
     )
 
+    # -----------------------------------------------------
+    # DATA LABELS
+    # -----------------------------------------------------
+
     if data_labels_enabled():
 
         labels = (
             alt.Chart(chart_long)
             .mark_text(
                 dy=-10,
+                fontWeight="bold",
+                fontSize=12,
             )
             .encode(
                 x=alt.X(
