@@ -1,2676 +1,949 @@
+# phase6_map.py
+
 import io
 import math
+import re
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import streamlit as st
-import pydeck as pdk
+
+# Optional map libraries
+try:
+    import pydeck as pdk
+    PYDECK_AVAILABLE = True
+except Exception:
+    PYDECK_AVAILABLE = False
+
+# Optional PDF libraries
+try:
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+    MATPLOTLIB_AVAILABLE = True
+except Exception:
+    MATPLOTLIB_AVAILABLE = False
 
 
 # ============================================================
-# PHASE 6
-# DISEASE HOTSPOT & GEOGRAPHIC ANALYSIS
+# COLUMN HELPERS
 # ============================================================
 
-
-# ============================================================
-# BASIC HELPERS
-# ============================================================
-
-def _clean_text(df, column):
-
-    if df is None or df.empty or column not in df.columns:
-        return pd.Series(dtype="object")
-
-    return (
-        df[column]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
-
-
-def _valid_values(series):
-
-    if series is None:
-        return pd.Series(dtype="object")
-
-    values = (
-        series
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
-
-    return values[
-        ~values.str.lower().isin(
-            [
-                "",
-                "nan",
-                "nat",
-                "none",
-                "null",
-            ]
-        )
-    ]
+def _norm_col(x):
+    return re.sub(r"[^a-z0-9]+", "", str(x).strip().lower())
 
 
 def _find_column(df, candidates):
-
     if df is None or df.empty:
         return None
 
-    normalized = {
-        str(column).strip().lower(): column
-        for column in df.columns
-    }
+    normalized = {_norm_col(c): c for c in df.columns}
 
     for candidate in candidates:
-
-        key = str(candidate).strip().lower()
+        key = _norm_col(candidate)
 
         if key in normalized:
             return normalized[key]
 
+    # partial matching
+    for c in df.columns:
+        nc = _norm_col(c)
+
+        for candidate in candidates:
+            key = _norm_col(candidate)
+
+            if key in nc or nc in key:
+                return c
+
     return None
 
 
-# ============================================================
-# FIND DATA COLUMNS
-# ============================================================
+def _detect_columns(df):
 
-def _get_columns(df):
-
-    disease_column = _find_column(
+    disease_col = _find_column(
         df,
         [
             "Disease",
             "Disease Name",
-            "Disease/Diagnosis",
+            "DiseaseName",
             "Diagnosis",
-            "Diagnosis Name",
-            "Condition",
-            "Disease Type",
+            "Disease/Condition",
+            "Disease Condition",
         ],
     )
 
-    ward_column = _find_column(
+    ward_col = _find_column(
         df,
         [
-            "Ward Name",
             "Ward",
-            "Ward No",
-            "Ward Number",
+            "Ward Name",
+            "WardName",
+            "BMC Ward",
+            "Administrative Ward",
         ],
     )
 
-    facility_column = _find_column(
+    facility_col = _find_column(
         df,
         [
-            "Facility Name",
             "Facility",
+            "Facility Name",
+            "FacilityName",
             "Health Facility",
-            "Health Facility Name",
+            "Institution",
         ],
     )
 
-    address_column = _find_column(
-        df,
-        [
-            "Patient Address",
-            "Address",
-            "Patient Location",
-            "Location",
-        ],
-    )
-
-    area_column = _find_column(
-        df,
-        [
-            "Area Name",
-            "Area",
-            "Locality Name",
-            "Locality",
-            "Colony",
-            "Mohalla",
-            "Area/Locality",
-        ],
-    )
-
-    latitude_column = _find_column(
+    lat_col = _find_column(
         df,
         [
             "Address Latitude",
             "Address Lat",
+            "Latitude",
+            "Lat",
         ],
     )
 
-    longitude_column = _find_column(
+    lon_col = _find_column(
         df,
         [
             "Address Longitude",
             "Address Long",
-            "Address Lng",
+            "Longitude",
+            "Lon",
+            "Lng",
         ],
     )
 
-    date_column = _find_column(
+    address_col = _find_column(
+        df,
+        [
+            "Address",
+            "Patient Address",
+            "PatientAddress",
+            "Residential Address",
+            "Residence",
+            "Location",
+        ],
+    )
+
+    date_col = _find_column(
         df,
         [
             "Date",
+            "Date of Reporting",
+            "Reporting Date",
             "Case Date",
-            "Visit Date",
-            "Report Date",
             "Registration Date",
-            "Date of Visit",
             "Month",
         ],
     )
 
+    area_col = _find_column(
+        df,
+        [
+            "Area",
+            "Area Name",
+            "Locality",
+            "Locality Name",
+            "Location Area",
+        ],
+    )
+
     return {
-        "disease": disease_column,
-        "ward": ward_column,
-        "facility": facility_column,
-        "address": address_column,
-        "area": area_column,
-        "latitude": latitude_column,
-        "longitude": longitude_column,
-        "date": date_column,
+        "disease": disease_col,
+        "ward": ward_col,
+        "facility": facility_col,
+        "lat": lat_col,
+        "lon": lon_col,
+        "address": address_col,
+        "date": date_col,
+        "area": area_col,
     }
 
 
 # ============================================================
-# GLOBAL DATA LABEL TOGGLE
+# GLOBAL LABEL STATE
 # ============================================================
 
-def _global_data_labels_enabled():
+def _get_show_labels():
 
     possible_keys = [
         "show_data_labels",
-        "global_show_data_labels",
-        "chart_show_data_labels",
         "show_labels",
-        "data_labels",
+        "global_show_data_labels",
+        "🏷️ Show Data Labels",
     ]
 
     for key in possible_keys:
-
         if key in st.session_state:
-
-            try:
-                return bool(
-                    st.session_state[key]
-                )
-            except Exception:
-                return False
+            return bool(st.session_state[key])
 
     return False
 
 
 # ============================================================
-# PREPARE VALID COORDINATES
+# CLEAN COORDINATES
 # ============================================================
 
-def _prepare_coordinates(
-    df,
-    latitude_column,
-    longitude_column,
-):
-
-    if (
-        latitude_column is None
-        or longitude_column is None
-    ):
-        return pd.DataFrame()
+def _clean_coordinates(df, lat_col, lon_col):
 
     work = df.copy()
 
-    work["__latitude"] = pd.to_numeric(
-        work[latitude_column],
-        errors="coerce",
+    if lat_col is None or lon_col is None:
+        return pd.DataFrame()
+
+    work["_lat"] = pd.to_numeric(
+        work[lat_col],
+        errors="coerce"
     )
 
-    work["__longitude"] = pd.to_numeric(
-        work[longitude_column],
-        errors="coerce",
+    work["_lon"] = pd.to_numeric(
+        work[lon_col],
+        errors="coerce"
     )
 
     work = work[
-        work["__latitude"].between(
-            -90,
-            90,
-        )
-        & work["__longitude"].between(
-            -180,
-            180,
-        )
+        work["_lat"].between(-90, 90)
+        & work["_lon"].between(-180, 180)
     ].copy()
 
+    # Mumbai bounding sanity check
+    # Keeps accidental GPS errors out of map
     work = work[
-        work["__latitude"].notna()
-        & work["__longitude"].notna()
+        work["_lat"].between(17.0, 20.5)
+        & work["_lon"].between(70.0, 74.5)
     ].copy()
 
     return work
 
 
 # ============================================================
-# CREATE GEOGRAPHIC CLUSTERS
+# CLUSTER CREATION
 # ============================================================
 
-def _create_clusters(
-    df,
-    grid_size,
-):
+def _create_clusters(df, cluster_size_m=500):
 
-    if df is None or df.empty:
-        return pd.DataFrame()
+    if df.empty:
+        return df.copy()
 
     work = df.copy()
 
-    # --------------------------------------------------------
-    # CREATE GRID BIN
-    # --------------------------------------------------------
+    # Approximate metres -> degrees
+    lat_deg = cluster_size_m / 111000.0
 
-    work["__lat_bin"] = np.floor(
-        work["__latitude"]
-        / grid_size
-    ).astype("int64")
+    mean_lat = float(work["_lat"].mean())
 
-    work["__lon_bin"] = np.floor(
-        work["__longitude"]
-        / grid_size
-    ).astype("int64")
-
-    # --------------------------------------------------------
-    # CREATE CLUSTER ID
-    # --------------------------------------------------------
-
-    work["Cluster ID"] = (
-        "C-"
-        + work["__lat_bin"]
-        .astype(str)
-        + "-"
-        + work["__lon_bin"]
-        .astype(str)
+    lon_deg = cluster_size_m / (
+        111000.0 * max(math.cos(math.radians(mean_lat)), 0.1)
     )
 
-    # --------------------------------------------------------
-    # CLUSTER SUMMARY
-    # --------------------------------------------------------
+    work["_grid_lat"] = np.floor(
+        work["_lat"] / lat_deg
+    ).astype(int)
 
-    cluster_group = (
-        work
-        .groupby(
-            "Cluster ID",
-            dropna=False,
-        )
+    work["_grid_lon"] = np.floor(
+        work["_lon"] / lon_deg
+    ).astype(int)
+
+    work["Cluster ID"] = (
+        work["_grid_lat"].astype(str)
+        + "_"
+        + work["_grid_lon"].astype(str)
+    )
+
+    cluster_summary = (
+        work.groupby("Cluster ID")
         .agg(
-            Latitude=(
-                "__latitude",
-                "mean",
-            ),
-            Longitude=(
-                "__longitude",
-                "mean",
-            ),
-            Cases=(
-                "__latitude",
-                "size",
-            ),
+            Cluster_Cases=("Cluster ID", "size"),
+            Cluster_Latitude=("_lat", "mean"),
+            Cluster_Longitude=("_lon", "mean"),
         )
         .reset_index()
     )
 
-    # --------------------------------------------------------
-    # SORT
-    # --------------------------------------------------------
-
-    cluster_group = (
-        cluster_group
-        .sort_values(
-            "Cases",
-            ascending=False,
-        )
-        .reset_index(drop=True)
+    work = work.merge(
+        cluster_summary,
+        on="Cluster ID",
+        how="left",
     )
 
-    cluster_group.insert(
-        0,
-        "Rank",
-        range(
-            1,
-            len(cluster_group) + 1,
-        ),
-    )
+    return work
 
-    # --------------------------------------------------------
-    # HOTSPOT CLASSIFICATION
-    # --------------------------------------------------------
 
-    if len(cluster_group) == 1:
+# ============================================================
+# HOTSPOT CLASSIFICATION
+# ============================================================
 
-        cluster_group[
-            "Hotspot Level"
-        ] = "Very High"
+def _classify_hotspots(cluster_df):
+
+    if cluster_df.empty:
+        return cluster_df
+
+    work = cluster_df.copy()
+
+    values = work["Cluster_Cases"].astype(float)
+
+    if len(values) == 1:
+        work["Hotspot"] = "High"
 
     else:
+        q25 = values.quantile(0.25)
+        q50 = values.quantile(0.50)
+        q75 = values.quantile(0.75)
 
-        q75 = cluster_group[
-            "Cases"
-        ].quantile(0.75)
-
-        q50 = cluster_group[
-            "Cases"
-        ].quantile(0.50)
-
-        q25 = cluster_group[
-            "Cases"
-        ].quantile(0.25)
-
-        def classify(value):
-
-            if value >= q75:
+        def classify(x):
+            if x >= q75:
                 return "Very High"
-
-            if value >= q50:
+            elif x >= q50:
                 return "High"
-
-            if value >= q25:
+            elif x >= q25:
                 return "Moderate"
-
             return "Low"
 
-        cluster_group[
-            "Hotspot Level"
-        ] = (
-            cluster_group[
-                "Cases"
-            ]
-            .apply(classify)
-        )
+        work["Hotspot"] = values.apply(classify)
 
-    # --------------------------------------------------------
-    # LABEL
-    # --------------------------------------------------------
-
-    cluster_group[
-        "Cluster Label"
-    ] = (
-        cluster_group[
-            "Cluster ID"
-        ].astype(str)
-        + " | "
-        + cluster_group[
-            "Cases"
-        ].astype(str)
-        + " cases"
-    )
-
-    return cluster_group
+    return work
 
 
 # ============================================================
-# HOTSPOT COLOUR
+# MAP
 # ============================================================
 
-def _hotspot_color(level):
+def _build_map(cluster_df, show_labels=False):
 
-    if level == "Very High":
-        return [
-            220,
-            38,
-            38,
-            220,
-        ]
-
-    if level == "High":
-        return [
-            245,
-            130,
-            32,
-            220,
-        ]
-
-    if level == "Moderate":
-        return [
-            245,
-            200,
-            55,
-            210,
-        ]
-
-    return [
-        80,
-        150,
-        100,
-        180,
-    ]
-
-
-# ============================================================
-# ATTACH CLUSTER INFORMATION
-# ============================================================
-
-def _attach_cluster_information(
-    cluster_df,
-    work_df,
-    disease_column,
-    ward_column,
-    facility_column,
-):
-
-    if cluster_df is None or cluster_df.empty:
-        return cluster_df
-
-    if work_df is None or work_df.empty:
-        return cluster_df
-
-    result = cluster_df.copy()
-    work = work_df.copy()
-
-    # --------------------------------------------------------
-    # IMPORTANT FIX:
-    # ENSURE CLUSTER ID EXISTS IN RECORD DATA
-    # --------------------------------------------------------
-
-    if "Cluster ID" not in work.columns:
-
-        if (
-            "__lat_bin" in work.columns
-            and "__lon_bin" in work.columns
-        ):
-
-            work["Cluster ID"] = (
-                "C-"
-                + work[
-                    "__lat_bin"
-                ].astype(str)
-                + "-"
-                + work[
-                    "__lon_bin"
-                ].astype(str)
-            )
-
-        else:
-
-            # Fallback nearest cluster matching
-
-            work["Cluster ID"] = ""
-
-            cluster_coordinates = (
-                cluster_df[
-                    [
-                        "Cluster ID",
-                        "Latitude",
-                        "Longitude",
-                    ]
-                ]
-                .copy()
-            )
-
-            for idx, row in work.iterrows():
-
-                distances = (
-                    (
-                        cluster_coordinates[
-                            "Latitude"
-                        ]
-                        - row[
-                            "__latitude"
-                        ]
-                    ) ** 2
-                    +
-                    (
-                        cluster_coordinates[
-                            "Longitude"
-                        ]
-                        - row[
-                            "__longitude"
-                        ]
-                    ) ** 2
-                )
-
-                nearest_index = (
-                    distances.idxmin()
-                )
-
-                work.at[
-                    idx,
-                    "Cluster ID",
-                ] = (
-                    cluster_coordinates.loc[
-                        nearest_index,
-                        "Cluster ID",
-                    ]
-                )
-
-    # --------------------------------------------------------
-    # WARD
-    # --------------------------------------------------------
-
-    if (
-        ward_column is not None
-        and ward_column in work.columns
-    ):
-
-        ward_temp = work[
-            [
-                "Cluster ID",
-                ward_column,
-            ]
-        ].copy()
-
-        ward_temp[
-            ward_column
-        ] = (
-            ward_temp[
-                ward_column
-            ]
-            .fillna("")
-            .astype(str)
-            .str.strip()
+    if not PYDECK_AVAILABLE:
+        st.error(
+            "PyDeck is not installed. Please add pydeck to requirements.txt."
         )
+        return
 
-        ward_temp = ward_temp[
-            ward_temp[
-                ward_column
-            ].ne("")
-            & ~ward_temp[
-                ward_column
-            ].str.lower().isin(
-                [
-                    "nan",
-                    "none",
-                    "null",
-                    "nat",
-                ]
-            )
-        ]
-
-        if not ward_temp.empty:
-
-            ward_summary = (
-                ward_temp
-                .groupby(
-                    "Cluster ID",
-                    dropna=False,
-                )[ward_column]
-                .agg(
-                    lambda x:
-                    ", ".join(
-                        x.value_counts()
-                        .head(3)
-                        .index
-                        .tolist()
-                    )
-                )
-                .reset_index(
-                    name="Ward"
-                )
-            )
-
-            result = result.merge(
-                ward_summary,
-                on="Cluster ID",
-                how="left",
-            )
-
-        else:
-
-            result["Ward"] = ""
-
-    else:
-
-        result["Ward"] = ""
-
-    # --------------------------------------------------------
-    # FACILITY
-    # --------------------------------------------------------
-
-    if (
-        facility_column is not None
-        and facility_column in work.columns
-    ):
-
-        facility_temp = work[
-            [
-                "Cluster ID",
-                facility_column,
-            ]
-        ].copy()
-
-        facility_temp[
-            facility_column
-        ] = (
-            facility_temp[
-                facility_column
-            ]
-            .fillna("")
-            .astype(str)
-            .str.strip()
+    if cluster_df.empty:
+        st.info(
+            "No valid geographic records are available for the selected filters."
         )
+        return
 
-        facility_temp = facility_temp[
-            facility_temp[
-                facility_column
-            ].ne("")
-            & ~facility_temp[
-                facility_column
-            ].str.lower().isin(
-                [
-                    "nan",
-                    "none",
-                    "null",
-                    "nat",
-                ]
-            )
+    map_df = cluster_df.copy()
+
+    # Base points
+    point_data = map_df[
+        [
+            "Cluster_Latitude",
+            "Cluster_Longitude",
+            "Cluster_Cases",
+            "Hotspot",
+            "Cluster ID",
         ]
+    ].drop_duplicates()
 
-        if not facility_temp.empty:
-
-            facility_summary = (
-                facility_temp
-                .groupby(
-                    "Cluster ID",
-                    dropna=False,
-                )[facility_column]
-                .agg(
-                    lambda x:
-                    ", ".join(
-                        x.value_counts()
-                        .head(3)
-                        .index
-                        .tolist()
-                    )
-                )
-                .reset_index(
-                    name="Facility"
-                )
-            )
-
-            result = result.merge(
-                facility_summary,
-                on="Cluster ID",
-                how="left",
-            )
-
-        else:
-
-            result["Facility"] = ""
-
-    else:
-
-        result["Facility"] = ""
-
-    # --------------------------------------------------------
-    # DISEASE
-    # --------------------------------------------------------
-
-    if (
-        disease_column is not None
-        and disease_column in work.columns
-    ):
-
-        disease_temp = work[
-            [
-                "Cluster ID",
-                disease_column,
-            ]
-        ].copy()
-
-        disease_temp[
-            disease_column
-        ] = (
-            disease_temp[
-                disease_column
-            ]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
-
-        disease_temp = disease_temp[
-            disease_temp[
-                disease_column
-            ].ne("")
-            & ~disease_temp[
-                disease_column
-            ].str.lower().isin(
-                [
-                    "nan",
-                    "none",
-                    "null",
-                    "nat",
-                ]
-            )
-        ]
-
-        if not disease_temp.empty:
-
-            disease_summary = (
-                disease_temp
-                .groupby(
-                    "Cluster ID",
-                    dropna=False,
-                )[disease_column]
-                .agg(
-                    lambda x:
-                    ", ".join(
-                        x.value_counts()
-                        .head(3)
-                        .index
-                        .tolist()
-                    )
-                )
-                .reset_index(
-                    name="Disease"
-                )
-            )
-
-            result = result.merge(
-                disease_summary,
-                on="Cluster ID",
-                how="left",
-            )
-
-        else:
-
-            result["Disease"] = ""
-
-    else:
-
-        result["Disease"] = ""
-
-    # --------------------------------------------------------
-    # CLEAN
-    # --------------------------------------------------------
-
-    for column in [
-        "Ward",
-        "Facility",
-        "Disease",
-    ]:
-
-        if column not in result.columns:
-            result[column] = ""
-
-        result[column] = (
-            result[column]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
-
-    return result
-
-
-# ============================================================
-# CLUSTER MAP
-# ============================================================
-
-def _build_cluster_map(
-    cluster_df,
-    show_labels,
-):
-
-    if cluster_df is None or cluster_df.empty:
-        return None
-
-    plot_df = cluster_df.copy()
-
-    plot_df[
-        "fill_color"
-    ] = (
-        plot_df[
-            "Hotspot Level"
-        ]
-        .apply(_hotspot_color)
+    hotspot_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=point_data,
+        get_position=[
+            "Cluster_Longitude",
+            "Cluster_Latitude",
+        ],
+        get_radius="Cluster_Cases * 35",
+        radius_min_pixels=8,
+        radius_max_pixels=45,
+        pickable=True,
+        stroked=True,
+        filled=True,
+        opacity=0.65,
+        get_fill_color="[220, 50, 47, 150]",
+        get_line_color="[80, 20, 20, 220]",
+        line_width_min_pixels=1,
     )
 
-    plot_df[
-        "radius"
-    ] = (
-        np.sqrt(
-            plot_df[
-                "Cases"
-            ].clip(
-                lower=1
-            )
-        )
-        * 70
-    )
-
-    plot_df[
-        "radius"
-    ] = (
-        plot_df[
-            "radius"
-        ]
-        .clip(
-            lower=100,
-            upper=900,
-        )
-    )
-
-    plot_df[
-        "label"
-    ] = (
-        plot_df[
-            "Cases"
-        ].astype(str)
-    )
-
-    layers = []
-
-    # --------------------------------------------------------
-    # CLUSTER LAYER
-    # --------------------------------------------------------
-
-    layers.append(
-        pdk.Layer(
-            "ScatterplotLayer",
-            data=plot_df,
-            get_position=[
-                "Longitude",
-                "Latitude",
-            ],
-            get_radius="radius",
-            get_fill_color="fill_color",
-            get_line_color=[
-                60,
-                60,
-                60,
-                180,
-            ],
-            line_width_min_pixels=1,
-            stroked=True,
-            filled=True,
-            pickable=True,
-            auto_highlight=True,
-        )
-    )
-
-    # --------------------------------------------------------
-    # LABEL LAYER
-    # --------------------------------------------------------
+    layers = [hotspot_layer]
 
     if show_labels:
 
-        layers.append(
-            pdk.Layer(
-                "TextLayer",
-                data=plot_df,
-                get_position=[
-                    "Longitude",
-                    "Latitude",
-                ],
-                get_text="label",
-                get_size=16,
-                get_color=[
-                    20,
-                    20,
-                    20,
-                    255,
-                ],
-                get_alignment_baseline=(
-                    "middle"
-                ),
-                get_text_anchor=(
-                    "middle"
-                ),
-                billboard=True,
-            )
+        text_layer = pdk.Layer(
+            "TextLayer",
+            data=point_data,
+            get_position=[
+                "Cluster_Longitude",
+                "Cluster_Latitude",
+            ],
+            get_text="Cluster_Cases",
+            get_size=15,
+            get_color="[0, 0, 0, 255]",
+            get_angle=0,
+            get_text_anchor="'middle'",
+            get_alignment_baseline="'center'",
+            billboard=True,
+            pickable=False,
         )
 
-    center_lat = float(
-        plot_df[
-            "Latitude"
-        ].mean()
-    )
+        layers.append(text_layer)
 
-    center_lon = float(
-        plot_df[
-            "Longitude"
-        ].mean()
-    )
+    center_lat = float(map_df["Cluster_Latitude"].mean())
+    center_lon = float(map_df["Cluster_Longitude"].mean())
 
-    if math.isnan(center_lat):
-        center_lat = 18.52
-
-    if math.isnan(center_lon):
-        center_lon = 73.85
-
-    # --------------------------------------------------------
-    # DYNAMIC ZOOM
-    # --------------------------------------------------------
-
-    if len(plot_df) <= 5:
-        zoom = 13
-    elif len(plot_df) <= 20:
-        zoom = 11
-    else:
-        zoom = 10
-
-    view_state = pdk.ViewState(
-        latitude=center_lat,
-        longitude=center_lon,
-        zoom=zoom,
-        pitch=0,
-    )
-
-    tooltip = {
-        "html": """
-        <b>Cluster:</b> {Cluster ID}<br/>
-        <b>Cases:</b> {Cases}<br/>
-        <b>Hotspot:</b> {Hotspot Level}<br/>
-        <b>Ward:</b> {Ward}<br/>
-        <b>Facility:</b> {Facility}<br/>
-        <b>Disease:</b> {Disease}
-        """,
-        "style": {
-            "backgroundColor": "white",
-            "color": "black",
-        },
-    }
-
-    return pdk.Deck(
+    deck = pdk.Deck(
         layers=layers,
-        initial_view_state=view_state,
-        tooltip=tooltip,
-    )
-
-
-# ============================================================
-# WARD HOTSPOTS
-# ============================================================
-
-def _ward_hotspots(
-    work_df,
-    ward_column,
-):
-
-    if (
-        ward_column is None
-        or ward_column not in work_df.columns
-        or work_df.empty
-    ):
-        return pd.DataFrame()
-
-    temp = work_df.copy()
-
-    temp["Ward"] = _valid_values(
-        temp[ward_column]
-    )
-
-    temp = temp[
-        temp["Ward"].ne("")
-    ]
-
-    if temp.empty:
-        return pd.DataFrame()
-
-    summary = (
-        temp
-        .groupby(
-            "Ward",
-            dropna=False,
-        )
-        .agg(
-            Cases=(
-                "__latitude",
-                "size",
-            ),
-            Latitude=(
-                "__latitude",
-                "mean",
-            ),
-            Longitude=(
-                "__longitude",
-                "mean",
-            ),
-        )
-        .reset_index()
-    )
-
-    summary = (
-        summary
-        .sort_values(
-            "Cases",
-            ascending=False,
-        )
-        .reset_index(drop=True)
-    )
-
-    summary.insert(
-        0,
-        "Rank",
-        range(
-            1,
-            len(summary) + 1,
+        initial_view_state=pdk.ViewState(
+            latitude=center_lat,
+            longitude=center_lon,
+            zoom=10.5,
+            pitch=0,
+            bearing=0,
         ),
+        tooltip={
+            "html": """
+            <b>Hotspot</b>: {Hotspot}<br/>
+            <b>Cases</b>: {Cluster_Cases}<br/>
+            <b>Cluster ID</b>: {Cluster ID}
+            """,
+            "style": {
+                "backgroundColor": "white",
+                "color": "black",
+            },
+        },
     )
 
-    total = summary[
-        "Cases"
-    ].sum()
-
-    if total > 0:
-
-        summary[
-            "Percentage"
-        ] = (
-            summary[
-                "Cases"
-            ]
-            / total
-            * 100
-        ).round(2)
-
-    else:
-
-        summary[
-            "Percentage"
-        ] = 0
-
-    return summary
+    st.pydeck_chart(
+        deck,
+        use_container_width=True,
+    )
 
 
 # ============================================================
-# AREA SUMMARY
+# DOWNLOAD DATA
 # ============================================================
 
-def _area_summary(
-    work_df,
-    area_column,
-    address_column,
+def _prepare_download_dataframe(
+    df,
+    cols,
 ):
 
-    selected_column = area_column
+    output = pd.DataFrame(index=df.index)
 
-    if selected_column is None:
-        selected_column = address_column
+    if cols["disease"]:
+        output["Disease"] = df[cols["disease"]]
 
-    if (
-        selected_column is None
-        or selected_column not in work_df.columns
-        or work_df.empty
-    ):
-        return pd.DataFrame()
+    if cols["date"]:
+        output["Date"] = df[cols["date"]]
 
-    temp = work_df.copy()
+    if cols["ward"]:
+        output["Ward"] = df[cols["ward"]]
 
-    temp["Area"] = _valid_values(
-        temp[selected_column]
-    )
+    if cols["facility"]:
+        output["Facility"] = df[cols["facility"]]
 
-    temp = temp[
-        temp["Area"].ne("")
-    ]
+    if cols["area"]:
+        output["Area"] = df[cols["area"]]
 
-    if temp.empty:
-        return pd.DataFrame()
+    if cols["address"]:
+        output["Address"] = df[cols["address"]]
 
-    summary = (
-        temp
-        .groupby(
-            "Area",
-            dropna=False,
-        )
-        .agg(
-            Cases=(
-                "__latitude",
-                "size",
-            ),
-            Latitude=(
-                "__latitude",
-                "mean",
-            ),
-            Longitude=(
-                "__longitude",
-                "mean",
-            ),
-        )
-        .reset_index()
-    )
+    output["Latitude"] = df["_lat"]
+    output["Longitude"] = df["_lon"]
+    output["Cluster ID"] = df["Cluster ID"]
+    output["Cluster Cases"] = df["Cluster_Cases"]
+    output["Hotspot Classification"] = df["Hotspot"]
 
-    summary = (
-        summary
-        .sort_values(
-            "Cases",
-            ascending=False,
-        )
-        .reset_index(drop=True)
-    )
-
-    summary.insert(
-        0,
-        "Rank",
-        range(
-            1,
-            len(summary) + 1,
-        ),
-    )
-
-    return summary
+    return output
 
 
 # ============================================================
-# FACILITY SUMMARY
+# PDF
 # ============================================================
 
-def _facility_summary(
-    work_df,
-    facility_column,
-):
+def _create_pdf(cluster_df, selected_disease, filter_info):
 
-    if (
-        facility_column is None
-        or facility_column not in work_df.columns
-        or work_df.empty
-    ):
-        return pd.DataFrame()
-
-    temp = work_df.copy()
-
-    temp["Facility"] = _valid_values(
-        temp[facility_column]
-    )
-
-    temp = temp[
-        temp["Facility"].ne("")
-    ]
-
-    if temp.empty:
-        return pd.DataFrame()
-
-    summary = (
-        temp
-        .groupby(
-            "Facility",
-            dropna=False,
-        )
-        .size()
-        .reset_index(
-            name="Cases"
-        )
-        .sort_values(
-            "Cases",
-            ascending=False,
-        )
-        .reset_index(drop=True)
-    )
-
-    summary.insert(
-        0,
-        "Rank",
-        range(
-            1,
-            len(summary) + 1,
-        ),
-    )
-
-    return summary
-
-
-# ============================================================
-# EXCEL DOWNLOAD
-# ============================================================
-
-def _create_excel(
-    cluster_df,
-    ward_df,
-    area_df,
-    facility_df,
-    records_df,
-):
-
-    output = io.BytesIO()
-
-    with pd.ExcelWriter(
-        output,
-        engine="openpyxl",
-    ) as writer:
-
-        cluster_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Hotspot Clusters",
-        )
-
-        ward_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Ward Hotspots",
-        )
-
-        area_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Area Summary",
-        )
-
-        facility_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Facility Summary",
-        )
-
-        records_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Hotspot Records",
-        )
-
-    output.seek(0)
-
-    return output.getvalue()
-
-
-# ============================================================
-# CSV DOWNLOAD
-# ============================================================
-
-def _create_csv(cluster_df):
-
-    return cluster_df.to_csv(
-        index=False
-    ).encode("utf-8")
-
-
-# ============================================================
-# PDF REPORT
-# ============================================================
-
-def _create_pdf_report(
-    cluster_df,
-    ward_df,
-    area_df,
-    disease_name,
-):
-
-    try:
-
-        import matplotlib.pyplot as plt
-
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import (
-            getSampleStyleSheet,
-        )
-        from reportlab.lib.units import inch
-        from reportlab.platypus import (
-            SimpleDocTemplate,
-            Paragraph,
-            Spacer,
-            Table,
-            TableStyle,
-            Image,
-        )
-
-    except ImportError:
-
+    if not MATPLOTLIB_AVAILABLE:
         return None
 
-    pdf_buffer = io.BytesIO()
+    buffer = io.BytesIO()
 
-    doc = SimpleDocTemplate(
-        pdf_buffer,
-        pagesize=A4,
-        rightMargin=35,
-        leftMargin=35,
-        topMargin=35,
-        bottomMargin=35,
-    )
+    with PdfPages(buffer) as pdf:
 
-    styles = getSampleStyleSheet()
+        fig = plt.figure(figsize=(11.69, 8.27))
+        ax = fig.add_subplot(111)
 
-    story = []
+        ax.axis("off")
 
-    # --------------------------------------------------------
-    # TITLE
-    # --------------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "Disease Hotspot & Geographic Analysis Report",
-            styles["Title"],
-        )
-    )
-
-    story.append(
-        Spacer(
-            1,
-            10,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"<b>Disease displayed on map:</b> "
-            f"{disease_name}",
-            styles["Normal"],
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"<b>Total geographic clusters:</b> "
-            f"{len(cluster_df):,}",
-            styles["Normal"],
-        )
-    )
-
-    if not cluster_df.empty:
-
-        story.append(
-            Paragraph(
-                f"<b>Total mapped cases:</b> "
-                f"{int(cluster_df['Cases'].sum()):,}",
-                styles["Normal"],
-            )
+        ax.text(
+            0.05,
+            0.92,
+            "GEOGRAPHIC HOTSPOT ANALYSIS",
+            fontsize=18,
+            fontweight="bold",
         )
 
-    story.append(
-        Spacer(
-            1,
-            15,
-        )
-    )
-
-    # --------------------------------------------------------
-    # STATIC MAP
-    # --------------------------------------------------------
-
-    if not cluster_df.empty:
-
-        fig = plt.figure(
-            figsize=(7, 5)
+        ax.text(
+            0.05,
+            0.86,
+            f"Disease: {selected_disease}",
+            fontsize=12,
         )
 
-        level_colors = {
-            "Very High": "red",
-            "High": "orange",
-            "Moderate": "gold",
-            "Low": "green",
-        }
+        y = 0.81
 
-        level_sizes = {
-            "Very High": 450,
-            "High": 320,
-            "Moderate": 220,
-            "Low": 140,
-        }
+        for key, value in filter_info.items():
 
-        for level in [
-            "Low",
-            "Moderate",
-            "High",
-            "Very High",
-        ]:
-
-            part = cluster_df[
-                cluster_df[
-                    "Hotspot Level"
-                ] == level
-            ]
-
-            if part.empty:
-                continue
-
-            plt.scatter(
-                part[
-                    "Longitude"
-                ],
-                part[
-                    "Latitude"
-                ],
-                s=part[
-                    "Cases"
-                ].apply(
-                    lambda x:
-                    level_sizes.get(
-                        level,
-                        150,
-                    )
-                    + x * 20
-                ),
-                alpha=0.55,
-                label=level,
-                c=level_colors.get(
-                    level,
-                    "blue",
-                ),
+            ax.text(
+                0.05,
+                y,
+                f"{key}: {value}",
+                fontsize=10,
             )
 
-        for _, row in cluster_df.head(
-            15
-        ).iterrows():
+            y -= 0.035
 
-            plt.annotate(
-                str(
-                    int(
-                        row["Cases"]
-                    )
-                ),
-                (
-                    row["Longitude"],
-                    row["Latitude"],
-                ),
-                fontsize=8,
-            )
-
-        plt.xlabel(
-            "Longitude"
+        ax.text(
+            0.05,
+            y - 0.02,
+            f"Total clusters: {len(cluster_df)}",
+            fontsize=11,
+            fontweight="bold",
         )
 
-        plt.ylabel(
-            "Latitude"
-        )
-
-        plt.title(
-            "Geographic Disease Hotspot Clusters"
-        )
-
-        plt.legend(
-            fontsize=8
-        )
-
-        plt.tight_layout()
-
-        image_buffer = io.BytesIO()
-
-        plt.savefig(
-            image_buffer,
-            format="png",
-            dpi=150,
-            bbox_inches="tight",
-        )
-
+        pdf.savefig(fig)
         plt.close(fig)
 
-        image_buffer.seek(0)
+        # Cluster summary
+        fig = plt.figure(figsize=(11.69, 8.27))
+        ax = fig.add_subplot(111)
+        ax.axis("off")
 
-        story.append(
-            Image(
-                image_buffer,
-                width=6.5 * inch,
-                height=4.5 * inch,
+        summary = (
+            cluster_df[
+                [
+                    "Cluster ID",
+                    "Cluster_Cases",
+                    "Hotspot",
+                ]
+            ]
+            .drop_duplicates()
+            .sort_values(
+                "Cluster_Cases",
+                ascending=False,
             )
+            .head(25)
         )
-
-        story.append(
-            Spacer(
-                1,
-                15,
-            )
-        )
-
-    # --------------------------------------------------------
-    # CLUSTER TABLE
-    # --------------------------------------------------------
-
-    story.append(
-        Paragraph(
-            "Hotspot Cluster Summary",
-            styles["Heading2"],
-        )
-    )
-
-    if not cluster_df.empty:
 
         table_data = [
             [
-                "Rank",
                 "Cluster",
                 "Cases",
-                "Hotspot",
-                "Ward",
+                "Classification",
             ]
         ]
 
-        for _, row in cluster_df.head(
-            20
-        ).iterrows():
+        for _, row in summary.iterrows():
 
             table_data.append(
                 [
-                    str(
-                        row["Rank"]
-                    ),
-                    str(
-                        row["Cluster ID"]
-                    ),
-                    str(
-                        row["Cases"]
-                    ),
-                    str(
-                        row["Hotspot Level"]
-                    ),
-                    str(
-                        row.get(
-                            "Ward",
-                            "",
-                        )
-                    ),
+                    str(row["Cluster ID"]),
+                    str(int(row["Cluster_Cases"])),
+                    str(row["Hotspot"]),
                 ]
             )
 
-        table = Table(
-            table_data,
-            repeatRows=1,
+        table = ax.table(
+            cellText=table_data,
+            loc="center",
+            cellLoc="center",
         )
 
-        table.setStyle(
-            TableStyle(
-                [
-                    (
-                        "BACKGROUND",
-                        (0, 0),
-                        (-1, 0),
-                        colors.lightgrey,
-                    ),
-                    (
-                        "GRID",
-                        (0, 0),
-                        (-1, -1),
-                        0.5,
-                        colors.grey,
-                    ),
-                    (
-                        "FONTNAME",
-                        (0, 0),
-                        (-1, 0),
-                        "Helvetica-Bold",
-                    ),
-                    (
-                        "FONTSIZE",
-                        (0, 0),
-                        (-1, -1),
-                        8,
-                    ),
-                ]
-            )
+        table.auto_set_font_size(False)
+        table.set_fontsize(9)
+        table.scale(1, 1.5)
+
+        ax.set_title(
+            "Top Geographic Hotspots",
+            fontsize=16,
+            fontweight="bold",
+            pad=20,
         )
 
-        story.append(
-            table
-        )
+        pdf.savefig(fig)
+        plt.close(fig)
 
-    # --------------------------------------------------------
-    # WARD TABLE
-    # --------------------------------------------------------
+    buffer.seek(0)
 
-    story.append(
-        Spacer(
-            1,
-            15,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "Ward-wise Hotspot Summary",
-            styles["Heading2"],
-        )
-    )
-
-    if not ward_df.empty:
-
-        ward_table = [
-            [
-                "Rank",
-                "Ward",
-                "Cases",
-                "%",
-            ]
-        ]
-
-        for _, row in ward_df.head(
-            20
-        ).iterrows():
-
-            ward_table.append(
-                [
-                    str(
-                        row["Rank"]
-                    ),
-                    str(
-                        row["Ward"]
-                    ),
-                    str(
-                        row["Cases"]
-                    ),
-                    str(
-                        row["Percentage"]
-                    ),
-                ]
-            )
-
-        table = Table(
-            ward_table,
-            repeatRows=1,
-        )
-
-        table.setStyle(
-            TableStyle(
-                [
-                    (
-                        "BACKGROUND",
-                        (0, 0),
-                        (-1, 0),
-                        colors.lightgrey,
-                    ),
-                    (
-                        "GRID",
-                        (0, 0),
-                        (-1, -1),
-                        0.5,
-                        colors.grey,
-                    ),
-                    (
-                        "FONTSIZE",
-                        (0, 0),
-                        (-1, -1),
-                        8,
-                    ),
-                ]
-            )
-        )
-
-        story.append(
-            table
-        )
-
-    # --------------------------------------------------------
-    # NOTE
-    # --------------------------------------------------------
-
-    story.append(
-        Spacer(
-            1,
-            15,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "Note: Geographic clusters are generated from "
-            "the available Address Latitude and Address "
-            "Longitude values. Hotspot levels represent "
-            "relative case concentration within the "
-            "currently filtered dataset and are not a "
-            "formal spatial statistical significance test.",
-            styles["Normal"],
-        )
-    )
-
-    doc.build(
-        story
-    )
-
-    pdf_buffer.seek(0)
-
-    return pdf_buffer.getvalue()
+    return buffer.getvalue()
 
 
 # ============================================================
-# MAIN RENDER FUNCTION
+# MAIN RENDER
 # ============================================================
 
-def render_map(df):
+def render_map(
+    df,
+    selected_disease=None,
+    filter_info=None,
+):
 
-    st.subheader(
-        "🗺️ Disease Hotspot & Geographic Analysis"
+    st.markdown(
+        "## 🗺️ Geographic Hotspot Map"
     )
-
-    # ========================================================
-    # EMPTY DATA
-    # ========================================================
-
-    if df is None or df.empty:
-
-        st.info(
-            "No records are available for the "
-            "selected Global Dashboard Filters."
-        )
-
-        return
-
-    # ========================================================
-    # COLUMN DETECTION
-    # ========================================================
-
-    columns = _get_columns(df)
-
-    disease_column = columns[
-        "disease"
-    ]
-
-    ward_column = columns[
-        "ward"
-    ]
-
-    facility_column = columns[
-        "facility"
-    ]
-
-    address_column = columns[
-        "address"
-    ]
-
-    area_column = columns[
-        "area"
-    ]
-
-    latitude_column = columns[
-        "latitude"
-    ]
-
-    longitude_column = columns[
-        "longitude"
-    ]
-
-    # ========================================================
-    # ADDRESS COORDINATE CHECK
-    # ========================================================
-
-    if (
-        latitude_column is None
-        or longitude_column is None
-    ):
-
-        st.info(
-            "🗺️ Address Latitude and Address Longitude "
-            "columns are not available in the current "
-            "Google Sheet data."
-        )
-
-        st.markdown(
-            """
-            **Required Google Sheet columns:**
-
-            - `Address Latitude`
-            - `Address Longitude`
-
-            These coordinates should represent the
-            patient's geographic/address location.
-
-            No artificial coordinates are generated by
-            this dashboard.
-            """
-        )
-
-        return
-
-    # ========================================================
-    # PREPARE COORDINATES
-    # ========================================================
-
-    work = _prepare_coordinates(
-        df,
-        latitude_column,
-        longitude_column,
-    )
-
-    if work.empty:
-
-        st.info(
-            "Address Latitude and Address Longitude "
-            "columns are present, but no valid geographic "
-            "coordinates are available for the currently "
-            "filtered records."
-        )
-
-        return
-
-    # ========================================================
-    # HEADER
-    # ========================================================
 
     st.caption(
-        "The map uses the current Global Dashboard "
-        "Filters. Disease selection below controls only "
-        "which disease is displayed on the map."
+        "Patient/address geographic coordinates based hotspot analysis"
     )
+
+    if df is None or df.empty:
+        st.info("No data available.")
+        return
+
+    cols = _detect_columns(df)
+
+    if cols["lat"] is None or cols["lon"] is None:
+
+        st.warning(
+            "Address Latitude / Address Longitude columns were not found."
+        )
+
+        st.info(
+            "Hotspot mapping requires valid patient/address geographic coordinates."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # Disease selection
+    # --------------------------------------------------------
+
+    working = df.copy()
+
+    if cols["disease"]:
+
+        diseases = (
+            working[cols["disease"]]
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+
+        diseases = sorted(
+            [x for x in diseases.unique() if x]
+        )
+
+        if selected_disease is not None:
+
+            selected_disease = str(selected_disease)
+
+            if selected_disease in diseases:
+
+                working = working[
+                    working[cols["disease"]]
+                    .astype(str)
+                    .str.strip()
+                    == selected_disease
+                ].copy()
+
+    # --------------------------------------------------------
+    # Coordinates
+    # --------------------------------------------------------
+
+    working = _clean_coordinates(
+        working,
+        cols["lat"],
+        cols["lon"],
+    )
+
+    if working.empty:
+
+        st.warning(
+            "No valid address coordinates are available for the selected filters."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # Cluster size
+    # --------------------------------------------------------
+
+    cluster_size = st.select_slider(
+        "Hotspot Cluster Size",
+        options=[
+            200,
+            500,
+            1000,
+            1500,
+        ],
+        value=500,
+        format_func=lambda x: f"{x} metres",
+        key="phase6_cluster_size",
+    )
+
+    # --------------------------------------------------------
+    # Create clusters
+    # --------------------------------------------------------
+
+    working = _create_clusters(
+        working,
+        cluster_size_m=cluster_size,
+    )
+
+    cluster_df = (
+        working[
+            [
+                "Cluster ID",
+                "Cluster_Cases",
+                "Cluster_Latitude",
+                "Cluster_Longitude",
+            ]
+        ]
+        .drop_duplicates()
+        .copy()
+    )
+
+    cluster_df = _classify_hotspots(
+        cluster_df
+    )
+
+    working = working.drop(
+        columns=[
+            "Cluster_Cases",
+            "Cluster_Latitude",
+            "Cluster_Longitude",
+        ],
+        errors="ignore",
+    )
+
+    working = working.merge(
+        cluster_df,
+        on="Cluster ID",
+        how="left",
+    )
+
+    # --------------------------------------------------------
+    # KPIs
+    # --------------------------------------------------------
 
     c1, c2, c3, c4 = st.columns(4)
 
-    with c1:
+    c1.metric(
+        "Mapped Records",
+        f"{len(working):,}",
+    )
 
-        st.metric(
-            "Filtered Records",
-            f"{len(df):,}",
-        )
+    c2.metric(
+        "Geographic Clusters",
+        f"{len(cluster_df):,}",
+    )
 
-    with c2:
+    c3.metric(
+        "Highest Cluster",
+        f"{int(cluster_df['Cluster_Cases'].max()):,}"
+        if not cluster_df.empty
+        else "0",
+    )
 
-        st.metric(
-            "Valid Geographic Records",
-            f"{len(work):,}",
-        )
-
-    with c3:
-
-        st.metric(
-            "Coordinates",
-            "Available",
-        )
-
-    with c4:
-
-        if disease_column is not None:
-
-            disease_values = _valid_values(
-                work[
-                    disease_column
-                ]
-            )
-
-            st.metric(
-                "Diseases",
-                f"{disease_values.nunique():,}",
-            )
-
-        else:
-
-            st.metric(
-                "Diseases",
-                "N/A",
-            )
-
-    # ========================================================
-    # DISEASE SELECTION
-    # ========================================================
+    c4.metric(
+        "Very High Hotspots",
+        f"{(cluster_df['Hotspot'] == 'Very High').sum():,}",
+    )
 
     st.divider()
 
-    st.markdown(
-        "### 🦠 Disease Selection for Map"
-    )
-
-    if disease_column is not None:
-
-        disease_values = sorted(
-            _valid_values(
-                work[
-                    disease_column
-                ]
-            )
-            .unique()
-            .tolist()
-        )
-
-        if len(disease_values) == 0:
-
-            st.info(
-                "No valid disease information is "
-                "available for the current filtered records."
-            )
-
-            return
-
-        if len(disease_values) == 1:
-
-            selected_disease = (
-                disease_values[0]
-            )
-
-            st.info(
-                f"Current disease: "
-                f"**{selected_disease}**"
-            )
-
-        else:
-
-            selected_disease = st.selectbox(
-                "Select Disease to Display on Map",
-                options=disease_values,
-                key="phase6_selected_disease",
-            )
-
-        map_df = work[
-            work[
-                disease_column
-            ]
-            .astype(str)
-            .str.strip()
-            ==
-            str(
-                selected_disease
-            ).strip()
-        ].copy()
-
-    else:
-
-        selected_disease = (
-            "All Available Records"
-        )
-
-        map_df = work.copy()
-
-        st.info(
-            "Disease column was not identified. "
-            "All valid geographic records will be displayed."
-        )
-
-    if map_df.empty:
-
-        st.info(
-            "No geographic records are available "
-            "for the selected disease."
-        )
-
-        return
-
-    # ========================================================
-    # MAP SETTINGS
-    # ========================================================
-
-    st.markdown(
-        "### ⚙️ Hotspot Map Settings"
-    )
-
-    s1, s2 = st.columns(2)
-
-    with s1:
-
-        cluster_size_label = st.selectbox(
-            "Geographic Cluster Size",
-            options=[
-                "Small (~200 m)",
-                "Medium (~500 m)",
-                "Large (~1 km)",
-            ],
-            index=1,
-            key="phase6_cluster_size",
-        )
-
-    with s2:
-
-        map_view = st.selectbox(
-            "Map View",
-            options=[
-                "Hotspot Clusters",
-                "Ward Hotspots",
-                "Address Points",
-            ],
-            key="phase6_map_view",
-        )
-
-    grid_sizes = {
-        "Small (~200 m)": 0.002,
-        "Medium (~500 m)": 0.005,
-        "Large (~1 km)": 0.01,
-    }
-
-    grid_size = grid_sizes[
-        cluster_size_label
-    ]
-
-    # ========================================================
-    # CREATE CLUSTERS
-    # ========================================================
-
-    cluster_df = _create_clusters(
-        map_df,
-        grid_size,
-    )
-
     # --------------------------------------------------------
-    # IMPORTANT FIX:
-    # CREATE SAME CLUSTER ID IN RECORD DATA
-    # --------------------------------------------------------
-
-    map_df[
-        "__lat_bin"
-    ] = np.floor(
-        map_df[
-            "__latitude"
-        ]
-        / grid_size
-    ).astype("int64")
-
-    map_df[
-        "__lon_bin"
-    ] = np.floor(
-        map_df[
-            "__longitude"
-        ]
-        / grid_size
-    ).astype("int64")
-
-    map_df[
-        "Cluster ID"
-    ] = (
-        "C-"
-        + map_df[
-            "__lat_bin"
-        ].astype(str)
-        + "-"
-        + map_df[
-            "__lon_bin"
-        ].astype(str)
-    )
-
-    # --------------------------------------------------------
-    # ATTACH WARD / FACILITY / DISEASE
-    # --------------------------------------------------------
-
-    cluster_df = _attach_cluster_information(
-        cluster_df,
-        map_df,
-        disease_column,
-        ward_column,
-        facility_column,
-    )
-
-    # ========================================================
-    # GLOBAL DATA LABEL STATE
-    # ========================================================
-
-    show_labels = (
-        _global_data_labels_enabled()
-    )
-
-    # ========================================================
-    # METRICS
-    # ========================================================
-
-    hotspot_count = len(
-        cluster_df[
-            cluster_df[
-                "Hotspot Level"
-            ].isin(
-                [
-                    "Very High",
-                    "High",
-                ]
-            )
-        ]
-    )
-
-    total_cases = len(
-        map_df
-    )
-
-    if not cluster_df.empty:
-
-        max_cluster_cases = int(
-            cluster_df[
-                "Cases"
-            ].max()
-        )
-
-    else:
-
-        max_cluster_cases = 0
-
-    m1, m2, m3, m4 = st.columns(4)
-
-    with m1:
-
-        st.metric(
-            "Disease Cases",
-            f"{total_cases:,}",
-        )
-
-    with m2:
-
-        st.metric(
-            "Geographic Clusters",
-            f"{len(cluster_df):,}",
-        )
-
-    with m3:
-
-        st.metric(
-            "High / Very High",
-            f"{hotspot_count:,}",
-        )
-
-    with m4:
-
-        st.metric(
-            "Largest Cluster",
-            f"{max_cluster_cases:,}",
-        )
-
-    # ========================================================
     # MAP
-    # ========================================================
+    # --------------------------------------------------------
 
-    st.divider()
+    show_labels = _get_show_labels()
 
-    st.markdown(
-        "### 📍 Geographic Hotspot Map"
+    _build_map(
+        cluster_df,
+        show_labels=show_labels,
     )
 
-    # ========================================================
-    # HOTSPOT CLUSTERS
-    # ========================================================
+    st.caption(
+        "Each hotspot represents a geographic cluster of patient/address records. "
+        "Cluster size is controlled above."
+    )
 
-    if map_view == "Hotspot Clusters":
+    # --------------------------------------------------------
+    # TABLE
+    # --------------------------------------------------------
 
-        deck = _build_cluster_map(
-            cluster_df,
-            show_labels,
-        )
+    st.markdown(
+        "### 🔥 Hotspot Summary"
+    )
 
-        if deck is not None:
-
-            st.pydeck_chart(
-                deck,
-                use_container_width=True,
-            )
-
-        st.caption(
-            "Each circle represents a geographic disease "
-            "cluster. Larger circles indicate more cases. "
-            "Hotspot level is relative to the currently "
-            "filtered disease dataset."
-        )
-
-    # ========================================================
-    # WARD HOTSPOTS
-    # ========================================================
-
-    elif map_view == "Ward Hotspots":
-
-        ward_df = _ward_hotspots(
-            map_df,
-            ward_column,
-        )
-
-        if ward_df.empty:
-
-            st.info(
-                "Ward information is not available "
-                "for the current filtered records."
-            )
-
-        else:
-
-            ward_plot = (
-                ward_df.copy()
-            )
-
-            ward_plot[
-                "fill_color"
-            ] = (
-                ward_plot[
-                    "Cases"
-                ]
-                .rank(
-                    pct=True
-                )
-                .apply(
-                    lambda x:
-                    [
-                        int(
-                            255 * x
-                        ),
-                        int(
-                            80
-                            + 150
-                            * (
-                                1 - x
-                            )
-                        ),
-                        60,
-                        210,
-                    ]
-                )
-            )
-
-            ward_plot[
-                "radius"
-            ] = (
-                np.sqrt(
-                    ward_plot[
-                        "Cases"
-                    ].clip(
-                        lower=1
-                    )
-                )
-                * 80
-            )
-
-            ward_plot[
-                "radius"
-            ] = (
-                ward_plot[
-                    "radius"
-                ].clip(
-                    100,
-                    1000,
-                )
-            )
-
-            layers = [
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=ward_plot,
-                    get_position=[
-                        "Longitude",
-                        "Latitude",
-                    ],
-                    get_radius="radius",
-                    get_fill_color="fill_color",
-                    pickable=True,
-                    auto_highlight=True,
-                )
+    hotspot_summary = (
+        cluster_df[
+            [
+                "Cluster ID",
+                "Cluster_Cases",
+                "Hotspot",
+                "Cluster_Latitude",
+                "Cluster_Longitude",
             ]
-
-            if show_labels:
-
-                ward_plot[
-                    "label"
-                ] = (
-                    ward_plot[
-                        "Ward"
-                    ].astype(str)
-                    + " | "
-                    + ward_plot[
-                        "Cases"
-                    ].astype(str)
-                )
-
-                layers.append(
-                    pdk.Layer(
-                        "TextLayer",
-                        data=ward_plot,
-                        get_position=[
-                            "Longitude",
-                            "Latitude",
-                        ],
-                        get_text="label",
-                        get_size=14,
-                        get_color=[
-                            20,
-                            20,
-                            20,
-                            255,
-                        ],
-                        billboard=True,
-                    )
-                )
-
-            center_lat = float(
-                ward_plot[
-                    "Latitude"
-                ].mean()
-            )
-
-            center_lon = float(
-                ward_plot[
-                    "Longitude"
-                ].mean()
-            )
-
-            deck = pdk.Deck(
-                layers=layers,
-                initial_view_state=pdk.ViewState(
-                    latitude=center_lat,
-                    longitude=center_lon,
-                    zoom=11,
-                    pitch=0,
-                ),
-                tooltip={
-                    "html": """
-                    <b>Ward:</b> {Ward}<br/>
-                    <b>Cases:</b> {Cases}<br/>
-                    <b>Percentage:</b> {Percentage}%
-                    """
-                },
-            )
-
-            st.pydeck_chart(
-                deck,
-                use_container_width=True,
-            )
-
-            st.caption(
-                "Ward location is represented using the mean "
-                "of available patient/address coordinates "
-                "within each ward."
-            )
-
-    # ========================================================
-    # ADDRESS POINTS
-    # ========================================================
-
-    else:
-
-        point_df = (
-            map_df[
-                [
-                    "__latitude",
-                    "__longitude",
-                ]
-            ]
-            .rename(
-                columns={
-                    "__latitude":
-                        "latitude",
-                    "__longitude":
-                        "longitude",
-                }
-            )
+        ]
+        .sort_values(
+            "Cluster_Cases",
+            ascending=False,
         )
+        .reset_index(drop=True)
+    )
 
-        st.map(
-            point_df,
-            latitude="latitude",
-            longitude="longitude",
-            use_container_width=True,
-        )
+    hotspot_summary.index = hotspot_summary.index + 1
 
-        st.caption(
-            f"{len(point_df):,} valid address "
-            "coordinates are displayed."
-        )
+    st.dataframe(
+        hotspot_summary,
+        use_container_width=True,
+        height=350,
+    )
 
-    # ========================================================
-    # DOWNLOAD SECTION
-    # ========================================================
-
-    st.divider()
+    # --------------------------------------------------------
+    # DOWNLOADS
+    # --------------------------------------------------------
 
     st.markdown(
         "### ⬇️ Download Hotspot Data"
     )
 
-    st.caption(
-        "The downloads use the current Global Dashboard "
-        "Filters, selected disease and selected cluster size."
+    download_df = _prepare_download_dataframe(
+        working,
+        cols,
     )
 
-    # --------------------------------------------------------
-    # SUMMARIES
-    # --------------------------------------------------------
-
-    ward_df = _ward_hotspots(
-        map_df,
-        ward_column,
-    )
-
-    area_df = _area_summary(
-        map_df,
-        area_column,
-        address_column,
-    )
-
-    facility_df = _facility_summary(
-        map_df,
-        facility_column,
-    )
-
-    # --------------------------------------------------------
-    # RECORD EXPORT
-    # --------------------------------------------------------
-
-    export_records = (
-        map_df.copy()
-    )
-
-    export_records = (
-        export_records.rename(
-            columns={
-                "__latitude":
-                    "Latitude",
-                "__longitude":
-                    "Longitude",
-            }
-        )
-    )
-
-    # --------------------------------------------------------
-    # ADD CLUSTER CASE COUNT
-    # --------------------------------------------------------
-
-    cluster_lookup = (
-        cluster_df[
-            [
-                "Cluster ID",
-                "Cases",
-                "Hotspot Level",
-            ]
-        ]
-        .rename(
-            columns={
-                "Cases":
-                    "Cluster Cases",
-            }
-        )
-    )
-
-    export_records = (
-        export_records.merge(
-            cluster_lookup,
-            on="Cluster ID",
-            how="left",
-        )
-    )
-
-    # --------------------------------------------------------
-    # EXCEL
-    # --------------------------------------------------------
+    excel_buffer = io.BytesIO()
 
     try:
 
-        excel_bytes = _create_excel(
-            cluster_df,
-            ward_df,
-            area_df,
-            facility_df,
-            export_records,
-        )
+        with pd.ExcelWriter(
+            excel_buffer,
+            engine="openpyxl",
+        ) as writer:
 
-        st.download_button(
-            label=(
-                "📊 Download Hotspot Data – Excel"
-            ),
-            data=excel_bytes,
-            file_name=(
-                "Disease_Hotspot_Analysis.xlsx"
-            ),
-            mime=(
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            ),
-            use_container_width=True,
-            key=(
-                "phase6_excel_download"
-            ),
-        )
+            download_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Hotspot Data",
+            )
+
+            hotspot_summary.to_excel(
+                writer,
+                index=False,
+                sheet_name="Hotspot Summary",
+            )
+
+        excel_buffer.seek(0)
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+
+            st.download_button(
+                "📊 Download Hotspot Excel",
+                data=excel_buffer.getvalue(),
+                file_name="geographic_hotspot_data.xlsx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+                use_container_width=True,
+            )
+
+        with col2:
+
+            csv_data = download_df.to_csv(
+                index=False
+            ).encode("utf-8")
+
+            st.download_button(
+                "📄 Download Hotspot CSV",
+                data=csv_data,
+                file_name="geographic_hotspot_data.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        with col3:
+
+            if filter_info is None:
+                filter_info = {}
+
+            pdf_data = _create_pdf(
+                cluster_df,
+                selected_disease or "All",
+                filter_info,
+            )
+
+            if pdf_data:
+
+                st.download_button(
+                    "📕 Download Hotspot PDF",
+                    data=pdf_data,
+                    file_name="geographic_hotspot_report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
 
     except Exception as e:
 
         st.warning(
-            "Excel download could not be generated."
+            f"Download preparation issue: {e}"
         )
 
     # --------------------------------------------------------
-    # CSV
-    # --------------------------------------------------------
-
-    csv_bytes = _create_csv(
-        cluster_df
-    )
-
-    st.download_button(
-        label=(
-            "📄 Download Cluster Summary – CSV"
-        ),
-        data=csv_bytes,
-        file_name=(
-            "Disease_Hotspot_Clusters.csv"
-        ),
-        mime="text/csv",
-        use_container_width=True,
-        key=(
-            "phase6_csv_download"
-        ),
-    )
-
-    # ========================================================
-    # PDF REPORT
-    # ========================================================
-
-    st.markdown(
-        "### 📑 Hotspot Management Report"
-    )
-
-    pdf_bytes = _create_pdf_report(
-        cluster_df,
-        ward_df,
-        area_df,
-        selected_disease,
-    )
-
-    if pdf_bytes is not None:
-
-        st.download_button(
-            label=(
-                "📑 Download Hotspot Report – PDF"
-            ),
-            data=pdf_bytes,
-            file_name=(
-                "Disease_Hotspot_Management_Report.pdf"
-            ),
-            mime="application/pdf",
-            use_container_width=True,
-            key=(
-                "phase6_pdf_download"
-            ),
-        )
-
-    else:
-
-        st.warning(
-            "PDF report requires reportlab and matplotlib."
-        )
-
-    # ========================================================
-    # TOP HOTSPOTS
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 🔥 Top Geographic Hotspots"
-    )
-
-    if not cluster_df.empty:
-
-        display_clusters = (
-            cluster_df[
-                [
-                    "Rank",
-                    "Cluster ID",
-                    "Cases",
-                    "Hotspot Level",
-                    "Ward",
-                    "Facility",
-                    "Latitude",
-                    "Longitude",
-                ]
-            ]
-            .head(25)
-        )
-
-        st.dataframe(
-            display_clusters,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # ========================================================
     # WARD SUMMARY
-    # ========================================================
+    # --------------------------------------------------------
 
-    st.markdown(
-        "### 🏘️ Ward-wise Hotspot Summary"
-    )
+    if cols["ward"]:
 
-    if not ward_df.empty:
+        st.markdown(
+            "### 🏢 Ward-wise Geographic Summary"
+        )
+
+        ward_summary = (
+            working.groupby(
+                cols["ward"],
+                dropna=False,
+            )
+            .agg(
+                Cases=("Cluster ID", "size"),
+                Geographic_Clusters=("Cluster ID", "nunique"),
+            )
+            .reset_index()
+        )
+
+        ward_summary = ward_summary.sort_values(
+            "Cases",
+            ascending=False,
+        )
 
         st.dataframe(
-            ward_df.head(25),
+            ward_summary,
             use_container_width=True,
-            hide_index=True,
         )
 
-    else:
-
-        st.info(
-            "Ward-wise geographic information "
-            "is not available."
-        )
-
-    # ========================================================
-    # AREA SUMMARY
-    # ========================================================
-
-    st.markdown(
-        "### 📍 Area-wise Hotspot Summary"
-    )
-
-    if not area_df.empty:
-
-        st.dataframe(
-            area_df.head(25),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    else:
-
-        st.info(
-            "Area/locality information is not available. "
-            "Geographic clusters are being used as the "
-            "area-level analysis."
-        )
-
-    # ========================================================
+    # --------------------------------------------------------
     # FACILITY SUMMARY
-    # ========================================================
+    # --------------------------------------------------------
 
-    st.markdown(
-        "### 🏥 Facility-wise Disease Hotspot Summary"
-    )
+    if cols["facility"]:
 
-    if not facility_df.empty:
+        st.markdown(
+            "### 🏥 Facility-wise Geographic Summary"
+        )
+
+        facility_summary = (
+            working.groupby(
+                cols["facility"],
+                dropna=False,
+            )
+            .agg(
+                Cases=("Cluster ID", "size"),
+                Geographic_Clusters=("Cluster ID", "nunique"),
+            )
+            .reset_index()
+        )
+
+        facility_summary = facility_summary.sort_values(
+            "Cases",
+            ascending=False,
+        )
 
         st.dataframe(
-            facility_df.head(25),
+            facility_summary,
             use_container_width=True,
-            hide_index=True,
         )
-
-    else:
-
-        st.info(
-            "Facility information is not available."
-        )
-
-    # ========================================================
-    # METHODOLOGY
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### ℹ️ Geographic Analysis Method"
-    )
-
-    st.info(
-        "Hotspot clusters are generated by grouping "
-        "nearby Address Latitude and Address Longitude "
-        "values into geographic grid cells. Cluster case "
-        "counts are used to identify relative concentration "
-        "levels within the currently filtered data. This "
-        "is a programme-management visualization and is "
-        "not a formal spatial statistical significance test."
-    )
