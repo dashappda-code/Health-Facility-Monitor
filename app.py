@@ -2,16 +2,24 @@ import streamlit as st
 import pandas as pd
 
 from phase1_data import load_data
+
 from phase2_overview import (
     create_filters,
     apply_filters,
     calculate_kpis,
     render_overview,
 )
+
 from phase3_charts import render_charts
 from phase4_demographics import render_demographics
 from phase5_ward import render_ward
+
+# Existing patient/location hotspot map
 from phase6_map import render_map
+
+# New Mumbai ward geographic map
+from geographic_map import render_geographic_map
+
 from phase7_explorer import render_explorer
 from phase8_prediction import render_prediction
 from phase9_manual import render_manual
@@ -26,9 +34,9 @@ from pdf_report import (
 from ppt_report import generate_ppt_report
 
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="MSU Mumbai Public Health Surveillance Dashboard",
@@ -38,9 +46,9 @@ st.set_page_config(
 )
 
 
-# =========================================================
-# GLOBAL STYLE
-# =========================================================
+# ============================================================
+# GLOBAL CSS
+# ============================================================
 
 st.markdown(
     """
@@ -115,9 +123,9 @@ st.markdown(
 )
 
 
-# =========================================================
-# BRANDING
-# =========================================================
+# ============================================================
+# DASHBOARD HEADER
+# ============================================================
 
 st.title(
     "🏥 MSU Mumbai Public Health Surveillance Dashboard"
@@ -128,9 +136,9 @@ st.caption(
 )
 
 
-# =========================================================
-# DATA
-# =========================================================
+# ============================================================
+# DATA LOADING
+# ============================================================
 
 def get_data():
     return load_data()
@@ -138,6 +146,10 @@ def get_data():
 
 df = get_data()
 
+
+# ============================================================
+# DATA VALIDATION
+# ============================================================
 
 if df is None or df.empty:
 
@@ -154,9 +166,9 @@ if df is None or df.empty:
     st.stop()
 
 
-# =========================================================
-# SIDEBAR MENU
-# =========================================================
+# ============================================================
+# SIDEBAR
+# ============================================================
 
 st.sidebar.title(
     "📌 Dashboard Menu"
@@ -171,6 +183,7 @@ page = st.sidebar.radio(
         "Demographics",
         "Ward Analysis",
         "Map",
+        "Geographic Map",
         "Data Explorer",
         "Prediction",
         "User Manual",
@@ -180,23 +193,27 @@ page = st.sidebar.radio(
 )
 
 
-st.sidebar.divider()
+# ============================================================
+# SIDEBAR RECORD COUNT
+# ============================================================
 
+st.sidebar.divider()
 
 st.sidebar.caption(
     f"Records loaded: {len(df):,}"
 )
 
 
-# =========================================================
-# GLOBAL CHART DISPLAY CONTROL
-# =========================================================
+# ============================================================
+# GLOBAL CHART CONTROL
+# ============================================================
 
 st.sidebar.markdown("---")
 
 st.sidebar.subheader(
     "📊 Chart Display Controls"
 )
+
 
 show_data_labels = st.sidebar.checkbox(
     "🏷️ Show Data Labels",
@@ -211,6 +228,7 @@ show_data_labels = st.sidebar.checkbox(
     ),
 )
 
+
 if show_data_labels:
 
     st.sidebar.success(
@@ -224,9 +242,9 @@ else:
     )
 
 
-# =========================================================
-# GLOBAL FILTERS
-# =========================================================
+# ============================================================
+# GLOBAL FILTER PANEL
+# ============================================================
 
 st.subheader(
     "🎛️ Global Dashboard Control"
@@ -246,6 +264,10 @@ with st.container(
     filter_values = create_filters(df)
 
 
+# ============================================================
+# APPLY GLOBAL FILTERS
+# ============================================================
+
 filtered_df = apply_filters(
     df=df,
     **filter_values,
@@ -259,19 +281,24 @@ st.caption(
 )
 
 
-# =========================================================
-# KPI
-# =========================================================
+# ============================================================
+# KPI CALCULATION
+# ============================================================
 
 kpis = calculate_kpis(
     filtered_df
 )
 
 
+# ============================================================
+# TOP KPI CARDS
+# ============================================================
+
 c1, c2, c3, c4 = st.columns(4)
 
 
 with c1:
+
     st.metric(
         "Total Records",
         f"{kpis.get('total_records', len(filtered_df)):,}",
@@ -279,6 +306,7 @@ with c1:
 
 
 with c2:
+
     st.metric(
         "Diseases",
         f"{kpis.get('diseases', 0):,}",
@@ -286,6 +314,7 @@ with c2:
 
 
 with c3:
+
     st.metric(
         "Facilities",
         f"{kpis.get('facilities', 0):,}",
@@ -293,6 +322,7 @@ with c3:
 
 
 with c4:
+
     st.metric(
         "Wards",
         f"{kpis.get('wards', 0):,}",
@@ -302,9 +332,9 @@ with c4:
 st.divider()
 
 
-# =========================================================
-# REPORT FILTER / DATE HELPERS
-# =========================================================
+# ============================================================
+# FILTER SUMMARY
+# ============================================================
 
 def get_filter_summary():
 
@@ -382,13 +412,19 @@ def get_filter_summary():
                 )
 
         except Exception:
+
             pass
 
     if not selected:
+
         return "All records"
 
     return " | ".join(selected)
 
+
+# ============================================================
+# REPORTING PERIOD
+# ============================================================
 
 def get_reporting_period(data):
 
@@ -397,6 +433,7 @@ def get_reporting_period(data):
         or data.empty
         or "Reporting Date" not in data.columns
     ):
+
         return None
 
     dates = data[
@@ -404,6 +441,7 @@ def get_reporting_period(data):
     ].dropna()
 
     if dates.empty:
+
         return None
 
     try:
@@ -425,9 +463,9 @@ def get_reporting_period(data):
         return None
 
 
-# =========================================================
+# ============================================================
 # FREQUENCY TABLE
-# =========================================================
+# ============================================================
 
 def make_frequency_table(
     data,
@@ -441,6 +479,7 @@ def make_frequency_table(
         or data.empty
         or column not in data.columns
     ):
+
         return None
 
     values = (
@@ -456,6 +495,7 @@ def make_frequency_table(
     ]
 
     if values.empty:
+
         return None
 
     return (
@@ -469,9 +509,9 @@ def make_frequency_table(
     )
 
 
-# =========================================================
+# ============================================================
 # BUILD PAGE REPORT DATA
-# =========================================================
+# ============================================================
 
 def build_page_report_data(
     page_name,
@@ -482,7 +522,13 @@ def build_page_report_data(
     charts = []
 
     if data is None or data.empty:
+
         return tables, charts
+
+
+    # --------------------------------------------------------
+    # DISEASE
+    # --------------------------------------------------------
 
     disease_table = make_frequency_table(
         data,
@@ -508,6 +554,11 @@ def build_page_report_data(
             }
         )
 
+
+    # --------------------------------------------------------
+    # FACILITY
+    # --------------------------------------------------------
+
     facility_table = make_frequency_table(
         data,
         "Facility Name",
@@ -531,6 +582,11 @@ def build_page_report_data(
                 "title": "Facility-wise Burden",
             }
         )
+
+
+    # --------------------------------------------------------
+    # WARD
+    # --------------------------------------------------------
 
     ward_table = make_frequency_table(
         data,
@@ -556,6 +612,11 @@ def build_page_report_data(
             }
         )
 
+
+    # --------------------------------------------------------
+    # GENDER
+    # --------------------------------------------------------
+
     gender_table = make_frequency_table(
         data,
         "Gender",
@@ -570,6 +631,11 @@ def build_page_report_data(
                 gender_table,
             )
         )
+
+
+    # --------------------------------------------------------
+    # AGE
+    # --------------------------------------------------------
 
     age_table = make_frequency_table(
         data,
@@ -586,6 +652,11 @@ def build_page_report_data(
             )
         )
 
+
+    # --------------------------------------------------------
+    # OPD / IPD
+    # --------------------------------------------------------
+
     opd_table = make_frequency_table(
         data,
         "OPD/IPD",
@@ -600,6 +671,11 @@ def build_page_report_data(
                 opd_table,
             )
         )
+
+
+    # --------------------------------------------------------
+    # MONTH-WISE ANALYSIS
+    # --------------------------------------------------------
 
     if (
         "Month" in data.columns
@@ -651,12 +727,13 @@ def build_page_report_data(
                 }
             )
 
+
     return tables, charts
 
 
-# =========================================================
+# ============================================================
 # PAGE PDF
-# =========================================================
+# ============================================================
 
 def create_page_pdf(
     page_name,
@@ -686,6 +763,10 @@ def create_page_pdf(
 
     return pdf_bytes
 
+
+# ============================================================
+# PAGE PDF DOWNLOAD BUTTON
+# ============================================================
 
 def render_page_pdf_button(
     page_name,
@@ -726,9 +807,9 @@ def render_page_pdf_button(
         st.exception(e)
 
 
-# =========================================================
+# ============================================================
 # COMPLETE DASHBOARD PDF
-# =========================================================
+# ============================================================
 
 def create_complete_dashboard_pdf():
 
@@ -746,12 +827,14 @@ def create_complete_dashboard_pdf():
         "Demographics",
         "Ward Analysis",
         "Map",
+        "Geographic Map",
         "Data Explorer",
         "Prediction",
         "User Manual",
         "Validation & KPI",
         "Drill-down & Export",
     ]
+
 
     for page_name in page_names:
 
@@ -770,6 +853,7 @@ def create_complete_dashboard_pdf():
             }
         )
 
+
     return generate_complete_dashboard_pdf(
         pages=dashboard_pages,
         report_period=report_period,
@@ -777,9 +861,9 @@ def create_complete_dashboard_pdf():
     )
 
 
-# =========================================================
-# COMPLETE DASHBOARD PPT
-# =========================================================
+# ============================================================
+# COMPLETE DASHBOARD POWERPOINT
+# ============================================================
 
 def create_complete_dashboard_ppt():
 
@@ -798,9 +882,9 @@ def create_complete_dashboard_ppt():
     return ppt_bytes
 
 
-# =========================================================
-# SIDEBAR - PDF REPORTS
-# =========================================================
+# ============================================================
+# SIDEBAR PDF SECTION
+# ============================================================
 
 st.sidebar.markdown("---")
 
@@ -813,6 +897,10 @@ st.sidebar.caption(
     "a complete consolidated PDF."
 )
 
+
+# ============================================================
+# GENERATE COMPLETE PDF
+# ============================================================
 
 if st.sidebar.button(
     "📚 Generate Complete Dashboard PDF",
@@ -833,9 +921,11 @@ if st.sidebar.button(
                 "complete_dashboard_pdf_filter"
             ] = get_filter_summary()
 
+
         st.sidebar.success(
             "Complete PDF generated."
         )
+
 
     except Exception as e:
 
@@ -845,6 +935,10 @@ if st.sidebar.button(
 
         st.sidebar.exception(e)
 
+
+# ============================================================
+# COMPLETE PDF DOWNLOAD
+# ============================================================
 
 if (
     "complete_dashboard_pdf"
@@ -857,6 +951,7 @@ if (
         "complete_dashboard_pdf_filter",
         "",
     )
+
 
     if current_filter == generated_filter:
 
@@ -881,9 +976,9 @@ if (
         )
 
 
-# =========================================================
-# SIDEBAR - POWERPOINT REPORT
-# =========================================================
+# ============================================================
+# SIDEBAR POWERPOINT SECTION
+# ============================================================
 
 st.sidebar.markdown("---")
 
@@ -896,6 +991,10 @@ st.sidebar.caption(
     "the currently selected dashboard filters."
 )
 
+
+# ============================================================
+# GENERATE POWERPOINT
+# ============================================================
 
 if st.sidebar.button(
     "📊 Generate PowerPoint",
@@ -916,9 +1015,11 @@ if st.sidebar.button(
                 "complete_dashboard_ppt_filter"
             ] = get_filter_summary()
 
+
         st.sidebar.success(
             "PowerPoint generated successfully."
         )
+
 
     except Exception as e:
 
@@ -928,6 +1029,10 @@ if st.sidebar.button(
 
         st.sidebar.exception(e)
 
+
+# ============================================================
+# POWERPOINT DOWNLOAD
+# ============================================================
 
 if (
     "complete_dashboard_ppt"
@@ -940,6 +1045,7 @@ if (
         "complete_dashboard_ppt_filter",
         "",
     )
+
 
     if current_filter == generated_ppt_filter:
 
@@ -967,11 +1073,16 @@ if (
         )
 
 
-# =========================================================
+# ============================================================
 # PAGE RENDERING
-# =========================================================
+# ============================================================
 
 try:
+
+
+    # ========================================================
+    # OVERVIEW
+    # ========================================================
 
     if page == "Overview":
 
@@ -987,6 +1098,10 @@ try:
         )
 
 
+    # ========================================================
+    # CHARTS & TRENDS
+    # ========================================================
+
     elif page == "Charts & Trends":
 
         render_charts(
@@ -1000,6 +1115,10 @@ try:
             filtered_df,
         )
 
+
+    # ========================================================
+    # DEMOGRAPHICS
+    # ========================================================
 
     elif page == "Demographics":
 
@@ -1015,6 +1134,10 @@ try:
         )
 
 
+    # ========================================================
+    # WARD ANALYSIS
+    # ========================================================
+
     elif page == "Ward Analysis":
 
         render_ward(
@@ -1028,6 +1151,10 @@ try:
             filtered_df,
         )
 
+
+    # ========================================================
+    # EXISTING MAP
+    # ========================================================
 
     elif page == "Map":
 
@@ -1043,6 +1170,21 @@ try:
         )
 
 
+    # ========================================================
+    # NEW GEOGRAPHIC MAP
+    # ========================================================
+
+    elif page == "Geographic Map":
+
+        render_geographic_map(
+            filtered_df
+        )
+
+
+    # ========================================================
+    # DATA EXPLORER
+    # ========================================================
+
     elif page == "Data Explorer":
 
         render_explorer(
@@ -1056,6 +1198,10 @@ try:
             filtered_df,
         )
 
+
+    # ========================================================
+    # PREDICTION
+    # ========================================================
 
     elif page == "Prediction":
 
@@ -1071,6 +1217,10 @@ try:
         )
 
 
+    # ========================================================
+    # USER MANUAL
+    # ========================================================
+
     elif page == "User Manual":
 
         render_manual()
@@ -1082,6 +1232,10 @@ try:
             filtered_df,
         )
 
+
+    # ========================================================
+    # VALIDATION & KPI
+    # ========================================================
 
     elif page == "Validation & KPI":
 
@@ -1096,6 +1250,10 @@ try:
             filtered_df,
         )
 
+
+    # ========================================================
+    # DRILL-DOWN & EXPORT
+    # ========================================================
 
     elif page == "Drill-down & Export":
 
@@ -1120,9 +1278,9 @@ except Exception as e:
     st.exception(e)
 
 
-# =========================================================
-# SIDEBAR REFRESH
-# =========================================================
+# ============================================================
+# GOOGLE SHEET REFRESH
+# ============================================================
 
 st.sidebar.markdown("---")
 
@@ -1140,6 +1298,7 @@ if st.sidebar.button(
 
         refresh_data()
 
+
     st.success(
         "Google Sheet data refreshed successfully."
     )
@@ -1147,9 +1306,9 @@ if st.sidebar.button(
     st.rerun()
 
 
-# =========================================================
+# ============================================================
 # FOOTER
-# =========================================================
+# ============================================================
 
 st.markdown(
     """
