@@ -1,1406 +1,1080 @@
+# geographic_map.py
+# ============================================================
+# GEOGRAPHIC MANAGEMENT MAP
+# BMC WARD + ALL VALID COORDINATES
+# ============================================================
+
 import io
-import re
+import json
 import math
-import urllib.parse
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-import pydeck as pdk
+
+try:
+    import pydeck as pdk
+except Exception:
+    pdk = None
 
 
 # ============================================================
-# BMC GIS CONFIGURATION
+# CONFIG
 # ============================================================
 
-BMC_WARD_LAYER_URL = (
-    "https://prsrvgisapp.mcgm.gov.in/server/rest/services/"
-    "mcgm/MCGMGIS_Departments_Master_All_Layers_WGS/"
-    "MapServer/238"
-)
+BASE_DIR = Path(__file__).resolve().parent
+BMC_GEOJSON = BASE_DIR / "data" / "BMC_Wards.geojson"
 
-BMC_WARD_QUERY_URL = (
-    BMC_WARD_LAYER_URL + "/query"
-)
+LAT_COLUMN = "Address Latitude"
+LON_COLUMN = "Address Longitude"
+
+# Approximate hotspot grid
+# 0.005 degree ~= ~500 metres around Mumbai
+GRID_DEGREE = 0.005
 
 
 # ============================================================
-# BASIC HELPERS
+# HELPERS
 # ============================================================
 
 def _clean_text(value):
     if pd.isna(value):
         return ""
 
-    text = str(value).strip()
+    value = str(value).strip()
 
-    text = re.sub(
-        r"\s+",
-        " ",
-        text,
-    )
+    if value.lower() in {
+        "nan",
+        "none",
+        "null",
+        "nat",
+        "na",
+        "n/a",
+    }:
+        return ""
 
-    return text
-
-
-def _normalise_ward(value):
-    text = _clean_text(value).upper()
-
-    text = text.replace(
-        "WARD",
-        "",
-    )
-
-    text = text.replace(
-        "M-WARD",
-        "M",
-    )
-
-    text = text.replace(
-        "MCGM",
-        "",
-    )
-
-    text = text.replace(
-        "BMC",
-        "",
-    )
-
-    text = re.sub(
-        r"[^A-Z0-9]",
-        "",
-        text,
-    )
-
-    return text
+    return value
 
 
-def _find_column(
-    df,
-    candidates,
-):
+def _find_column(df, candidates):
     if df is None or df.empty:
         return None
 
-    exact = {
-        str(column).strip().lower(): column
-        for column in df.columns
+    lookup = {
+        str(c).strip().lower(): c
+        for c in df.columns
     }
 
     for candidate in candidates:
+        key = str(candidate).strip().lower()
 
-        key = str(
-            candidate
-        ).strip().lower()
-
-        if key in exact:
-            return exact[key]
-
-    for column in df.columns:
-
-        col = str(
-            column
-        ).strip().lower()
-
-        for candidate in candidates:
-
-            candidate_text = str(
-                candidate
-            ).strip().lower()
-
-            if (
-                candidate_text in col
-                or col in candidate_text
-            ):
-                return column
+        if key in lookup:
+            return lookup[key]
 
     return None
 
 
-# ============================================================
-# LOAD BMC WARD BOUNDARIES
-# ============================================================
+def _normalise_ward(value):
+    """
+    Converts common BMC ward formats into a consistent form.
 
-@st.cache_data(
-    ttl=86400,
-    show_spinner=False,
-)
-def load_bmc_wards():
+    Examples:
+        F North -> F/N
+        F-N     -> F/N
+        F/N     -> F/N
+        K East  -> K/E
+    """
 
-    try:
+    value = _clean_text(value).upper()
 
-        params = {
-            "where": "1=1",
-            "outFields": "*",
-            "returnGeometry": "true",
-            "outSR": "4326",
-            "f": "geojson",
-        }
+    if not value:
+        return ""
 
-        query_string = urllib.parse.urlencode(
-            params
-        )
+    value = value.replace("_", " ")
+    value = value.replace("-", "/")
+    value = value.replace("\\", "/")
 
-        url = (
-            BMC_WARD_QUERY_URL
-            + "?"
-            + query_string
-        )
+    replacements = {
+        "F NORTH": "F/N",
+        "F SOUTH": "F/S",
+        "G NORTH": "G/N",
+        "G SOUTH": "G/S",
+        "H EAST": "H/E",
+        "H WEST": "H/W",
+        "K EAST": "K/E",
+        "K WEST": "K/W",
+        "M EAST": "M/E",
+        "M WEST": "M/W",
+        "P NORTH": "P/N",
+        "P SOUTH": "P/S",
+        "R CENTRAL": "R/C",
+        "R NORTH": "R/N",
+        "R SOUTH": "R/S",
+    }
 
-        import requests
+    if value in replacements:
+        return replacements[value]
 
-        response = requests.get(
-            url,
-            timeout=30,
-        )
+    value = " ".join(value.split())
 
-        response.raise_for_status()
+    if value in replacements:
+        return replacements[value]
 
-        geojson = response.json()
+    # Handle strings such as "Ward F North"
+    value = value.replace("WARD ", "")
 
-        if not geojson:
-            return None, "Empty response from BMC GIS."
+    if value in replacements:
+        return replacements[value]
 
-        if (
-            "features" not in geojson
-            or not geojson["features"]
-        ):
-            return (
-                None,
-                "BMC GIS returned no ward polygons.",
-            )
-
-        return geojson, None
-
-    except Exception as e:
-
-        return (
-            None,
-            f"BMC ward boundary could not be loaded: {e}",
-        )
+    return value
 
 
-# ============================================================
-# GET WARD FIELD
-# ============================================================
+def _ward_field_from_geojson(geojson):
+    """
+    Detect ward-name field from GeoJSON properties.
+    """
 
-def get_geojson_ward_field(
-    geojson,
-):
-
-    if not geojson:
-        return None
-
-    features = geojson.get(
-        "features",
-        [],
-    )
+    features = geojson.get("features", [])
 
     if not features:
         return None
 
-    properties = features[0].get(
-        "properties",
-        {},
-    )
+    props = features[0].get("properties", {}) or {}
 
     candidates = [
-        "WARD_NO",
-        "WARD",
-        "WARDNAME",
-        "WARD_NAME",
         "NAME",
+        "WARD_NAME",
+        "Ward",
+        "WARD",
+        "ward",
         "Name",
     ]
 
     for candidate in candidates:
-
-        if candidate in properties:
+        if candidate in props:
             return candidate
 
-    property_names = list(
-        properties.keys()
-    )
+    # fallback: look for anything containing ward/name
+    for key in props.keys():
+        key_l = str(key).lower()
 
-    for prop in property_names:
-
-        normalized = (
-            str(prop)
-            .strip()
-            .upper()
-        )
-
-        if normalized in {
-            "WARD_NO",
-            "WARD",
-            "WARDNAME",
-            "WARD_NAME",
-            "NAME",
-        }:
-
-            return prop
+        if "ward" in key_l or key_l == "name":
+            return key
 
     return None
 
 
 # ============================================================
-# PREPARE WARD CASE COUNTS
+# LOAD LOCAL BMC GEOJSON
 # ============================================================
 
-def prepare_ward_summary(
-    df,
-):
+@st.cache_data(show_spinner=False)
+def load_bmc_wards():
+    """
+    Loads local BMC ward GeoJSON.
+
+    No external HTTP request is made here.
+    """
+
+    if not BMC_GEOJSON.exists():
+        return None, (
+            f"BMC ward boundary file not found: "
+            f"{BMC_GEOJSON.as_posix()}"
+        )
+
+    try:
+        with open(BMC_GEOJSON, "r", encoding="utf-8") as f:
+            geojson = json.load(f)
+
+        if not isinstance(geojson, dict):
+            return None, "BMC ward GeoJSON is not a valid object."
+
+        if geojson.get("type") != "FeatureCollection":
+            return None, "BMC ward GeoJSON must be a FeatureCollection."
+
+        features = geojson.get("features", [])
+
+        if not features:
+            return None, "BMC ward GeoJSON contains no features."
+
+        return geojson, None
+
+    except Exception as e:
+        return None, f"Could not read BMC ward GeoJSON: {e}"
+
+
+# ============================================================
+# COORDINATE PREPARATION
+# ============================================================
+
+def prepare_coordinates(df):
+    """
+    Prepare ALL valid coordinates.
+
+    IMPORTANT:
+    No Mumbai/BMC geographic bounding-box filtering is performed.
+    Therefore valid coordinates outside BMC are retained.
+    """
+
+    if df is None or df.empty:
+        return pd.DataFrame(), 0
+
+    if LAT_COLUMN not in df.columns or LON_COLUMN not in df.columns:
+        return pd.DataFrame(), 0
+
+    work = df.copy()
+
+    work["_lat"] = pd.to_numeric(
+        work[LAT_COLUMN],
+        errors="coerce",
+    )
+
+    work["_lon"] = pd.to_numeric(
+        work[LON_COLUMN],
+        errors="coerce",
+    )
+
+    # Count all rows with unusable coordinates
+    invalid_count = int(
+        (
+            work["_lat"].isna()
+            | work["_lon"].isna()
+            | ~work["_lat"].between(-90, 90)
+            | ~work["_lon"].between(-180, 180)
+        ).sum()
+    )
+
+    # Keep every globally valid coordinate
+    work = work[
+        work["_lat"].between(-90, 90)
+        & work["_lon"].between(-180, 180)
+    ].copy()
+
+    work.reset_index(drop=True, inplace=True)
+
+    return work, invalid_count
+
+
+# ============================================================
+# HOTSPOT CLUSTERING
+# ============================================================
+
+def create_hotspots(df):
+    """
+    Grid-based hotspot clustering.
+
+    All valid coordinates are included.
+    """
 
     if df is None or df.empty:
         return pd.DataFrame()
 
-    ward_column = _find_column(
-        df,
-        [
-            "Ward Name",
-            "Ward",
-            "WARD",
-            "WARD_NAME",
-            "WardName",
-            "Ward No",
-        ],
-    )
-
-    if ward_column is None:
-        return pd.DataFrame()
-
     work = df.copy()
 
-    work["_ward_original"] = (
-        work[ward_column]
-        .fillna("")
-        .astype(str)
-        .str.strip()
+    if "_lat" not in work.columns or "_lon" not in work.columns:
+        return pd.DataFrame()
+
+    # Grid cells
+    work["_grid_lat"] = (
+        work["_lat"] / GRID_DEGREE
+    ).apply(math.floor)
+
+    work["_grid_lon"] = (
+        work["_lon"] / GRID_DEGREE
+    ).apply(math.floor)
+
+    # Cluster ID
+    work["Cluster ID"] = (
+        "C_"
+        + work["_grid_lat"].astype(str)
+        + "_"
+        + work["_grid_lon"].astype(str)
     )
 
-    work["_ward_normalized"] = (
-        work["_ward_original"]
-        .map(_normalise_ward)
+    # Cluster case count
+    cluster_counts = (
+        work.groupby("Cluster ID")
+        .size()
+        .rename("Cluster Cases")
+        .reset_index()
     )
 
-    work = work[
-        work["_ward_normalized"].ne("")
-    ]
+    work = work.merge(
+        cluster_counts,
+        on="Cluster ID",
+        how="left",
+    )
 
-    if work.empty:
+    # Hotspot classification
+    def classify(n):
+        if n >= 10:
+            return "High"
+        elif n >= 5:
+            return "Moderate"
+        else:
+            return "Low"
+
+    work["Hotspot Classification"] = (
+        work["Cluster Cases"]
+        .fillna(0)
+        .astype(int)
+        .apply(classify)
+    )
+
+    return work
+
+
+def create_cluster_summary(hotspot_df):
+    """
+    One row per geographic hotspot cluster.
+    """
+
+    if hotspot_df is None or hotspot_df.empty:
         return pd.DataFrame()
 
     summary = (
-        work
+        hotspot_df
         .groupby(
-            "_ward_normalized",
-            dropna=False,
+            "Cluster ID",
+            as_index=False,
         )
-        .size()
-        .reset_index(
-            name="Cases"
+        .agg(
+            Latitude=("_lat", "mean"),
+            Longitude=("_lon", "mean"),
+            Cluster_Cases=("Cluster Cases", "max"),
+            Hotspot_Classification=(
+                "Hotspot Classification",
+                "first",
+            ),
         )
+    )
+
+    summary.rename(
+        columns={
+            "Cluster_Cases": "Cluster Cases",
+            "Hotspot_Classification": "Hotspot Classification",
+        },
+        inplace=True,
     )
 
     return summary
 
 
 # ============================================================
-# MERGE CASES INTO GEOJSON
+# WARD SUMMARY
 # ============================================================
 
-def merge_ward_cases(
-    geojson,
-    df,
-):
+def create_ward_summary(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-    if not geojson:
-        return geojson
-
-    summary = prepare_ward_summary(
-        df
+    ward_col = _find_column(
+        df,
+        [
+            "Ward",
+            "Ward Name",
+            "Ward_Name",
+            "WARD",
+            "WARD NAME",
+            "BMC Ward",
+            "Administrative Ward",
+        ],
     )
 
-    summary_lookup = {}
+    if ward_col is None:
+        return pd.DataFrame()
 
-    if not summary.empty:
+    temp = df.copy()
 
-        summary_lookup = dict(
-            zip(
-                summary[
-                    "_ward_normalized"
+    temp["_ward_clean"] = (
+        temp[ward_col]
+        .apply(_normalise_ward)
+    )
+
+    temp = temp[
+        temp["_ward_clean"] != ""
+    ].copy()
+
+    if temp.empty:
+        return pd.DataFrame()
+
+    summary = (
+        temp.groupby("_ward_clean")
+        .size()
+        .reset_index(name="Cases")
+    )
+
+    summary.rename(
+        columns={
+            "_ward_clean": "Ward"
+        },
+        inplace=True,
+    )
+
+    summary.sort_values(
+        "Cases",
+        ascending=False,
+        inplace=True,
+    )
+
+    summary.reset_index(drop=True, inplace=True)
+
+    return summary
+
+
+# ============================================================
+# ADD WARD CASE COUNT TO GEOJSON
+# ============================================================
+
+def merge_ward_counts_into_geojson(
+    geojson,
+    ward_summary,
+):
+    if geojson is None:
+        return None
+
+    output = json.loads(
+        json.dumps(geojson)
+    )
+
+    if ward_summary is None or ward_summary.empty:
+        return output
+
+    counts = dict(
+        zip(
+            ward_summary["Ward"],
+            ward_summary["Cases"],
+        )
+    )
+
+    ward_field = _ward_field_from_geojson(output)
+
+    if ward_field is None:
+        return output
+
+    for feature in output.get("features", []):
+        props = feature.setdefault(
+            "properties",
+            {},
+        )
+
+        ward_value = _normalise_ward(
+            props.get(ward_field, "")
+        )
+
+        props["Programme Cases"] = int(
+            counts.get(ward_value, 0)
+        )
+
+    return output
+
+
+# ============================================================
+# MAP CENTER
+# ============================================================
+
+def _default_center():
+    return {
+        "latitude": 19.0760,
+        "longitude": 72.8777,
+        "zoom": 10.2,
+        "pitch": 0,
+        "bearing": 0,
+    }
+
+
+def _all_coordinate_center(df):
+    if df is None or df.empty:
+        return _default_center()
+
+    lat = df["_lat"].mean()
+    lon = df["_lon"].mean()
+
+    return {
+        "latitude": float(lat),
+        "longitude": float(lon),
+        "zoom": 5.5,
+        "pitch": 0,
+        "bearing": 0,
+    }
+
+
+# ============================================================
+# PYDECK MAP
+# ============================================================
+
+def render_pydeck_map(
+    hotspot_df,
+    bmc_geojson=None,
+    ward_map=False,
+    all_extent=False,
+):
+    if pdk is None:
+        st.error(
+            "PyDeck is not available in this environment."
+        )
+        return
+
+    layers = []
+
+    # --------------------------------------------------------
+    # BMC WARD POLYGON
+    # --------------------------------------------------------
+
+    if ward_map and bmc_geojson is not None:
+
+        layers.append(
+            pdk.Layer(
+                "GeoJsonLayer",
+                data=bmc_geojson,
+                pickable=True,
+                stroked=True,
+                filled=True,
+                extruded=False,
+                get_fill_color=[
+                    230,
+                    230,
+                    230,
+                    70,
                 ],
-                summary["Cases"],
+                get_line_color=[
+                    60,
+                    60,
+                    60,
+                    200,
+                ],
+                line_width_min_pixels=1,
             )
         )
 
-    ward_field = get_geojson_ward_field(
-        geojson
+    # --------------------------------------------------------
+    # ALL COORDINATE POINTS
+    # --------------------------------------------------------
+
+    if hotspot_df is not None and not hotspot_df.empty:
+
+        point_data = hotspot_df[
+            [
+                "_lat",
+                "_lon",
+                "Cluster ID",
+                "Cluster Cases",
+                "Hotspot Classification",
+            ]
+        ].copy()
+
+        layers.append(
+            pdk.Layer(
+                "ScatterplotLayer",
+                data=point_data,
+                get_position=[
+                    "_lon",
+                    "_lat",
+                ],
+                get_radius=80,
+                get_fill_color=[
+                    220,
+                    50,
+                    50,
+                    170,
+                ],
+                get_line_color=[
+                    80,
+                    20,
+                    20,
+                    220,
+                ],
+                line_width_min_pixels=1,
+                pickable=True,
+            )
+        )
+
+    # --------------------------------------------------------
+    # VIEW
+    # --------------------------------------------------------
+
+    if all_extent:
+        view_state = _all_coordinate_center(
+            hotspot_df
+        )
+    else:
+        view_state = _default_center()
+
+    deck = pdk.Deck(
+        layers=layers,
+        initial_view_state=pdk.ViewState(
+            latitude=view_state["latitude"],
+            longitude=view_state["longitude"],
+            zoom=view_state["zoom"],
+            pitch=view_state["pitch"],
+            bearing=view_state["bearing"],
+        ),
+        tooltip={
+            "html": """
+                <b>Cluster:</b> {Cluster ID}<br/>
+                <b>Cases:</b> {Cluster Cases}<br/>
+                <b>Hotspot:</b> {Hotspot Classification}
+            """,
+            "style": {
+                "backgroundColor": "white",
+                "color": "black",
+            },
+        },
+        map_style=None,
     )
 
-    if ward_field is None:
-        return geojson
-
-    features = geojson.get(
-        "features",
-        [],
+    st.pydeck_chart(
+        deck,
+        use_container_width=True,
     )
-
-    for feature in features:
-
-        properties = feature.setdefault(
-            "properties",
-            {},
-        )
-
-        ward_value = properties.get(
-            ward_field,
-            "",
-        )
-
-        normalized = _normalise_ward(
-            ward_value
-        )
-
-        cases = summary_lookup.get(
-            normalized,
-            0,
-        )
-
-        properties[
-            "Programme_Cases"
-        ] = int(cases)
-
-    return geojson
 
 
 # ============================================================
-# WARD CASE TABLE
+# DOWNLOAD HELPERS
 # ============================================================
 
-def create_ward_case_table(
-    geojson,
-):
-
-    if not geojson:
+def hotspot_download_dataframe(hotspot_df):
+    if hotspot_df is None or hotspot_df.empty:
         return pd.DataFrame()
 
-    ward_field = get_geojson_ward_field(
-        geojson
-    )
+    preferred = [
+        "Cluster ID",
+        "Cluster Cases",
+        "Hotspot Classification",
+        "_lat",
+        "_lon",
+        "Disease",
+        "Date",
+        "Month",
+        "Ward",
+        "Ward Name",
+        "Facility",
+        "Facility Name",
+        "Address",
+    ]
 
-    if ward_field is None:
-        return pd.DataFrame()
+    available = [
+        c
+        for c in preferred
+        if c in hotspot_df.columns
+    ]
 
-    rows = []
+    result = hotspot_df[
+        available
+    ].copy()
 
-    for feature in geojson.get(
-        "features",
-        [],
-    ):
-
-        properties = feature.get(
-            "properties",
-            {},
+    if "_lat" in result.columns:
+        result.rename(
+            columns={
+                "_lat": "Latitude",
+                "_lon": "Longitude",
+            },
+            inplace=True,
         )
-
-        ward = properties.get(
-            ward_field,
-            "",
-        )
-
-        cases = properties.get(
-            "Programme_Cases",
-            0,
-        )
-
-        rows.append(
-            {
-                "Ward": _clean_text(ward),
-                "Cases": int(
-                    cases or 0
-                ),
-            }
-        )
-
-    result = pd.DataFrame(rows)
-
-    if result.empty:
-        return result
-
-    result = (
-        result
-        .sort_values(
-            "Cases",
-            ascending=False,
-        )
-        .reset_index(
-            drop=True
-        )
-    )
 
     return result
 
 
-# ============================================================
-# COORDINATE CLEANING
-# ============================================================
-
-def prepare_coordinates(
-    df,
-):
-
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    lat_col = _find_column(
-        df,
-        [
-            "Address Latitude",
-            "Latitude",
-            "Lat",
-            "LAT",
-            "latitude",
-        ],
-    )
-
-    lon_col = _find_column(
-        df,
-        [
-            "Address Longitude",
-            "Longitude",
-            "Lon",
-            "Lng",
-            "LONG",
-            "longitude",
-        ],
-    )
-
-    if lat_col is None or lon_col is None:
-        return pd.DataFrame()
-
-    work = df.copy()
-
-    work["_lat"] = pd.to_numeric(
-        work[lat_col],
-        errors="coerce",
-    )
-
-    work["_lon"] = pd.to_numeric(
-        work[lon_col],
-        errors="coerce",
-    )
-
-    work = work.dropna(
-        subset=[
-            "_lat",
-            "_lon",
-        ]
-    )
-
-    if work.empty:
-        return pd.DataFrame()
-
-    # Mumbai broad geographic bounds
-    work = work[
-        work["_lat"].between(
-            18.80,
-            19.35,
-        )
-        &
-        work["_lon"].between(
-            72.70,
-            73.20,
-        )
-    ]
-
-    if work.empty:
-        return pd.DataFrame()
-
-    return work
-
-
-# ============================================================
-# GRID HOTSPOT CLUSTERING
-# ============================================================
-
-def create_hotspots(
-    df,
-    grid_size_m=500,
-):
-
-    work = prepare_coordinates(
-        df
-    )
-
-    if work.empty:
-        return pd.DataFrame()
-
-    lat_factor = 111320.0
-
-    lon_factor = (
-        111320.0
-        * math.cos(
-            math.radians(19.08)
-        )
-    )
-
-    work["_x_m"] = (
-        work["_lon"]
-        * lon_factor
-    )
-
-    work["_y_m"] = (
-        work["_lat"]
-        * lat_factor
-    )
-
-    work["_grid_x"] = (
-        work["_x_m"]
-        / grid_size_m
-    ).astype(int)
-
-    work["_grid_y"] = (
-        work["_y_m"]
-        / grid_size_m
-    ).astype(int)
-
-    cluster_counts = (
-        work
-        .groupby(
-            [
-                "_grid_x",
-                "_grid_y",
-            ],
-            dropna=False,
-        )
-        .size()
-        .reset_index(
-            name="Cluster Cases"
-        )
-    )
-
-    cluster_counts[
-        "Cluster ID"
-    ] = (
-        "C-"
-        + (
-            cluster_counts.index
-            + 1
-        ).astype(str)
-    )
-
-    work = work.merge(
-        cluster_counts[
-            [
-                "_grid_x",
-                "_grid_y",
-                "Cluster Cases",
-                "Cluster ID",
-            ]
-        ],
-        on=[
-            "_grid_x",
-            "_grid_y",
-        ],
-        how="left",
-    )
-
-    # Keep one point per cluster for display
-    hotspot_points = (
-        work
-        .groupby(
-            "Cluster ID",
-            as_index=False,
-        )
-        .agg(
-            {
-                "_lat": "mean",
-                "_lon": "mean",
-                "Cluster Cases": "first",
-            }
-        )
-    )
-
-    if hotspot_points.empty:
-        return hotspot_points
-
-    max_cases = hotspot_points[
-        "Cluster Cases"
-    ].max()
-
-    if max_cases <= 1:
-
-        hotspot_points[
-            "Hotspot Level"
-        ] = "Low"
-
-    else:
-
-        def classify(value):
-
-            ratio = (
-                value
-                / max_cases
-            )
-
-            if ratio >= 0.75:
-                return "Very High"
-
-            if ratio >= 0.50:
-                return "High"
-
-            if ratio >= 0.25:
-                return "Moderate"
-
-            return "Low"
-
-        hotspot_points[
-            "Hotspot Level"
-        ] = hotspot_points[
-            "Cluster Cases"
-        ].apply(
-            classify
-        )
-
-    return hotspot_points
-
-
-# ============================================================
-# HOTSPOT MAP
-# ============================================================
-
-def render_hotspot_map(
-    df,
-    title="Geographic Disease Hotspots",
-):
-
-    hotspots = create_hotspots(
-        df,
-        grid_size_m=500,
-    )
-
-    if hotspots.empty:
-
-        st.info(
-            "No valid Mumbai-area latitude/longitude "
-            "records are available for hotspot mapping."
-        )
-
-        return
-
-    show_labels = st.session_state.get(
-        "show_data_labels",
-        False,
-    )
-
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=hotspots,
-        get_position=[
-            "_lon",
-            "_lat",
-        ],
-        get_radius=350,
-        get_fill_color=[
-            220,
-            50,
-            50,
-            170,
-        ],
-        get_line_color=[
-            80,
-            20,
-            20,
-            220,
-        ],
-        line_width_min_pixels=1,
-        pickable=True,
-    )
-
-    text_layer = None
-
-    if show_labels:
-
-        text_layer = pdk.Layer(
-            "TextLayer",
-            data=hotspots,
-            get_position=[
-                "_lon",
-                "_lat",
-            ],
-            get_text="Cluster Cases",
-            get_size=16,
-            get_color=[
-                20,
-                20,
-                20,
-            ],
-            get_text_anchor="middle",
-            get_alignment_baseline="center",
-        )
-
-    layers = [layer]
-
-    if text_layer is not None:
-        layers.append(
-            text_layer
-        )
-
-    view_state = pdk.ViewState(
-        latitude=19.0760,
-        longitude=72.8777,
-        zoom=10.5,
-        pitch=0,
-    )
-
-    deck = pdk.Deck(
-        layers=layers,
-        initial_view_state=view_state,
-        tooltip={
-            "html": (
-                "<b>Cluster:</b> {Cluster ID}"
-                "<br/>"
-                "<b>Cases:</b> {Cluster Cases}"
-                "<br/>"
-                "<b>Level:</b> {Hotspot Level}"
-            )
-        },
-    )
-
-    st.subheader(
-        "🔥 Hotspot Map"
-    )
-
-    st.pydeck_chart(
-        deck,
-        use_container_width=True,
-    )
-
-    st.caption(
-        f"Hotspot clusters identified: "
-        f"{len(hotspots):,}"
-    )
-
-    return hotspots
-
-
-# ============================================================
-# WARD CHOROPLETH
-# ============================================================
-
-def render_ward_choropleth(
-    geojson,
-):
-
-    if not geojson:
-
-        st.warning(
-            "BMC ward boundary data is unavailable."
-        )
-
-        return
-
-    ward_table = create_ward_case_table(
-        geojson
-    )
-
-    if ward_table.empty:
-
-        st.info(
-            "Ward-wise programme data could not "
-            "be matched with BMC ward boundaries."
-        )
-
-        return
-
-    layer = pdk.Layer(
-        "GeoJsonLayer",
-        data=geojson,
-        pickable=True,
-        stroked=True,
-        filled=True,
-        extruded=False,
-        get_fill_color=[
-            200,
-            200,
-            200,
-            130,
-        ],
-        get_line_color=[
-            80,
-            80,
-            80,
-            220,
-        ],
-        line_width_min_pixels=1,
-        auto_highlight=True,
-    )
-
-    view_state = pdk.ViewState(
-        latitude=19.0760,
-        longitude=72.8777,
-        zoom=10.5,
-        pitch=0,
-    )
-
-    deck = pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        tooltip={
-            "html": (
-                "<b>Ward:</b> {WARD_NO}"
-                "<br/>"
-                "<b>Programme Cases:</b> "
-                "{Programme_Cases}"
-            )
-        },
-    )
-
-    st.subheader(
-        "🎨 Ward-wise Programme Burden"
-    )
-
-    st.pydeck_chart(
-        deck,
-        use_container_width=True,
-    )
-
-    st.dataframe(
-        ward_table,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-
-# ============================================================
-# COMBINED MAP
-# ============================================================
-
-def render_combined_map(
-    geojson,
-    df,
-):
-
-    if not geojson:
-        return
-
-    hotspots = create_hotspots(
-        df,
-        grid_size_m=500,
-    )
-
-    ward_layer = pdk.Layer(
-        "GeoJsonLayer",
-        data=geojson,
-        pickable=True,
-        stroked=True,
-        filled=True,
-        get_fill_color=[
-            180,
-            180,
-            180,
-            80,
-        ],
-        get_line_color=[
-            70,
-            70,
-            70,
-            220,
-        ],
-        line_width_min_pixels=1,
-        auto_highlight=True,
-    )
-
-    layers = [
-        ward_layer
-    ]
-
-    if not hotspots.empty:
-
-        hotspot_layer = pdk.Layer(
-            "ScatterplotLayer",
-            data=hotspots,
-            get_position=[
-                "_lon",
-                "_lat",
-            ],
-            get_radius=350,
-            get_fill_color=[
-                220,
-                50,
-                50,
-                190,
-            ],
-            get_line_color=[
-                70,
-                20,
-                20,
-                230,
-            ],
-            line_width_min_pixels=1,
-            pickable=True,
-        )
-
-        layers.append(
-            hotspot_layer
-        )
-
-    view_state = pdk.ViewState(
-        latitude=19.0760,
-        longitude=72.8777,
-        zoom=10.5,
-        pitch=0,
-    )
-
-    deck = pdk.Deck(
-        layers=layers,
-        initial_view_state=view_state,
-        tooltip={
-            "html": (
-                "<b>Ward:</b> {WARD_NO}"
-                "<br/>"
-                "<b>Programme Cases:</b> "
-                "{Programme_Cases}"
-                "<br/>"
-                "<hr/>"
-                "<b>Cluster Cases:</b> "
-                "{Cluster Cases}"
-                "<br/>"
-                "<b>Hotspot Level:</b> "
-                "{Hotspot Level}"
-            )
-        },
-    )
-
-    st.subheader(
-        "🗺️ BMC Ward + Geographic Hotspots"
-    )
-
-    st.pydeck_chart(
-        deck,
-        use_container_width=True,
-    )
-
-
-# ============================================================
-# DOWNLOAD HOTSPOT DATA
-# ============================================================
-
-def download_hotspot_data(
-    df,
-):
-
-    hotspots = create_hotspots(
-        df,
-        grid_size_m=500,
-    )
-
-    if hotspots.empty:
-        return
-
-    export_df = hotspots.rename(
-        columns={
-            "_lat": "Latitude",
-            "_lon": "Longitude",
-        }
-    )
-
-    csv_bytes = export_df.to_csv(
-        index=False
-    ).encode(
-        "utf-8"
-    )
-
-    st.download_button(
-        label="⬇️ Download Hotspot Data",
-        data=csv_bytes,
-        file_name=(
-            "Mumbai_Geographic_Hotspots.csv"
-        ),
-        mime="text/csv",
-        use_container_width=False,
-        key="download_geographic_hotspots",
-    )
-
-
-# ============================================================
-# DOWNLOAD WARD DATA
-# ============================================================
-
-def download_ward_data(
-    geojson,
-):
-
-    ward_table = create_ward_case_table(
-        geojson
-    )
-
-    if ward_table.empty:
-        return
-
-    excel_buffer = io.BytesIO()
+def ward_excel_bytes(ward_summary):
+    if ward_summary is None or ward_summary.empty:
+        return None
+
+    buffer = io.BytesIO()
 
     with pd.ExcelWriter(
-        excel_buffer,
+        buffer,
         engine="openpyxl",
     ) as writer:
 
-        ward_table.to_excel(
+        ward_summary.to_excel(
             writer,
             index=False,
             sheet_name="Ward Summary",
         )
 
-    excel_buffer.seek(0)
+    buffer.seek(0)
 
-    st.download_button(
-        label="⬇️ Download Ward Summary Excel",
-        data=excel_buffer,
-        file_name=(
-            "Mumbai_Ward_Programme_Burden.xlsx"
-        ),
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
-        use_container_width=False,
-        key="download_geographic_ward_excel",
-    )
+    return buffer.getvalue()
 
 
 # ============================================================
-# MAIN GEOGRAPHIC MAP
+# MAIN RENDER
 # ============================================================
 
-def render_geographic_map(
-    df,
-    selected_disease=None,
-):
-
+def render_geographic_map(filtered_df):
     st.header(
-        "🗺️ Geographic Disease & Ward Analysis"
+        "🗺️ Geographic Disease Management Map"
     )
 
     st.caption(
-        "BMC administrative ward boundaries + "
-        "programme disease hotspot analysis"
+        "BMC ward boundaries are used as the primary "
+        "management geography. All valid coordinates "
+        "outside BMC are also retained and plotted."
     )
 
-
     # --------------------------------------------------------
-    # LOAD BMC WARDS
+    # LOAD BMC BOUNDARY
     # --------------------------------------------------------
 
-    with st.spinner(
-        "Loading BMC ward boundaries..."
-    ):
+    bmc_geojson, geo_error = load_bmc_wards()
 
-        geojson, error = load_bmc_wards()
-
-
-    if geojson is None:
-
-        st.error(
-            "BMC ward boundaries could not be loaded."
+    if geo_error:
+        st.warning(
+            "BMC ward boundary layer is not available."
         )
 
-        if error:
-            st.caption(error)
+        st.caption(
+            "The disease coordinate map will continue "
+            "to work without the BMC polygon layer."
+        )
+
+    # --------------------------------------------------------
+    # PREPARE COORDINATES
+    # --------------------------------------------------------
+
+    coordinate_df, invalid_count = (
+        prepare_coordinates(
+            filtered_df
+        )
+    )
+
+    # --------------------------------------------------------
+    # DATA AVAILABILITY
+    # --------------------------------------------------------
+
+    if coordinate_df.empty:
 
         st.info(
-            "The programme data and other dashboard "
-            "sections are not affected."
+            "No valid Address Latitude / Address Longitude "
+            "records are available for the current filters."
         )
+
+        if invalid_count:
+            st.caption(
+                f"{invalid_count:,} records have missing "
+                "or invalid coordinates."
+            )
 
         return
-
-
-    # --------------------------------------------------------
-    # CHECK WARD COUNT
-    # --------------------------------------------------------
-
-    feature_count = len(
-        geojson.get(
-            "features",
-            [],
-        )
-    )
-
-    st.success(
-        f"BMC GIS ward polygons loaded: "
-        f"{feature_count}"
-    )
-
 
     # --------------------------------------------------------
     # DISEASE SELECTION
     # --------------------------------------------------------
 
-    disease_column = _find_column(
-        df,
+    disease_col = _find_column(
+        coordinate_df,
         [
             "Disease",
             "Disease Name",
             "Disease_Name",
+            "Disease Type",
         ],
     )
 
-    map_df = df.copy()
+    map_df = coordinate_df.copy()
 
-
-    if disease_column is not None:
-
-        diseases = (
-            map_df[disease_column]
-            .dropna()
-            .astype(str)
-            .str.strip()
-        )
+    if disease_col:
 
         diseases = sorted(
             [
-                x
-                for x in diseases.unique()
-                if x
+                _clean_text(x)
+                for x in map_df[disease_col].dropna().unique()
+                if _clean_text(x)
             ]
         )
 
-
         if len(diseases) > 1:
 
-            disease_options = [
-                "All Diseases"
-            ] + diseases
-
-            default_index = 0
-
-            if (
-                selected_disease
-                and selected_disease in diseases
-            ):
-
-                default_index = (
-                    disease_options.index(
-                        selected_disease
-                    )
-                )
-
-
-            selected_map_disease = st.selectbox(
+            selected_disease = st.selectbox(
                 "🦠 Select Disease to Display on Map",
-                disease_options,
-                index=default_index,
-                key="geographic_map_disease",
+                diseases,
+                key="geo_disease_selection",
             )
 
-
-            if (
-                selected_map_disease
-                != "All Diseases"
-            ):
-
-                map_df = map_df[
-                    map_df[disease_column]
-                    .astype(str)
-                    .str.strip()
-                    == selected_map_disease
-                ]
+            map_df = map_df[
+                map_df[disease_col]
+                .astype(str)
+                .str.strip()
+                == selected_disease
+            ].copy()
 
         elif len(diseases) == 1:
 
-            selected_map_disease = diseases[0]
-
             st.info(
-                f"Disease selected: "
-                f"**{selected_map_disease}**"
+                f"Selected disease: {diseases[0]}"
             )
 
-
-    if map_df.empty:
-
-        st.warning(
-            "No records available for the selected "
-            "geographic map filters."
-        )
-
-        return
-
-
     # --------------------------------------------------------
-    # SUMMARY
+    # HOTSPOTS
     # --------------------------------------------------------
 
-    ward_summary = prepare_ward_summary(
+    hotspot_df = create_hotspots(
         map_df
     )
 
-    hotspot_summary = create_hotspots(
-        map_df,
-        grid_size_m=500,
+    cluster_summary = create_cluster_summary(
+        hotspot_df
     )
 
+    # --------------------------------------------------------
+    # KPI
+    # --------------------------------------------------------
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
-
-    with c1:
-
+    with col1:
         st.metric(
-            "Records for Map",
+            "Valid Coordinates",
             f"{len(map_df):,}",
         )
 
-
-    with c2:
-
-        st.metric(
-            "Wards with Records",
-            f"{len(ward_summary):,}",
-        )
-
-
-    with c3:
-
+    with col2:
         st.metric(
             "Hotspot Clusters",
-            f"{len(hotspot_summary):,}",
+            f"{len(cluster_summary):,}",
         )
 
+    with col3:
+        if not cluster_summary.empty:
+            st.metric(
+                "Highest Cluster",
+                f"{int(cluster_summary['Cluster Cases'].max()):,}",
+            )
+        else:
+            st.metric(
+                "Highest Cluster",
+                "0",
+            )
+
+    with col4:
+        st.metric(
+            "Invalid Coordinates",
+            f"{invalid_count:,}",
+        )
 
     st.divider()
 
+    # --------------------------------------------------------
+    # MAP EXTENT
+    # --------------------------------------------------------
+
+    extent_option = st.radio(
+        "Map Extent",
+        [
+            "BMC / Mumbai Focus",
+            "All Coordinates",
+        ],
+        horizontal=True,
+        key="geo_map_extent",
+    )
+
+    all_extent = (
+        extent_option == "All Coordinates"
+    )
 
     # --------------------------------------------------------
-    # MAP TABS
+    # TABS
     # --------------------------------------------------------
 
     tab1, tab2, tab3 = st.tabs(
         [
             "🔥 Hotspot Map",
-            "🎨 Ward Choropleth",
-            "🗺️ Ward + Hotspots",
+            "🏘️ BMC Ward Map",
+            "🗺️ BMC + All Coordinates",
         ]
     )
 
-
     # --------------------------------------------------------
-    # HOTSPOT MAP
+    # TAB 1
     # --------------------------------------------------------
 
     with tab1:
 
-        render_hotspot_map(
-            map_df
+        st.subheader(
+            "Disease Hotspots"
         )
 
+        st.caption(
+            "All valid geographic coordinates are plotted. "
+            "Points are not restricted to BMC limits."
+        )
+
+        render_pydeck_map(
+            hotspot_df=hotspot_df,
+            bmc_geojson=None,
+            ward_map=False,
+            all_extent=all_extent,
+        )
+
+        if not cluster_summary.empty:
+
+            st.subheader(
+                "Hotspot Summary"
+            )
+
+            display_summary = (
+                cluster_summary
+                .sort_values(
+                    "Cluster Cases",
+                    ascending=False,
+                )
+                .reset_index(drop=True)
+            )
+
+            st.dataframe(
+                display_summary,
+                use_container_width=True,
+                hide_index=True,
+            )
 
     # --------------------------------------------------------
-    # WARD MAP
+    # TAB 2
     # --------------------------------------------------------
 
     with tab2:
 
-        merged_geojson = merge_ward_cases(
-            geojson,
-            map_df,
+        st.subheader(
+            "BMC Administrative Ward Burden"
         )
 
-        render_ward_choropleth(
-            merged_geojson
+        ward_summary = create_ward_summary(
+            filtered_df
         )
 
+        if (
+            bmc_geojson is not None
+            and not ward_summary.empty
+        ):
+
+            ward_geojson = (
+                merge_ward_counts_into_geojson(
+                    bmc_geojson,
+                    ward_summary,
+                )
+            )
+
+            render_pydeck_map(
+                hotspot_df=None,
+                bmc_geojson=ward_geojson,
+                ward_map=True,
+                all_extent=False,
+            )
+
+        elif bmc_geojson is None:
+
+            st.info(
+                "BMC_Wards.geojson is required "
+                "for the ward boundary map."
+            )
+
+        else:
+
+            st.info(
+                "Ward information is not available "
+                "in the current filtered data."
+            )
+
+        if not ward_summary.empty:
+
+            st.subheader(
+                "Ward-wise Programme Burden"
+            )
+
+            st.dataframe(
+                ward_summary,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            excel_data = ward_excel_bytes(
+                ward_summary
+            )
+
+            if excel_data:
+
+                st.download_button(
+                    "⬇️ Download Ward Summary Excel",
+                    data=excel_data,
+                    file_name=(
+                        "BMC_Ward_Programme_Summary.xlsx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-"
+                        "officedocument.spreadsheetml.sheet"
+                    ),
+                )
 
     # --------------------------------------------------------
-    # COMBINED MAP
+    # TAB 3
     # --------------------------------------------------------
 
     with tab3:
 
-        merged_geojson = merge_ward_cases(
-            geojson,
-            map_df,
+        st.subheader(
+            "BMC Ward Boundary + All Valid Coordinates"
         )
 
-        render_combined_map(
-            merged_geojson,
-            map_df,
+        st.caption(
+            "BMC wards are shown as the primary management "
+            "reference. Coordinates outside BMC are "
+            "retained and plotted."
         )
 
+        if bmc_geojson is not None:
+
+            render_pydeck_map(
+                hotspot_df=hotspot_df,
+                bmc_geojson=bmc_geojson,
+                ward_map=True,
+                all_extent=all_extent,
+            )
+
+        else:
+
+            render_pydeck_map(
+                hotspot_df=hotspot_df,
+                bmc_geojson=None,
+                ward_map=False,
+                all_extent=all_extent,
+            )
 
     # --------------------------------------------------------
-    # DOWNLOADS
-    # --------------------------------------------------------
-
-    st.divider()
-
-    st.subheader(
-        "⬇️ Geographic Analysis Downloads"
-    )
-
-    d1, d2 = st.columns(2)
-
-
-    with d1:
-
-        download_hotspot_data(
-            map_df
-        )
-
-
-    with d2:
-
-        merged_geojson = merge_ward_cases(
-            geojson,
-            map_df,
-        )
-
-        download_ward_data(
-            merged_geojson
-        )
-
-
-    # --------------------------------------------------------
-    # WARD SUMMARY
+    # DOWNLOAD HOTSPOT DATA
     # --------------------------------------------------------
 
     st.divider()
 
     st.subheader(
-        "📊 Ward-wise Geographic Summary"
+        "📥 Geographic Data Export"
     )
 
-    merged_geojson = merge_ward_cases(
-        geojson,
-        map_df,
+    download_df = hotspot_download_dataframe(
+        hotspot_df
     )
 
-    ward_table = create_ward_case_table(
-        merged_geojson
-    )
+    if not download_df.empty:
 
-    if not ward_table.empty:
+        csv_data = download_df.to_csv(
+            index=False
+        ).encode("utf-8")
 
-        st.dataframe(
-            ward_table,
-            use_container_width=True,
-            hide_index=True,
+        st.download_button(
+            "⬇️ Download Hotspot Coordinate Data",
+            data=csv_data,
+            file_name=(
+                "Disease_Hotspot_Coordinate_Data.csv"
+            ),
+            mime="text/csv",
         )
 
+        st.caption(
+            "Export includes disease/facility/ward/address "
+            "fields where available, coordinates, cluster ID, "
+            "cluster case count and hotspot classification."
+        )
 
-    # --------------------------------------------------------
-    # DATA QUALITY NOTE
-    # --------------------------------------------------------
+    else:
 
-    valid_coordinates = prepare_coordinates(
-        map_df
-    )
-
-    st.divider()
-
-    st.info(
-        f"Geographic mapping uses valid address "
-        f"coordinates only. "
-        f"Valid mapped records: "
-        f"{len(valid_coordinates):,} / "
-        f"{len(map_df):,}."
-    )
+        st.info(
+            "No hotspot data available for download."
+        )
