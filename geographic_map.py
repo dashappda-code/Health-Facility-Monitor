@@ -1,7 +1,6 @@
-# geographic_map.py
-
 import io
 import math
+
 import pandas as pd
 import requests
 import streamlit as st
@@ -15,19 +14,16 @@ import pydeck as pdk
 LAT_COL = "Address Latitude"
 LON_COL = "Address Longitude"
 
+GRID_SIZE = 0.005
+
+# ArcGIS-hosted BMC ward boundary layer
 BMC_WARD_URL = (
     "https://services8.arcgis.com/"
     "r6MmJtuWAzMawmJ8/arcgis/rest/services/"
     "BMConMaps_Nov26gdb/FeatureServer/24"
 )
 
-GRID_SIZE = 0.005
-
-
-# ============================================================
-# PROGRAMME MASTER WARDS
-# ============================================================
-
+# Programme/data master ward list supplied for this dashboard
 PROGRAMME_WARDS = [
     "A",
     "B",
@@ -58,145 +54,334 @@ PROGRAMME_WARDS = [
 
 
 # ============================================================
-# HELPERS
+# BASIC HELPERS
 # ============================================================
 
-def clean_text(x):
-
-    if pd.isna(x):
+def clean_text(value):
+    if pd.isna(value):
         return ""
+    return str(value).strip()
 
-    return str(x).strip()
 
+def find_column(df, possible_names):
+    """
+    Find a column using case-insensitive matching.
+    """
+    if df is None or df.empty:
+        return None
 
-def find_column(df, candidates):
+    columns = {str(c).strip().lower(): c for c in df.columns}
 
-    lookup = {
-        str(c).strip().lower(): c
-        for c in df.columns
-    }
-
-    for candidate in candidates:
-
-        key = str(candidate).strip().lower()
-
-        if key in lookup:
-            return lookup[key]
+    for name in possible_names:
+        key = str(name).strip().lower()
+        if key in columns:
+            return columns[key]
 
     return None
 
 
-def normalise_ward(x):
+def normalise_ward(value):
+    """
+    Convert common ward spellings into the programme ward codes.
+    """
 
-    x = clean_text(x).upper()
+    value = clean_text(value).upper()
 
-    if not x:
+    if not value:
         return ""
 
-    x = (
-        x.replace("-", "/")
-        .replace("_", "/")
-        .replace(".", "")
+    value = (
+        value.replace("-", " ")
+        .replace("_", " ")
+        .replace(".", " ")
     )
 
-    x = " ".join(x.split())
+    value = " ".join(value.split())
 
-    replacements = {
-
+    mapping = {
         "F NORTH": "FN",
-        "F/NORTH": "FN",
-        "F N": "FN",
         "FN": "FN",
 
         "F SOUTH": "FS",
-        "F/SOUTH": "FS",
-        "F S": "FS",
         "FS": "FS",
 
         "G NORTH": "GN",
-        "G/NORTH": "GN",
-        "G N": "GN",
         "GN": "GN",
 
         "G SOUTH": "GS",
-        "G/SOUTH": "GS",
-        "G S": "GS",
         "GS": "GS",
 
         "H EAST": "HE",
-        "H/EAST": "HE",
-        "H E": "HE",
         "HE": "HE",
 
         "H WEST": "HW",
-        "H/WEST": "HW",
-        "H W": "HW",
         "HW": "HW",
 
         "K EAST": "KE",
-        "K/EAST": "KE",
-        "K E": "KE",
         "KE": "KE",
 
         "K WEST": "KW",
-        "K/WEST": "KW",
-        "K W": "KW",
         "KW": "KW",
 
         "M EAST": "ME",
-        "M/EAST": "ME",
-        "M E": "ME",
         "ME": "ME",
 
         "M WEST": "MW",
-        "M/WEST": "MW",
-        "M W": "MW",
         "MW": "MW",
 
         "P EAST": "PE",
-        "P/EAST": "PE",
-        "P E": "PE",
         "PE": "PE",
 
         "P NORTH": "PN",
-        "P/NORTH": "PN",
-        "P N": "PN",
         "PN": "PN",
 
         "P SOUTH": "PS",
-        "P/SOUTH": "PS",
-        "P S": "PS",
         "PS": "PS",
 
         "R CENTRAL": "RC",
-        "R/CENTRAL": "RC",
-        "R C": "RC",
         "RC": "RC",
 
         "R NORTH": "RN",
-        "R/NORTH": "RN",
-        "R N": "RN",
         "RN": "RN",
 
         "R SOUTH": "RS",
-        "R/SOUTH": "RS",
-        "R S": "RS",
         "RS": "RS",
     }
 
-    if x in replacements:
-        return replacements[x]
+    if value in mapping:
+        return mapping[value]
 
-    return x
+    # Remove spaces for direct programme codes
+    compact = value.replace(" ", "")
+
+    if compact in PROGRAMME_WARDS:
+        return compact
+
+    # Direct single-letter wards
+    if value in PROGRAMME_WARDS:
+        return value
+
+    return value
 
 
 # ============================================================
-# LOAD BMC WARD BOUNDARIES
+# COORDINATE PREPARATION
+# ============================================================
+
+def prepare_coordinates(df):
+    """
+    Keep ALL valid coordinates.
+
+    IMPORTANT:
+    No artificial Mumbai/BMC restriction is applied.
+    """
+
+    if df is None or df.empty:
+        return pd.DataFrame(), 0, 0
+
+    if LAT_COL not in df.columns or LON_COL not in df.columns:
+        return pd.DataFrame(), len(df), 0
+
+    work = df.copy()
+
+    work["_lat"] = pd.to_numeric(
+        work[LAT_COL],
+        errors="coerce"
+    )
+
+    work["_lon"] = pd.to_numeric(
+        work[LON_COL],
+        errors="coerce"
+    )
+
+    valid = (
+        work["_lat"].notna()
+        & work["_lon"].notna()
+        & work["_lat"].between(-90, 90)
+        & work["_lon"].between(-180, 180)
+    )
+
+    valid_df = work.loc[valid].copy()
+
+    invalid_count = int((~valid).sum())
+    valid_count = int(valid.sum())
+
+    return valid_df, invalid_count, valid_count
+
+
+def coordinate_availability_text(
+    total_records,
+    valid_records,
+    label="Selected Data"
+):
+    if total_records <= 0:
+        return f"{label}: 0"
+
+    percentage = (valid_records / total_records) * 100
+
+    return (
+        f"{label}: {total_records:,} | "
+        f"Valid Address Coordinates: "
+        f"{valid_records:,} ({percentage:.1f}%)"
+    )
+
+
+# ============================================================
+# DISEASE COLUMN
+# ============================================================
+
+def get_disease_column(df):
+
+    return find_column(
+        df,
+        [
+            "Disease",
+            "Disease Name",
+            "Disease_Name",
+            "DiseaseName",
+            "Disease Type",
+            "Disease_Type",
+        ],
+    )
+
+
+# ============================================================
+# HOTSPOT CREATION
+# ============================================================
+
+def create_hotspots(df):
+    """
+    Grid-based hotspot clustering.
+
+    GRID_SIZE:
+        approximately 0.005 degree cells.
+
+    Classification:
+        High      >= 10
+        Moderate  >= 5
+        Low       < 5
+    """
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    work = df.copy()
+
+    if "_lat" not in work.columns or "_lon" not in work.columns:
+        return pd.DataFrame()
+
+    work["_grid_lat"] = (
+        work["_lat"] / GRID_SIZE
+    ).round() * GRID_SIZE
+
+    work["_grid_lon"] = (
+        work["_lon"] / GRID_SIZE
+    ).round() * GRID_SIZE
+
+    work["Cluster ID"] = (
+        work["_grid_lat"].round(6).astype(str)
+        + "_"
+        + work["_grid_lon"].round(6).astype(str)
+    )
+
+    summary = (
+        work.groupby("Cluster ID", dropna=False)
+        .agg(
+            Cluster_Latitude=("_lat", "mean"),
+            Cluster_Longitude=("_lon", "mean"),
+            Cluster_Cases=("_lat", "size"),
+        )
+        .reset_index()
+    )
+
+    def classify(cases):
+        if cases >= 10:
+            return "High"
+        elif cases >= 5:
+            return "Moderate"
+        return "Low"
+
+    summary["Hotspot Classification"] = (
+        summary["Cluster_Cases"]
+        .apply(classify)
+    )
+
+    return summary
+
+
+# ============================================================
+# WARD SUMMARY
+# ============================================================
+
+def create_ward_summary(df):
+    """
+    Always show all 25 programme wards.
+    Zero-case wards are retained.
+    """
+
+    summary = pd.DataFrame(
+        {"Ward": PROGRAMME_WARDS}
+    )
+
+    if df is None or df.empty:
+        summary["Cases"] = 0
+        return summary
+
+    ward_col = find_column(
+        df,
+        [
+            "Ward",
+            "Ward Name",
+            "Ward_Name",
+            "WardName",
+            "Programme Ward",
+            "Programme_Ward",
+        ],
+    )
+
+    if ward_col is None:
+        summary["Cases"] = 0
+        return summary
+
+    work = df.copy()
+
+    work["_Programme_Ward"] = (
+        work[ward_col]
+        .apply(normalise_ward)
+    )
+
+    counts = (
+        work["_Programme_Ward"]
+        .value_counts()
+        .rename_axis("Ward")
+        .reset_index(name="Cases")
+    )
+
+    summary = summary.merge(
+        counts,
+        on="Ward",
+        how="left",
+    )
+
+    summary["Cases"] = (
+        pd.to_numeric(
+            summary["Cases"],
+            errors="coerce"
+        )
+        .fillna(0)
+        .astype(int)
+    )
+
+    return summary
+
+
+# ============================================================
+# BMC WARD BOUNDARY
 # ============================================================
 
 @st.cache_data(
     ttl=86400,
-    show_spinner=False,
+    show_spinner=False
 )
 def load_bmc_wards():
 
@@ -220,381 +405,24 @@ def load_bmc_wards():
 
         data = response.json()
 
-        if (
-            isinstance(data, dict)
-            and data.get("type") == "FeatureCollection"
-            and data.get("features")
-        ):
+        if not isinstance(data, dict):
+            return None
 
-            return data, None
+        if "features" not in data:
+            return None
 
-        return (
-            None,
-            "Ward boundary layer returned no features.",
-        )
+        return data
 
-    except Exception as e:
+    except Exception:
+        return None
 
-        return None, str(e)
 
+def get_geojson_ward_name(properties):
 
-# ============================================================
-# COORDINATES
-# ============================================================
+    if not isinstance(properties, dict):
+        return ""
 
-def prepare_coordinates(df):
-
-    if df is None or df.empty:
-
-        return (
-            pd.DataFrame(),
-            0,
-            0,
-        )
-
-    if LAT_COL not in df.columns:
-
-        return (
-            pd.DataFrame(),
-            len(df),
-            0,
-        )
-
-    if LON_COL not in df.columns:
-
-        return (
-            pd.DataFrame(),
-            len(df),
-            0,
-        )
-
-    work = df.copy()
-
-    work["_lat"] = pd.to_numeric(
-        work[LAT_COL],
-        errors="coerce",
-    )
-
-    work["_lon"] = pd.to_numeric(
-        work[LON_COL],
-        errors="coerce",
-    )
-
-    invalid = (
-        work["_lat"].isna()
-        | work["_lon"].isna()
-        | ~work["_lat"].between(-90, 90)
-        | ~work["_lon"].between(-180, 180)
-    )
-
-    invalid_count = int(
-        invalid.sum()
-    )
-
-    valid_count = int(
-        (~invalid).sum()
-    )
-
-    # IMPORTANT:
-    # No BMC/Mumbai restriction.
-    # Every valid coordinate is retained.
-    work = work[
-        ~invalid
-    ].copy()
-
-    work.reset_index(
-        drop=True,
-        inplace=True,
-    )
-
-    return (
-        work,
-        invalid_count,
-        valid_count,
-    )
-
-
-# ============================================================
-# COORDINATE AVAILABILITY
-# ============================================================
-
-def coordinate_availability_text(
-    total_records,
-    valid_records,
-    label,
-):
-
-    if total_records <= 0:
-
-        return (
-            f"{label}: 0 | "
-            "Valid Address Coordinates: 0 (0.0%)"
-        )
-
-    percentage = (
-        valid_records
-        / total_records
-        * 100
-    )
-
-    return (
-        f"{label}: {total_records:,} | "
-        f"Valid Address Coordinates: "
-        f"{valid_records:,} "
-        f"({percentage:.1f}%)"
-    )
-
-
-# ============================================================
-# HOTSPOTS
-# ============================================================
-
-def create_hotspots(df):
-
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    work = df.copy()
-
-    work["_grid_lat"] = (
-        work["_lat"]
-        / GRID_SIZE
-    ).apply(math.floor)
-
-    work["_grid_lon"] = (
-        work["_lon"]
-        / GRID_SIZE
-    ).apply(math.floor)
-
-    work["Cluster ID"] = (
-        "C_"
-        + work["_grid_lat"].astype(str)
-        + "_"
-        + work["_grid_lon"].astype(str)
-    )
-
-    counts = (
-        work.groupby(
-            "Cluster ID"
-        )
-        .size()
-        .rename(
-            "Cluster Cases"
-        )
-        .reset_index()
-    )
-
-    work = work.merge(
-        counts,
-        on="Cluster ID",
-        how="left",
-    )
-
-    def classify(n):
-
-        if n >= 10:
-            return "High"
-
-        if n >= 5:
-            return "Moderate"
-
-        return "Low"
-
-    work[
-        "Hotspot Classification"
-    ] = (
-        work["Cluster Cases"]
-        .astype(int)
-        .apply(classify)
-    )
-
-    return work
-
-
-def cluster_summary(df):
-
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    result = (
-        df.groupby(
-            "Cluster ID"
-        )
-        .agg(
-            Latitude=(
-                "_lat",
-                "mean",
-            ),
-            Longitude=(
-                "_lon",
-                "mean",
-            ),
-            Cases=(
-                "Cluster Cases",
-                "max",
-            ),
-            Hotspot=(
-                "Hotspot Classification",
-                "first",
-            ),
-        )
-        .reset_index()
-    )
-
-    return result.sort_values(
-        "Cases",
-        ascending=False,
-    )
-
-
-# ============================================================
-# WARD SUMMARY — ALL 25 PROGRAMME WARDS
-# ============================================================
-
-def create_ward_summary(df):
-
-    result = pd.DataFrame(
-        {
-            "Ward": PROGRAMME_WARDS,
-            "Cases": 0,
-        }
-    )
-
-    if df is None or df.empty:
-        return result
-
-    ward_col = find_column(
-        df,
-        [
-            "Ward",
-            "Ward Name",
-            "Ward_Name",
-            "WARD",
-            "BMC Ward",
-            "Administrative Ward",
-        ],
-    )
-
-    if ward_col is None:
-        return result
-
-    temp = df.copy()
-
-    temp["_ward"] = (
-        temp[ward_col]
-        .apply(normalise_ward)
-    )
-
-    temp = temp[
-        temp["_ward"] != ""
-    ].copy()
-
-    if temp.empty:
-        return result
-
-    counts = (
-        temp.groupby(
-            "_ward"
-        )
-        .size()
-        .to_dict()
-    )
-
-    result["Cases"] = (
-        result["Ward"]
-        .map(counts)
-        .fillna(0)
-        .astype(int)
-    )
-
-    return result.sort_values(
-        "Cases",
-        ascending=False,
-        kind="stable",
-    ).reset_index(
-        drop=True
-    )
-
-
-# ============================================================
-# CHOROPLETH COLOUR
-# ============================================================
-
-def get_choropleth_color(
-    value,
-    maximum,
-):
-
-    if maximum <= 0:
-        return [
-            235,
-            235,
-            235,
-            150,
-        ]
-
-    ratio = (
-        value
-        / maximum
-    )
-
-    if ratio >= 0.80:
-        return [
-            120,
-            0,
-            0,
-            220,
-        ]
-
-    if ratio >= 0.60:
-        return [
-            190,
-            30,
-            30,
-            210,
-        ]
-
-    if ratio >= 0.40:
-        return [
-            230,
-            80,
-            50,
-            200,
-        ]
-
-    if ratio >= 0.20:
-        return [
-            250,
-            170,
-            50,
-            190,
-        ]
-
-    if ratio > 0:
-        return [
-            255,
-            225,
-            100,
-            180,
-        ]
-
-    return [
-        235,
-        235,
-        235,
-        130,
-    ]
-
-
-# ============================================================
-# FIND WARD VALUE FROM BOUNDARY
-# ============================================================
-
-def get_geojson_ward_name(
-    properties,
-):
-
-    possible_fields = [
+    possible = [
         "NAME",
         "WARD_NAME",
         "Ward",
@@ -606,72 +434,99 @@ def get_geojson_ward_name(
         "WardName",
     ]
 
-    for key in possible_fields:
-
+    for key in possible:
         if key in properties:
+            value = clean_text(properties.get(key))
 
-            value = properties[key]
-
-            if clean_text(value):
-
-                return normalise_ward(
-                    value
-                )
+            if value:
+                return normalise_ward(value)
 
     return ""
 
 
 # ============================================================
-# PREPARE CHOROPLETH
+# CHOROPLETH
 # ============================================================
+
+def get_choropleth_color(cases, max_cases):
+
+    try:
+        cases = float(cases)
+        max_cases = float(max_cases)
+    except Exception:
+        return [245, 245, 245, 150]
+
+    if cases <= 0:
+        return [245, 245, 245, 110]
+
+    if max_cases <= 0:
+        return [255, 235, 150, 190]
+
+    ratio = min(
+        max(cases / max_cases, 0),
+        1,
+    )
+
+    # Yellow -> orange -> red
+    if ratio < 0.33:
+
+        return [
+            255,
+            235,
+            int(150 - ratio * 100),
+            190,
+        ]
+
+    elif ratio < 0.66:
+
+        return [
+            255,
+            int(220 - (ratio - 0.33) * 170),
+            60,
+            205,
+        ]
+
+    else:
+
+        return [
+            int(255 - (ratio - 0.66) * 80),
+            55,
+            45,
+            220,
+        ]
+
 
 def prepare_bmc_choropleth(
     geojson,
-    ward_summary,
+    ward_summary
 ):
 
-    if geojson is None:
+    if not geojson:
         return None
 
-    output = {
-        "type": "FeatureCollection",
-        "features": [],
-    }
+    if "features" not in geojson:
+        return None
 
-    counts = {}
-
-    if (
-        ward_summary is not None
-        and not ward_summary.empty
-    ):
-
-        counts = dict(
-            zip(
-                ward_summary["Ward"],
-                ward_summary["Cases"],
-            )
+    ward_cases = dict(
+        zip(
+            ward_summary["Ward"],
+            ward_summary["Cases"],
         )
+    )
 
-    maximum = (
-        max(counts.values())
-        if counts
+    max_cases = (
+        ward_summary["Cases"].max()
+        if not ward_summary.empty
         else 0
     )
 
-    for feature in geojson.get(
-        "features",
-        [],
-    ):
+    features = []
 
-        feature_copy = dict(
-            feature
-        )
+    for feature in geojson["features"]:
 
-        properties = dict(
-            feature_copy.get(
-                "properties",
-                {},
-            )
+        properties = (
+            feature.get("properties")
+            or {}
         )
 
         ward = get_geojson_ward_name(
@@ -679,178 +534,159 @@ def prepare_bmc_choropleth(
         )
 
         cases = int(
-            counts.get(
+            ward_cases.get(
                 ward,
-                0,
+                0
             )
         )
 
-        properties[
-            "Programme Cases"
-        ] = cases
+        properties["Programme Cases"] = cases
+        properties["Ward Display"] = ward or "Unknown"
 
-        properties[
-            "Ward Display"
-        ] = (
-            ward
-            if ward
-            else "BMC Ward"
+        properties["fill_color"] = (
+            get_choropleth_color(
+                cases,
+                max_cases,
+            )
         )
 
-        properties[
-            "fill_color"
-        ] = get_choropleth_color(
-            cases,
-            maximum,
-        )
-
-        # Strong black ward boundary
-        properties[
-            "line_color"
-        ] = [
+        # Strong ward boundary
+        properties["line_color"] = [
             20,
             20,
             20,
             255,
         ]
 
-        feature_copy[
-            "properties"
-        ] = properties
+        feature["properties"] = properties
 
-        output[
-            "features"
-        ].append(
-            feature_copy
-        )
+        features.append(feature)
 
-    return output
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+    }
 
 
 # ============================================================
-# HOTSPOT MAP DATA
+# DOWNLOAD DATA
 # ============================================================
 
-def prepare_hotspot_display(
+def download_hotspot_data(
     hotspot_df,
+    source_df,
+    disease_col,
 ):
 
-    if (
-        hotspot_df is None
-        or hotspot_df.empty
-    ):
+    if hotspot_df is None or hotspot_df.empty:
         return pd.DataFrame()
 
-    work = hotspot_df.copy()
+    result = hotspot_df.copy()
 
-    # Ward
-    ward_col = find_column(
-        work,
-        [
-            "Ward",
-            "Ward Name",
-            "Ward_Name",
-            "WARD",
-            "BMC Ward",
-            "Administrative Ward",
-        ],
-    )
+    # Standard columns
+    result["Latitude"] = result[
+        "Cluster_Latitude"
+    ]
 
-    if ward_col:
-
-        work[
-            "Map Ward"
-        ] = work[
-            ward_col
-        ].apply(
-            normalise_ward
-        )
-
-    else:
-
-        work["Map Ward"] = ""
+    result["Longitude"] = result[
+        "Cluster_Longitude"
+    ]
 
     # Disease
-    disease_col = find_column(
-        work,
-        [
-            "Disease",
-            "Disease Name",
-            "Disease_Name",
-            "Disease Type",
-        ],
-    )
+    if (
+        disease_col
+        and source_df is not None
+        and not source_df.empty
+    ):
+        if disease_col in source_df.columns:
+            disease_values = (
+                source_df[disease_col]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .unique()
+            )
 
-    if disease_col:
+            if len(disease_values) == 1:
+                result["Disease"] = (
+                    disease_values[0]
+                )
 
-        work[
-            "Map Disease"
-        ] = work[
-            disease_col
-        ].astype(str)
+    # Required output order
+    preferred_columns = [
+        "Disease",
+        "Cluster ID",
+        "Cluster_Cases",
+        "Hotspot Classification",
+        "Latitude",
+        "Longitude",
+    ]
 
-    else:
+    available = [
+        c for c in preferred_columns
+        if c in result.columns
+    ]
 
-        work["Map Disease"] = ""
-
-    return work
+    return result[available]
 
 
 # ============================================================
-# MAP
+# MAP LAYERS
 # ============================================================
 
-def show_map(
-    hotspot_df=None,
-    bmc_geojson=None,
-    show_boundary=True,
-    all_extent=False,
+def build_map(
+    choropleth_geojson,
+    hotspot_df,
+    extent
 ):
 
     layers = []
 
     # --------------------------------------------------------
-    # BMC CHOROPLETH
+    # Ward polygons
     # --------------------------------------------------------
 
-    if (
-        show_boundary
-        and bmc_geojson is not None
-    ):
+    if choropleth_geojson:
+
+        ward_layer = pdk.Layer(
+            "GeoJsonLayer",
+
+            data=choropleth_geojson,
+
+            pickable=True,
+
+            stroked=True,
+
+            filled=True,
+
+            get_fill_color=(
+                "properties.fill_color"
+            ),
+
+            get_line_color=(
+                "properties.line_color"
+            ),
+
+            get_line_width=5,
+
+            line_width_min_pixels=2,
+
+            auto_highlight=True,
+
+            highlight_color=[
+                255,
+                215,
+                0,
+                255,
+            ],
+        )
 
         layers.append(
-            pdk.Layer(
-                "GeoJsonLayer",
-                data=bmc_geojson,
-                pickable=True,
-                stroked=True,
-                filled=True,
-
-                get_fill_color=(
-                    "properties.fill_color"
-                ),
-
-                get_line_color=(
-                    "properties.line_color"
-                ),
-
-                get_line_width=5,
-
-                line_width_min_pixels=2,
-
-                auto_highlight=True,
-
-                highlight_color=[
-                    255,
-                    255,
-                    0,
-                    220,
-                ],
-            )
+            ward_layer
         )
 
     # --------------------------------------------------------
-    # HOTSPOT POINTS
+    # Hotspot points
     # --------------------------------------------------------
 
     if (
@@ -858,167 +694,129 @@ def show_map(
         and not hotspot_df.empty
     ):
 
-        display_df = prepare_hotspot_display(
-            hotspot_df
+        hotspot_layer = pdk.Layer(
+            "ScatterplotLayer",
+
+            data=hotspot_df,
+
+            get_position=[
+                "Cluster_Longitude",
+                "Cluster_Latitude",
+            ],
+
+            get_radius=(
+                "100 + Cluster_Cases * 25"
+            ),
+
+            get_fill_color=[
+                220,
+                40,
+                40,
+                180,
+            ],
+
+            get_line_color=[
+                120,
+                0,
+                0,
+                255,
+            ],
+
+            line_width_min_pixels=1,
+
+            stroked=True,
+
+            filled=True,
+
+            pickable=True,
+
+            auto_highlight=True,
         )
 
         layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=display_df,
-
-                get_position=[
-                    "_lon",
-                    "_lat",
-                ],
-
-                get_radius=90,
-
-                get_fill_color=[
-                    220,
-                    30,
-                    30,
-                    190,
-                ],
-
-                get_line_color=[
-                    70,
-                    10,
-                    10,
-                    230,
-                ],
-
-                line_width_min_pixels=1,
-
-                pickable=True,
-
-                auto_highlight=True,
-            )
+            hotspot_layer
         )
 
     # --------------------------------------------------------
-    # VIEW
+    # View
     # --------------------------------------------------------
 
     if (
-        all_extent
-        and hotspot_df is not None
+        hotspot_df is not None
         and not hotspot_df.empty
     ):
 
-        latitude = float(
-            hotspot_df[
-                "_lat"
-            ].mean()
-        )
+        if extent == "All Coordinates":
 
-        longitude = float(
-            hotspot_df[
-                "_lon"
-            ].mean()
-        )
+            center_lat = float(
+                hotspot_df[
+                    "Cluster_Latitude"
+                ].mean()
+            )
 
-        zoom = 5.5
+            center_lon = float(
+                hotspot_df[
+                    "Cluster_Longitude"
+                ].mean()
+            )
+
+            zoom = 5.5
+
+        else:
+
+            center_lat = 19.0760
+            center_lon = 72.8777
+            zoom = 10
 
     else:
 
-        latitude = 19.0760
-        longitude = 72.8777
+        center_lat = 19.0760
+        center_lon = 72.8777
         zoom = 10
 
-    deck = pdk.Deck(
+    view_state = pdk.ViewState(
+        latitude=center_lat,
+        longitude=center_lon,
+        zoom=zoom,
+        pitch=0,
+        bearing=0,
+    )
 
+    tooltip = {
+        "html": """
+        <div style="font-size:13px;">
+            <b>Ward:</b>
+            {Ward Display}<br/>
+
+            <b>Cases:</b>
+            {Programme Cases}<br/>
+
+            <b>Cluster:</b>
+            {Cluster ID}<br/>
+
+            <b>Cluster Cases:</b>
+            {Cluster_Cases}<br/>
+
+            <b>Hotspot:</b>
+            {Hotspot Classification}
+        </div>
+        """,
+        "style": {
+            "backgroundColor": "white",
+            "color": "black",
+        },
+    }
+
+    return pdk.Deck(
         layers=layers,
-
-        initial_view_state=pdk.ViewState(
-            latitude=latitude,
-            longitude=longitude,
-            zoom=zoom,
-            pitch=0,
-            bearing=0,
-        ),
-
-        tooltip={
-            "html": """
-                <b>Ward:</b>
-                {Map Ward}<br/>
-                <b>Disease:</b>
-                {Map Disease}<br/>
-                <b>Cluster:</b>
-                {Cluster ID}<br/>
-                <b>Cluster Cases:</b>
-                {Cluster Cases}<br/>
-                <b>Hotspot:</b>
-                {Hotspot Classification}
-            """,
-            "style": {
-                "backgroundColor": "white",
-                "color": "black",
-            },
-        },
-    )
-
-    st.pydeck_chart(
-        deck,
-        use_container_width=True,
+        initial_view_state=view_state,
+        tooltip=tooltip,
+        map_style=None,
     )
 
 
 # ============================================================
-# EXPORT
-# ============================================================
-
-def download_hotspot_data(
-    df,
-):
-
-    if df is None or df.empty:
-        return None
-
-    preferred = [
-        "Cluster ID",
-        "Cluster Cases",
-        "Hotspot Classification",
-        "Disease",
-        "Disease Name",
-        "Date",
-        "Month",
-        "Ward",
-        "Ward Name",
-        "Facility",
-        "Facility Name",
-        "Address",
-        LAT_COL,
-        LON_COL,
-        "_lat",
-        "_lon",
-    ]
-
-    columns = [
-        c
-        for c in preferred
-        if c in df.columns
-    ]
-
-    output = df[
-        columns
-    ].copy()
-
-    output.rename(
-        columns={
-            "_lat": "Latitude",
-            "_lon": "Longitude",
-            LAT_COL: "Latitude",
-            LON_COL: "Longitude",
-        },
-        inplace=True,
-    )
-
-    return output
-
-
-# ============================================================
-# MAIN
+# MAIN RENDER FUNCTION
 # ============================================================
 
 def render_geographic_map(
@@ -1026,14 +824,26 @@ def render_geographic_map(
     total_df=None,
 ):
 
-    st.header(
-        "🗺️ Geographic Disease Management Map"
-    )
+    st.markdown(
+        """
+        <div style="
+            font-size:26px;
+            font-weight:700;
+            margin-bottom:4px;
+        ">
+            Geographic Disease Hotspot & Ward Analysis
+        </div>
 
-    st.caption(
-        "Global filters are applied first. "
-        "The disease selector below controls only "
-        "the geographic map, hotspots and choropleth."
+        <div style="
+            font-size:14px;
+            color:#666;
+            margin-bottom:14px;
+        ">
+            Disease-wise hotspot mapping, ward burden and
+            geographic distribution based on valid address coordinates.
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     # ========================================================
@@ -1041,82 +851,68 @@ def render_geographic_map(
     # ========================================================
 
     if filtered_df is None:
-
-        filtered_df = pd.DataFrame()
-
-    if total_df is None:
-
-        total_df = filtered_df.copy()
-
-    total_records = len(
-        total_df
-    )
+        st.info(
+            "No filtered data available."
+        )
+        return
 
     selected_records = len(
         filtered_df
     )
 
+    total_records = (
+        len(total_df)
+        if total_df is not None
+        else selected_records
+    )
+
     global_filter_active = (
-        selected_records
-        != total_records
+        selected_records != total_records
     )
 
     # ========================================================
     # COORDINATES
     # ========================================================
 
-    (
-        coordinate_df,
-        invalid_count,
-        valid_coordinate_count,
-    ) = prepare_coordinates(
-        filtered_df
+    coordinate_df, invalid_count, valid_count = (
+        prepare_coordinates(
+            filtered_df
+        )
     )
-
-    # ========================================================
-    # COORDINATE NOTE
-    # ========================================================
 
     if global_filter_active:
 
-        st.info(
-            "📍 "
-            + coordinate_availability_text(
+        st.caption(
+            coordinate_availability_text(
                 selected_records,
-                valid_coordinate_count,
+                valid_count,
                 "Selected Data",
             )
         )
 
     else:
 
-        (
-            total_coordinate_df,
-            total_invalid_count,
-            total_valid_coordinate_count,
-        ) = prepare_coordinates(
-            total_df
-        )
-
-        st.info(
-            "📍 "
-            + coordinate_availability_text(
-                total_records,
-                total_valid_coordinate_count,
+        st.caption(
+            coordinate_availability_text(
+                selected_records,
+                valid_count,
                 "Total Data",
             )
         )
 
-    # ========================================================
-    # NO COORDINATES
-    # ========================================================
-
-    if coordinate_df.empty:
+    if valid_count == 0:
 
         st.warning(
-            "No valid latitude/longitude records "
-            "are available for the current filters."
+            "No valid Address Latitude / Address Longitude "
+            "records are available for the selected data."
         )
+
+        if invalid_count > 0:
+
+            st.info(
+                f"{invalid_count:,} records do not have "
+                "valid geographic coordinates."
+            )
 
         return
 
@@ -1124,24 +920,8 @@ def render_geographic_map(
     # DISEASE COLUMN
     # ========================================================
 
-    disease_col = find_column(
-        coordinate_df,
-        [
-            "Disease",
-            "Disease Name",
-            "Disease_Name",
-            "Disease Type",
-        ],
-    )
-
-    # ========================================================
-    # MAP-SPECIFIC DISEASE FILTER
-    # ========================================================
-
-    map_df = coordinate_df.copy()
-
-    selected_disease = (
-        "All Diseases"
+    disease_col = get_disease_column(
+        filtered_df
     )
 
     diseases = []
@@ -1149,80 +929,149 @@ def render_geographic_map(
     if disease_col:
 
         diseases = sorted(
-            [
-                clean_text(x)
-                for x in coordinate_df[
-                    disease_col
-                ]
-                .dropna()
-                .unique()
-                if clean_text(x)
+            filtered_df[disease_col]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .loc[
+                lambda x: x != ""
             ]
+            .unique()
+            .tolist()
         )
 
-    if disease_col and diseases:
+    # ========================================================
+    # WARD DATA
+    # ========================================================
 
-        disease_options = [
+    ward_summary_all = create_ward_summary(
+        filtered_df
+    )
+
+    # ========================================================
+    # BMC BOUNDARY
+    # ========================================================
+
+    bmc_geojson = load_bmc_wards()
+
+    # ========================================================
+    # MAP CONTROLS
+    #
+    # IMPORTANT:
+    # Disease selector is now beside Map Extent.
+    # Disease dropdown intentionally made narrow.
+    # ========================================================
+
+    st.markdown(
+        "<div style='height:2px;'></div>",
+        unsafe_allow_html=True,
+    )
+
+    control_left, control_right = st.columns(
+        [1.45, 0.65],
+        gap="small",
+        vertical_alignment="bottom",
+    )
+
+    with control_left:
+
+        extent = st.radio(
+            "🗺️ Map Extent",
+            [
+                "BMC / Mumbai Focus",
+                "All Coordinates",
+            ],
+            horizontal=True,
+            key="geo_extent",
+        )
+
+    with control_right:
+
+        if diseases:
+
+            disease_options = [
+                "All Diseases"
+            ] + diseases
+
+            previous_disease = st.session_state.get(
+                "geo_map_disease",
+                "All Diseases",
+            )
+
+            if previous_disease not in disease_options:
+
+                st.session_state[
+                    "geo_map_disease"
+                ] = "All Diseases"
+
+            selected_disease = st.selectbox(
+                "🦠 Disease on Map",
+                disease_options,
+                key="geo_map_disease",
+            )
+
+        else:
+
+            selected_disease = (
+                "All Diseases"
+            )
+
+            st.selectbox(
+                "🦠 Disease on Map",
+                ["All Diseases"],
+                key="geo_map_disease",
+                disabled=True,
+            )
+
+    # ========================================================
+    # APPLY MAP-SPECIFIC DISEASE FILTER
+    # ========================================================
+
+    map_df = coordinate_df.copy()
+
+    if (
+        selected_disease != "All Diseases"
+        and disease_col
+    ):
+
+        map_df = coordinate_df[
+            coordinate_df[disease_col]
+            .astype(str)
+            .str.strip()
+            == selected_disease
+        ].copy()
+
+    # ========================================================
+    # STATUS
+    # ========================================================
+
+    if selected_disease == "All Diseases":
+
+        disease_status = (
             "All Diseases"
-        ] + diseases
-
-        previous = st.session_state.get(
-            "geo_map_disease",
-            "All Diseases",
         )
-
-        if previous not in disease_options:
-
-            st.session_state[
-                "geo_map_disease"
-            ] = "All Diseases"
-
-        selected_disease = st.selectbox(
-            "🦠 Select Disease to Display on Map",
-            disease_options,
-            key="geo_map_disease",
-            help=(
-                "This selector affects only the "
-                "geographic map. Global filters "
-                "remain active."
-            ),
-        )
-
-        if (
-            selected_disease
-            != "All Diseases"
-        ):
-
-            map_df = coordinate_df[
-                coordinate_df[
-                    disease_col
-                ]
-                .astype(str)
-                .str.strip()
-                == selected_disease
-            ].copy()
 
     else:
 
-        st.warning(
-            "Disease column was not found "
-            "in the selected data."
+        disease_status = (
+            selected_disease
         )
 
-    # ========================================================
-    # MAP DATA STATUS
-    # ========================================================
-
     st.caption(
-        f"🌍 Map displaying: **{selected_disease}** "
-        f"| Coordinate records: **{len(map_df):,}**"
+        f"Map Disease: **{disease_status}** | "
+        f"Mapped Records: **{len(map_df):,}**"
     )
+
+    # ========================================================
+    # NO DATA AFTER DISEASE SELECTION
+    # ========================================================
 
     if map_df.empty:
 
         st.info(
-            "No coordinate records are available "
-            "for the selected map disease."
+            f"No coordinate records are available "
+            f"for **{selected_disease}** under the current "
+            "global filters."
         )
 
         return
@@ -1235,32 +1084,13 @@ def render_geographic_map(
         map_df
     )
 
-    summary = cluster_summary(
-        hotspot_df
-    )
-
     # ========================================================
-    # WARD SUMMARY
+    # WARD SUMMARY FOR SELECTED DISEASE
     # ========================================================
 
     ward_summary = create_ward_summary(
         map_df
     )
-
-    # ========================================================
-    # BMC BOUNDARY
-    # ========================================================
-
-    bmc_geojson, bmc_error = (
-        load_bmc_wards()
-    )
-
-    if bmc_error:
-
-        st.warning(
-            "BMC ward boundaries could not be loaded. "
-            "Hotspot coordinates will still be displayed."
-        )
 
     # ========================================================
     # CHOROPLETH
@@ -1271,79 +1101,107 @@ def render_geographic_map(
             bmc_geojson,
             ward_summary,
         )
-        if bmc_geojson is not None
+        if bmc_geojson
         else None
     )
 
     # ========================================================
-    # KPI
+    # KPI ROW
     # ========================================================
 
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Map Disease Records",
-        f"{len(map_df):,}",
+    k1, k2, k3, k4 = st.columns(
+        4,
+        gap="small",
     )
 
-    c2.metric(
-        "Programme Wards",
-        "25",
-    )
+    with k1:
+        st.metric(
+            "Mapped Records",
+            f"{len(map_df):,}",
+        )
 
-    c3.metric(
-        "Hotspot Clusters",
-        f"{len(summary):,}",
-    )
+    with k2:
+        st.metric(
+            "Hotspot Clusters",
+            f"{len(hotspot_df):,}",
+        )
 
-    c4.metric(
-        "Valid Coordinates",
-        f"{len(map_df):,}",
-    )
+    with k3:
+
+        if not ward_summary.empty:
+
+            top_row = (
+                ward_summary
+                .sort_values(
+                    "Cases",
+                    ascending=False,
+                )
+                .iloc[0]
+            )
+
+            top_ward = top_row["Ward"]
+            top_cases = int(
+                top_row["Cases"]
+            )
+
+            st.metric(
+                "Top Burden Ward",
+                f"{top_ward} ({top_cases:,})",
+            )
+
+        else:
+
+            st.metric(
+                "Top Burden Ward",
+                "—",
+            )
+
+    with k4:
+
+        high_hotspots = 0
+
+        if (
+            not hotspot_df.empty
+            and "Hotspot Classification"
+            in hotspot_df.columns
+        ):
+
+            high_hotspots = int(
+                (
+                    hotspot_df[
+                        "Hotspot Classification"
+                    ]
+                    == "High"
+                ).sum()
+            )
+
+        st.metric(
+            "High Hotspots",
+            f"{high_hotspots:,}",
+        )
 
     # ========================================================
-    # WARD COVERAGE
+    # BOUNDARY STATUS
     # ========================================================
 
-    wards_with_data = int(
-        (ward_summary["Cases"] > 0)
-        .sum()
-    )
+    if choropleth_geojson is None:
 
-    wards_without_data = (
-        25 - wards_with_data
-    )
+        st.info(
+            "BMC ward boundary layer is currently "
+            "not available. Hotspot coordinates will "
+            "still be displayed."
+        )
 
-    st.caption(
-        f"🏘️ Programme Ward Coverage: "
-        f"**{wards_with_data}/25 wards** with data | "
-        f"**{wards_without_data} wards** with no records "
-        f"for current map selection."
-    )
+    else:
 
-    st.divider()
+        st.caption(
+            "BMC ward boundaries are highlighted on the map. "
+            "Ward shading represents the selected disease's "
+            "case burden."
+        )
 
     # ========================================================
-    # MAP EXTENT
-    # ========================================================
-
-    extent = st.radio(
-        "Map Extent",
-        [
-            "BMC / Mumbai Focus",
-            "All Coordinates",
-        ],
-        horizontal=True,
-        key="geo_extent",
-    )
-
-    all_extent = (
-        extent
-        == "All Coordinates"
-    )
-
-    # ========================================================
-    # TABS
+    # MAIN TABS
     # ========================================================
 
     tab1, tab2, tab3 = st.tabs(
@@ -1355,187 +1213,328 @@ def render_geographic_map(
     )
 
     # ========================================================
-    # TAB 1
+    # TAB 1 — HOTSPOTS
     # ========================================================
 
     with tab1:
 
         st.subheader(
-            f"🔥 {selected_disease} Geographic Hotspots"
+            "Disease Hotspot Map"
         )
 
-        show_map(
-            hotspot_df=hotspot_df,
-            bmc_geojson=None,
-            show_boundary=False,
-            all_extent=all_extent,
-        )
-
-        if summary.empty:
+        if hotspot_df.empty:
 
             st.info(
-                "No hotspot clusters available."
+                "No hotspot clusters could be created."
             )
 
         else:
+
+            deck = build_map(
+                choropleth_geojson=None,
+                hotspot_df=hotspot_df,
+                extent=extent,
+            )
+
+            st.pydeck_chart(
+                deck,
+                use_container_width=True,
+            )
+
+            # ----------------------------------------------
+            # HOTSPOT SUMMARY
+            # ----------------------------------------------
 
             st.subheader(
                 "Hotspot Summary"
             )
 
+            display_hotspots = (
+                hotspot_df[
+                    [
+                        "Cluster ID",
+                        "Cluster_Cases",
+                        "Hotspot Classification",
+                        "Cluster_Latitude",
+                        "Cluster_Longitude",
+                    ]
+                ]
+                .sort_values(
+                    "Cluster_Cases",
+                    ascending=False,
+                )
+                .copy()
+            )
+
+            display_hotspots = (
+                display_hotspots.rename(
+                    columns={
+                        "Cluster ID":
+                            "Cluster ID",
+
+                        "Cluster_Cases":
+                            "Cluster Cases",
+
+                        "Hotspot Classification":
+                            "Hotspot Classification",
+
+                        "Cluster_Latitude":
+                            "Latitude",
+
+                        "Cluster_Longitude":
+                            "Longitude",
+                    }
+                )
+            )
+
             st.dataframe(
-                summary,
+                display_hotspots,
                 use_container_width=True,
                 hide_index=True,
             )
 
+            # ----------------------------------------------
+            # DOWNLOAD
+            # ----------------------------------------------
+
+            export_df = download_hotspot_data(
+                hotspot_df,
+                map_df,
+                disease_col,
+            )
+
+            if not export_df.empty:
+
+                excel_buffer = io.BytesIO()
+
+                with pd.ExcelWriter(
+                    excel_buffer,
+                    engine="openpyxl",
+                ) as writer:
+
+                    export_df.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name="Hotspots",
+                    )
+
+                st.download_button(
+                    "⬇️ Download Hotspot Data (Excel)",
+                    data=excel_buffer.getvalue(),
+                    file_name=(
+                        "disease_hotspot_data.xlsx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-"
+                        "officedocument.spreadsheetml.sheet"
+                    ),
+                    key="geo_hotspot_excel",
+                )
+
     # ========================================================
-    # TAB 2
+    # TAB 2 — CHOROPLETH
     # ========================================================
 
     with tab2:
 
         st.subheader(
-            f"🏘️ Ward-wise Burden — "
-            f"{selected_disease}"
+            f"BMC Ward-wise Burden — {disease_status}"
         )
 
-        st.caption(
-            "Darker colour indicates higher case burden "
-            "for the selected disease after applying "
-            "global filters."
-        )
+        if choropleth_geojson is None:
 
-        if choropleth_geojson is not None:
-
-            show_map(
-                hotspot_df=None,
-                bmc_geojson=choropleth_geojson,
-                show_boundary=True,
-                all_extent=False,
+            st.warning(
+                "BMC ward boundary data is not available "
+                "right now. Ward-wise burden table is "
+                "still available below."
             )
 
         else:
 
-            st.info(
-                "BMC ward boundary layer is unavailable."
+            # ----------------------------------------------
+            # Choropleth map
+            # ----------------------------------------------
+
+            deck = build_map(
+                choropleth_geojson=
+                    choropleth_geojson,
+
+                hotspot_df=None,
+
+                extent="BMC / Mumbai Focus",
             )
 
-        # ----------------------------------------------------
-        # 25 WARD TABLE
-        # ----------------------------------------------------
+            st.pydeck_chart(
+                deck,
+                use_container_width=True,
+            )
+
+        # ----------------------------------------------
+        # WARD TABLE
+        # ----------------------------------------------
 
         st.subheader(
-            "📊 25-Ward Disease Burden"
+            "25 Programme Ward-wise Case Burden"
         )
 
+        ward_display = (
+            ward_summary.copy()
+        )
+
+        ward_display[
+            "Percentage"
+        ] = 0.0
+
+        total_ward_cases = (
+            ward_display["Cases"].sum()
+        )
+
+        if total_ward_cases > 0:
+
+            ward_display[
+                "Percentage"
+            ] = (
+                ward_display["Cases"]
+                / total_ward_cases
+                * 100
+            )
+
+        ward_display = (
+            ward_display.sort_values(
+                "Cases",
+                ascending=False,
+            )
+        )
+
+        ward_display[
+            "Percentage"
+        ] = ward_display[
+            "Percentage"
+        ].round(1)
+
         st.dataframe(
-            ward_summary,
+            ward_display,
             use_container_width=True,
             hide_index=True,
         )
 
-        # ----------------------------------------------------
-        # PE NOTE
-        # ----------------------------------------------------
+        # ----------------------------------------------
+        # WARD EXCEL
+        # ----------------------------------------------
 
-        if (
-            "PE" in ward_summary["Ward"].values
-        ):
-
-            pe_cases = int(
-                ward_summary.loc[
-                    ward_summary["Ward"]
-                    == "PE",
-                    "Cases",
-                ].iloc[0]
-            )
-
-            if pe_cases > 0:
-
-                st.info(
-                    f"ℹ️ PE ward has {pe_cases:,} "
-                    "records in the programme data. "
-                    "PE is retained as a separate data ward. "
-                    "If the geographic boundary source does "
-                    "not contain a matching PE polygon, "
-                    "no artificial polygon is created."
-                )
-
-        # ----------------------------------------------------
-        # DOWNLOAD
-        # ----------------------------------------------------
-
-        buffer = io.BytesIO()
+        ward_buffer = io.BytesIO()
 
         with pd.ExcelWriter(
-            buffer,
+            ward_buffer,
             engine="openpyxl",
         ) as writer:
 
-            ward_summary.to_excel(
+            ward_display.to_excel(
                 writer,
                 index=False,
-                sheet_name="Ward Summary",
+                sheet_name="Ward Burden",
             )
 
         st.download_button(
-            "⬇️ Download 25-Ward Disease Summary",
-            data=buffer.getvalue(),
+            "⬇️ Download Ward-wise Burden (Excel)",
+            data=ward_buffer.getvalue(),
             file_name=(
-                "25_Ward_Disease_Summary.xlsx"
+                "ward_wise_disease_burden.xlsx"
             ),
             mime=(
                 "application/vnd.openxmlformats-"
                 "officedocument.spreadsheetml.sheet"
             ),
+            key="geo_ward_excel",
         )
 
     # ========================================================
-    # TAB 3
+    # TAB 3 — BMC + ALL COORDINATES
     # ========================================================
 
     with tab3:
 
         st.subheader(
-            "🗺️ BMC Boundaries + All Valid Coordinates"
+            "BMC Ward Boundary + All Valid Coordinates"
         )
 
-        show_map(
+        combined_deck = build_map(
+            choropleth_geojson=
+                choropleth_geojson,
+
             hotspot_df=hotspot_df,
-            bmc_geojson=choropleth_geojson,
-            show_boundary=True,
-            all_extent=all_extent,
+
+            extent=extent,
+        )
+
+        st.pydeck_chart(
+            combined_deck,
+            use_container_width=True,
         )
 
         st.caption(
-            "All valid latitude/longitude records are retained, "
-            "including records outside BMC/Mumbai."
+            "This view displays valid geographic coordinates "
+            "without artificially restricting records to BMC. "
+            "The BMC ward layer is shown where boundary data "
+            "is available."
         )
 
     # ========================================================
-    # EXPORT
+    # CSV EXPORT
     # ========================================================
 
     st.divider()
 
     st.subheader(
-        "⬇️ Geographic Data Export"
+        "📥 Geographic Data Export"
     )
 
-    export_df = download_hotspot_data(
-        hotspot_df
-    )
+    export_df = map_df.copy()
 
-    if export_df is not None:
+    export_columns = []
+
+    possible_columns = [
+        disease_col,
+        "Ward",
+        "Ward Name",
+        "Facility",
+        "Facility Name",
+        "Address",
+        LAT_COL,
+        LON_COL,
+    ]
+
+    for col in possible_columns:
+
+        if (
+            col
+            and col in export_df.columns
+            and col not in export_columns
+        ):
+
+            export_columns.append(
+                col
+            )
+
+    if export_columns:
+
+        csv_df = (
+            export_df[
+                export_columns
+            ]
+            .copy()
+        )
+
+        csv_data = csv_df.to_csv(
+            index=False
+        ).encode("utf-8")
 
         st.download_button(
-            "⬇️ Download Hotspot Coordinate Data",
-            data=export_df.to_csv(
-                index=False
-            ).encode("utf-8"),
+            "⬇️ Download Current Geographic Data (CSV)",
+            data=csv_data,
             file_name=(
-                "Disease_Hotspot_Coordinate_Data.csv"
+                "current_geographic_data.csv"
             ),
             mime="text/csv",
+            key="geo_current_csv",
         )
