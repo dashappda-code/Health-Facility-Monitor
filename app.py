@@ -1177,7 +1177,7 @@ try:
     elif page == "Geographic Map":
 
         render_geographic_map(
-            filtered_df
+            filtered_df, df
         )
 
 
