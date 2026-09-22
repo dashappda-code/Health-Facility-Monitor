@@ -31,13 +31,16 @@ def clean_text(x):
 
 
 def find_column(df, candidates):
+
     lookup = {
         str(c).strip().lower(): c
         for c in df.columns
     }
 
     for c in candidates:
+
         key = str(c).strip().lower()
+
         if key in lookup:
             return lookup[key]
 
@@ -92,7 +95,7 @@ def load_bmc_wards():
         response = requests.get(
             BMC_WARD_URL + "/query",
             params=params,
-            timeout=12,
+            timeout=8,
         )
 
         response.raise_for_status()
@@ -104,6 +107,7 @@ def load_bmc_wards():
             and data.get("type") == "FeatureCollection"
             and data.get("features")
         ):
+
             return data, None
 
         return None, "Ward boundary layer returned no features."
@@ -120,13 +124,13 @@ def load_bmc_wards():
 def prepare_coordinates(df):
 
     if df is None or df.empty:
-        return pd.DataFrame(), 0
+        return pd.DataFrame(), 0, 0
 
     if LAT_COL not in df.columns:
-        return pd.DataFrame(), 0
+        return pd.DataFrame(), len(df), 0
 
     if LON_COL not in df.columns:
-        return pd.DataFrame(), 0
+        return pd.DataFrame(), len(df), 0
 
     work = df.copy()
 
@@ -149,13 +153,45 @@ def prepare_coordinates(df):
 
     invalid_count = int(invalid.sum())
 
+    valid_count = int((~invalid).sum())
+
     # IMPORTANT:
-    # No BMC/Mumbai restriction.
+    # Do NOT restrict to BMC/Mumbai.
+    # All valid coordinates are retained.
     work = work[~invalid].copy()
 
     work.reset_index(drop=True, inplace=True)
 
-    return work, invalid_count
+    return work, invalid_count, valid_count
+
+
+# ============================================================
+# COORDINATE AVAILABILITY
+# ============================================================
+
+def coordinate_availability_text(
+    selected_total,
+    valid_coordinates,
+    label="Selected Data",
+):
+
+    if selected_total <= 0:
+
+        return (
+            f"{label}: 0 | "
+            "Valid Address Coordinates: 0 (0.0%)"
+        )
+
+    percentage = (
+        valid_coordinates / selected_total
+    ) * 100
+
+    return (
+        f"{label}: {selected_total:,} | "
+        f"Valid Address Coordinates: "
+        f"{valid_coordinates:,} "
+        f"({percentage:.1f}%)"
+    )
 
 
 # ============================================================
@@ -343,7 +379,10 @@ def prepare_bmc_choropleth(
 
     counts = {}
 
-    if ward_summary is not None and not ward_summary.empty:
+    if (
+        ward_summary is not None
+        and not ward_summary.empty
+    ):
 
         counts = dict(
             zip(
@@ -374,7 +413,6 @@ def prepare_bmc_choropleth(
             )
         )
 
-        # Try common ward fields
         ward_value = ""
 
         for key in [
@@ -418,6 +456,7 @@ def prepare_bmc_choropleth(
             )
         )
 
+        # Strong ward boundary
         properties["line_color"] = [
             20,
             20,
@@ -448,7 +487,7 @@ def show_map(
     layers = []
 
     # --------------------------------------------------------
-    # BMC CHOROPLETH
+    # BMC CHOROPLETH / BOUNDARIES
     # --------------------------------------------------------
 
     if (
@@ -552,7 +591,6 @@ def show_map(
 
     else:
 
-        # Main management focus
         latitude = 19.0760
         longitude = 72.8777
         zoom = 10
@@ -646,40 +684,116 @@ def download_hotspot_data(df):
 # MAIN
 # ============================================================
 
-def render_geographic_map(filtered_df):
+def render_geographic_map(
+    filtered_df,
+    total_df=None,
+):
 
     st.header(
         "🗺️ Geographic Disease Management Map"
     )
 
     st.caption(
-        "BMC ward-wise disease burden with geographic "
-        "hotspots. Valid coordinates outside BMC are "
-        "also retained."
+        "Global filters are applied first. "
+        "The disease selector below controls only "
+        "the geographic map and ward choropleth."
     )
 
-    # --------------------------------------------------------
-    # COORDINATES
-    # --------------------------------------------------------
+    # ========================================================
+    # DATA SCOPE
+    # ========================================================
 
-    coordinate_df, invalid_count = (
+    if filtered_df is None:
+        filtered_df = pd.DataFrame()
+
+    if total_df is None:
+        total_df = filtered_df.copy()
+
+    total_records = len(total_df)
+    selected_records = len(filtered_df)
+
+    # Determine whether global filters have reduced data.
+    # If selected count differs from total count, selected
+    # filtered data is considered active.
+    global_filter_active = (
+        selected_records != total_records
+    )
+
+    # ========================================================
+    # COORDINATES — GLOBAL FILTERED DATA
+    # ========================================================
+
+    coordinate_df, invalid_count, valid_coordinate_count = (
         prepare_coordinates(
             filtered_df
         )
     )
 
-    if coordinate_df.empty:
+    # ========================================================
+    # COORDINATE AVAILABILITY NOTE
+    # ========================================================
+
+    if global_filter_active:
+
+        availability_text = (
+            coordinate_availability_text(
+                selected_records,
+                valid_coordinate_count,
+                label="Selected Data",
+            )
+        )
 
         st.info(
-            "No valid latitude/longitude records "
-            "are available for the selected filters."
+            "📍 Coordinate Availability — "
+            + availability_text
+        )
+
+    else:
+
+        # No global filter effect:
+        # calculate from complete dataset.
+        (
+            total_coordinate_df,
+            total_invalid_count,
+            total_valid_coordinate_count,
+        ) = prepare_coordinates(
+            total_df
+        )
+
+        availability_text = (
+            coordinate_availability_text(
+                total_records,
+                total_valid_coordinate_count,
+                label="Total Data",
+            )
+        )
+
+        st.info(
+            "📍 Coordinate Availability — "
+            + availability_text
+        )
+
+    # ========================================================
+    # NO VALID COORDINATES
+    # ========================================================
+
+    if coordinate_df.empty:
+
+        st.warning(
+            "No valid latitude/longitude records are "
+            "available for the current global filters."
+        )
+
+        st.caption(
+            "The figures above show coordinate availability "
+            "in the selected/total data."
         )
 
         return
 
-    # --------------------------------------------------------
-    # DISEASE SELECTION
-    # --------------------------------------------------------
+    # ========================================================
+    # DISEASE COLUMN
+    # ========================================================
 
     disease_col = find_column(
         coordinate_df,
@@ -691,9 +805,15 @@ def render_geographic_map(filtered_df):
         ],
     )
 
+    # ========================================================
+    # MAP-SPECIFIC DISEASE FILTER
+    # ========================================================
+
     map_df = coordinate_df.copy()
 
     selected_disease = "All Diseases"
+
+    diseases = []
 
     if disease_col:
 
@@ -707,32 +827,68 @@ def render_geographic_map(filtered_df):
             ]
         )
 
-        if len(diseases) > 1:
+    # ALWAYS SHOW MAP DISEASE SELECTOR
+    if disease_col and diseases:
 
-            disease_options = [
-                "All Diseases"
-            ] + diseases
+        disease_options = [
+            "All Diseases"
+        ] + diseases
 
-            selected_disease = st.selectbox(
-                "🦠 Disease to Display on Map",
-                disease_options,
-                key="geo_disease",
+        # If previous selection is no longer available,
+        # reset to All Diseases.
+        previous_selection = (
+            st.session_state.get(
+                "geo_map_disease",
+                "All Diseases",
             )
+        )
 
-            if selected_disease != "All Diseases":
+        if previous_selection not in disease_options:
 
-                map_df = coordinate_df[
-                    coordinate_df[
-                        disease_col
-                    ]
-                    .astype(str)
-                    .str.strip()
-                    == selected_disease
-                ].copy()
+            st.session_state[
+                "geo_map_disease"
+            ] = "All Diseases"
 
-    # --------------------------------------------------------
+        selected_disease = st.selectbox(
+            "🦠 Select Disease to Display on Map",
+            disease_options,
+            key="geo_map_disease",
+            help=(
+                "This filter controls only the geographic "
+                "map, hotspot analysis and ward choropleth. "
+                "Global dashboard filters remain active."
+            ),
+        )
+
+        if selected_disease != "All Diseases":
+
+            map_df = coordinate_df[
+                coordinate_df[
+                    disease_col
+                ]
+                .astype(str)
+                .str.strip()
+                == selected_disease
+            ].copy()
+
+    else:
+
+        st.info(
+            "Disease column was not found in the selected data."
+        )
+
+    # ========================================================
+    # MAP DISEASE RESULT
+    # ========================================================
+
+    st.caption(
+        f"🌍 Geographic map currently displaying: "
+        f"**{selected_disease}**"
+    )
+
+    # ========================================================
     # HOTSPOTS
-    # --------------------------------------------------------
+    # ========================================================
 
     hotspot_df = create_hotspots(
         map_df
@@ -742,19 +898,17 @@ def render_geographic_map(filtered_df):
         hotspot_df
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # WARD SUMMARY
-    # IMPORTANT:
-    # Uses map_df, so choropleth changes with disease.
-    # --------------------------------------------------------
+    # ========================================================
 
     ward_summary = create_ward_summary(
         map_df
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # BMC BOUNDARY
-    # --------------------------------------------------------
+    # ========================================================
 
     bmc_geojson, bmc_error = (
         load_bmc_wards()
@@ -767,9 +921,9 @@ def render_geographic_map(filtered_df):
             "Hotspot map will still work."
         )
 
-    # --------------------------------------------------------
-    # CHOROPLETH GEOJSON
-    # --------------------------------------------------------
+    # ========================================================
+    # CHOROPLETH
+    # ========================================================
 
     choropleth_geojson = (
         prepare_bmc_choropleth(
@@ -780,14 +934,14 @@ def render_geographic_map(filtered_df):
         else None
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # KPI
-    # --------------------------------------------------------
+    # ========================================================
 
     c1, c2, c3, c4 = st.columns(4)
 
     c1.metric(
-        "Disease Records",
+        "Map Disease Records",
         f"{len(map_df):,}",
     )
 
@@ -802,15 +956,15 @@ def render_geographic_map(filtered_df):
     )
 
     c4.metric(
-        "Invalid Coordinates",
-        f"{invalid_count:,}",
+        "Valid Coordinates",
+        f"{len(map_df):,}",
     )
 
     st.divider()
 
-    # --------------------------------------------------------
+    # ========================================================
     # MAP EXTENT
-    # --------------------------------------------------------
+    # ========================================================
 
     extent = st.radio(
         "Map Extent",
@@ -826,9 +980,9 @@ def render_geographic_map(filtered_df):
         extent == "All Coordinates"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # TABS
-    # --------------------------------------------------------
+    # ========================================================
 
     tab1, tab2, tab3 = st.tabs(
         [
@@ -839,13 +993,13 @@ def render_geographic_map(filtered_df):
     )
 
     # ========================================================
-    # TAB 1
+    # TAB 1 — HOTSPOTS
     # ========================================================
 
     with tab1:
 
         st.subheader(
-            f"🔥 {selected_disease} Hotspots"
+            f"🔥 {selected_disease} Geographic Hotspots"
         )
 
         show_map(
@@ -855,7 +1009,14 @@ def render_geographic_map(filtered_df):
             all_extent=all_extent,
         )
 
-        if not summary.empty:
+        if summary.empty:
+
+            st.info(
+                "No hotspot clusters available for "
+                "the selected disease/filter."
+            )
+
+        else:
 
             st.subheader(
                 "Hotspot Summary"
@@ -868,7 +1029,7 @@ def render_geographic_map(filtered_df):
             )
 
     # ========================================================
-    # TAB 2
+    # TAB 2 — CHOROPLETH
     # ========================================================
 
     with tab2:
@@ -878,8 +1039,9 @@ def render_geographic_map(filtered_df):
         )
 
         st.caption(
-            "Darker shade = higher number of records "
-            "for the selected disease."
+            "Ward shading represents the number of records "
+            "for the selected disease after applying the "
+            "global filters."
         )
 
         if choropleth_geojson is not None:
@@ -897,9 +1059,9 @@ def render_geographic_map(filtered_df):
                 "BMC ward boundary layer is unavailable."
             )
 
-        # ----------------------------------------------
-        # Ward table
-        # ----------------------------------------------
+        # ----------------------------------------------------
+        # WARD TABLE
+        # ----------------------------------------------------
 
         if not ward_summary.empty:
 
@@ -939,13 +1101,13 @@ def render_geographic_map(filtered_df):
             )
 
     # ========================================================
-    # TAB 3
+    # TAB 3 — COMBINED
     # ========================================================
 
     with tab3:
 
         st.subheader(
-            "🗺️ BMC Boundaries + All Geographic Coordinates"
+            "🗺️ BMC Boundaries + Geographic Coordinates"
         )
 
         show_map(
@@ -960,6 +1122,10 @@ def render_geographic_map(filtered_df):
     # ========================================================
 
     st.divider()
+
+    st.subheader(
+        "⬇️ Geographic Data Export"
+    )
 
     export_df = download_hotspot_data(
         hotspot_df
