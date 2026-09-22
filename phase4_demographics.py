@@ -289,6 +289,13 @@ def render_demographics(df):
                         "Records:Q",
                         title="Records",
                     ),
+                    color=alt.Color(
+                        "Age Group:N",
+                        scale=alt.Scale(
+                            domain=AGE_GROUP_ORDER
+                        ),
+                        legend=None,
+                    ),
                     tooltip=[
                         alt.Tooltip(
                             "Age Group:N",
@@ -311,6 +318,8 @@ def render_demographics(df):
                     alt.Chart(chart_df)
                     .mark_text(
                         dy=-8,
+                        fontWeight="bold",
+                        fontSize=13,
                     )
                     .encode(
                         x=alt.X(
@@ -319,6 +328,13 @@ def render_demographics(df):
                         ),
                         y=alt.Y(
                             "Records:Q"
+                        ),
+                        color=alt.Color(
+                            "Age Group:N",
+                            scale=alt.Scale(
+                                domain=AGE_GROUP_ORDER
+                            ),
+                            legend=None,
                         ),
                         text=alt.Text(
                             "Records:Q"
