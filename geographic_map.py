@@ -1,5 +1,3 @@
-# geographic_map.py
-
 import re
 import pandas as pd
 import requests
@@ -630,6 +628,12 @@ def spatially_resolve_wards(
         )
     )
 
+    if LAT_COL not in out.columns:
+        return out
+
+    if LON_COL not in out.columns:
+        return out
+
     for idx in out.index[mask]:
 
         try:
@@ -1244,7 +1248,6 @@ def build_map(
 
     # --------------------------------------------------------
     # HOTSPOTS
-    # HOTSPOTS ARE DRAWN BEFORE CASE POINTS
     # --------------------------------------------------------
 
     if (
@@ -1268,28 +1271,28 @@ def build_map(
                 ],
 
                 get_radius=(
-                    "45 + "
+                    "35 + "
                     "min("
-                    "Cluster_Cases * 5,"
-                    "100)"
+                    "Cluster_Cases * 4,"
+                    "80)"
                 ),
 
-                radius_min_pixels=3,
+                radius_min_pixels=2,
 
-                radius_max_pixels=9,
+                radius_max_pixels=8,
 
                 get_fill_color=[
                     220,
                     40,
                     40,
-                    75
+                    65
                 ],
 
                 get_line_color=[
                     150,
                     0,
                     0,
-                    130
+                    120
                 ],
 
                 stroked=True,
@@ -1300,7 +1303,6 @@ def build_map(
 
     # --------------------------------------------------------
     # CASE POINTS
-    # SEPARATE LAYERS FOR PE / PN / OTHER
     # --------------------------------------------------------
 
     if (
@@ -1327,7 +1329,7 @@ def build_map(
         ].copy()
 
         # ----------------------------------------------------
-        # PE POINTS
+        # PE
         # ----------------------------------------------------
 
         if not pe_points.empty:
@@ -1346,24 +1348,24 @@ def build_map(
                         "Latitude"
                     ],
 
-                    get_radius=35,
+                    get_radius=24,
 
-                    radius_min_pixels=3,
+                    radius_min_pixels=2,
 
-                    radius_max_pixels=7,
+                    radius_max_pixels=6,
 
                     get_fill_color=[
                         20,
                         100,
                         220,
-                        220
+                        235
                     ],
 
                     get_line_color=[
                         0,
                         40,
                         100,
-                        230
+                        240
                     ],
 
                     stroked=True,
@@ -1373,7 +1375,7 @@ def build_map(
             )
 
         # ----------------------------------------------------
-        # PN POINTS
+        # PN
         # ----------------------------------------------------
 
         if not pn_points.empty:
@@ -1392,24 +1394,24 @@ def build_map(
                         "Latitude"
                     ],
 
-                    get_radius=35,
+                    get_radius=24,
 
-                    radius_min_pixels=3,
+                    radius_min_pixels=2,
 
-                    radius_max_pixels=7,
+                    radius_max_pixels=6,
 
                     get_fill_color=[
                         130,
                         60,
                         200,
-                        230
+                        235
                     ],
 
                     get_line_color=[
                         70,
                         20,
                         120,
-                        240
+                        245
                     ],
 
                     stroked=True,
@@ -1419,7 +1421,7 @@ def build_map(
             )
 
         # ----------------------------------------------------
-        # OTHER WARD POINTS
+        # OTHER WARDS
         # ----------------------------------------------------
 
         if not other_points.empty:
@@ -1438,7 +1440,7 @@ def build_map(
                         "Latitude"
                     ],
 
-                    get_radius=35,
+                    get_radius=24,
 
                     radius_min_pixels=2,
 
@@ -1448,14 +1450,14 @@ def build_map(
                         40,
                         120,
                         180,
-                        180
+                        190
                     ],
 
                     get_line_color=[
                         20,
                         60,
                         100,
-                        190
+                        210
                     ],
 
                     stroked=True,
@@ -1641,41 +1643,99 @@ def disease_checkbox_selector(
     diseases = list(diseases)
 
     select_all_key = "geo_select_all"
+    selected_key = "geo_selected_diseases"
 
     if select_all_key not in st.session_state:
         st.session_state[
             select_all_key
         ] = False
 
-    if "geo_selected_diseases" not in st.session_state:
+    if selected_key not in st.session_state:
         st.session_state[
-            "geo_selected_diseases"
+            selected_key
         ] = []
 
-    current_selected = [
-        x
-        for x in st.session_state[
-            "geo_selected_diseases"
-        ]
-        if x in diseases
-    ]
+    # --------------------------------------------------------
+    # CALLBACKS
+    # --------------------------------------------------------
+
+    def select_all_callback():
+
+        if st.session_state.get(
+            select_all_key,
+            False
+        ):
+
+            st.session_state[
+                selected_key
+            ] = list(diseases)
+
+            for i in range(
+                len(diseases)
+            ):
+
+                st.session_state[
+                    f"geo_disease_{i}"
+                ] = True
+
+    def individual_callback():
+
+        selected_now = []
+
+        for i, disease in enumerate(
+            diseases
+        ):
+
+            if st.session_state.get(
+                f"geo_disease_{i}",
+                False
+            ):
+
+                selected_now.append(
+                    disease
+                )
+
+        st.session_state[
+            selected_key
+        ] = selected_now
+
+        if len(selected_now) != len(diseases):
+
+            st.session_state[
+                select_all_key
+            ] = False
+
+        elif len(diseases) > 0:
+
+            st.session_state[
+                select_all_key
+            ] = True
+
+    # --------------------------------------------------------
+    # TITLE
+    # --------------------------------------------------------
 
     st.markdown(
         "### Disease Selection"
     )
 
-    control_col1, control_col2 = st.columns(
-        [1, 1]
+    # --------------------------------------------------------
+    # SELECT ALL / RESET
+    # --------------------------------------------------------
+
+    control_cols = st.columns(
+        [2, 1, 1]
     )
 
-    with control_col1:
+    with control_cols[0]:
 
-        select_all = st.checkbox(
+        st.checkbox(
             "Select All Diseases",
-            key=select_all_key
+            key=select_all_key,
+            on_change=select_all_callback
         )
 
-    with control_col2:
+    with control_cols[1]:
 
         if st.button(
             "Reset",
@@ -1687,95 +1747,65 @@ def disease_checkbox_selector(
             ] = False
 
             st.session_state[
-                "geo_selected_diseases"
+                selected_key
             ] = []
 
             for i in range(
                 len(diseases)
             ):
 
-                key = (
+                st.session_state[
                     f"geo_disease_{i}"
-                )
-
-                if key in st.session_state:
-                    st.session_state[
-                        key
-                    ] = False
+                ] = False
 
             st.rerun()
 
-    selected = []
-
     # --------------------------------------------------------
-    # SELECT ALL
+    # INDIVIDUAL DISEASE CHECKBOXES
     # --------------------------------------------------------
 
-    if select_all:
+    cols = st.columns(4)
 
-        selected = list(
-            diseases
-        )
+    for i, disease in enumerate(
+        diseases
+    ):
 
-        cols = st.columns(4)
+        key = f"geo_disease_{i}"
 
-        for i, disease in enumerate(
-            diseases
-        ):
+        if key not in st.session_state:
 
-            with cols[
-                i % 4
-            ]:
-
-                st.checkbox(
-                    str(disease),
-                    value=True,
-                    key=f"geo_all_{i}",
-                    disabled=True
-                )
-
-    # --------------------------------------------------------
-    # INDIVIDUAL SELECTION
-    # --------------------------------------------------------
-
-    else:
-
-        cols = st.columns(4)
-
-        for i, disease in enumerate(
-            diseases
-        ):
-
-            key = (
-                f"geo_disease_{i}"
+            st.session_state[
+                key
+            ] = (
+                disease
+                in st.session_state[
+                    selected_key
+                ]
             )
 
-            if key not in st.session_state:
+        with cols[
+            i % 4
+        ]:
 
-                st.session_state[
-                    key
-                ] = (
-                    disease
-                    in current_selected
-                )
+            st.checkbox(
+                str(disease),
+                key=key,
+                on_change=individual_callback
+            )
 
-            with cols[
-                i % 4
-            ]:
-
-                checked = st.checkbox(
-                    str(disease),
-                    key=key
-                )
-
-            if checked:
-
-                selected.append(
-                    disease
-                )
+    selected = [
+        disease
+        for i, disease in enumerate(
+            diseases
+        )
+        if st.session_state.get(
+            f"geo_disease_{i}",
+            False
+        )
+    ]
 
     st.session_state[
-        "geo_selected_diseases"
+        selected_key
     ] = selected
 
     return selected
@@ -1787,7 +1817,8 @@ def disease_checkbox_selector(
 
 def render_map_legend(
     ward_summary,
-    case_points
+    case_points,
+    hotspots=None
 ):
 
     pe_cases = int(
@@ -1804,78 +1835,70 @@ def render_map_legend(
         ].sum()
     )
 
+    other_cases = int(
+        ward_summary.loc[
+            ~ward_summary["Ward"].isin(
+                [
+                    "PE",
+                    "PN"
+                ]
+            ),
+            "Cases"
+        ].sum()
+    )
+
     p_combined = (
         pe_cases
-        + pn_cases
+        +
+        pn_cases
+    )
+
+    hotspot_count = (
+        len(hotspots)
+        if hotspots is not None
+        else 0
     )
 
     st.markdown(
-        f"""
-        <div style="
-            display:flex;
-            flex-wrap:wrap;
-            gap:18px;
-            align-items:center;
-            margin:8px 0 14px 0;
-            font-size:14px;
-        ">
-
-            <div>
-                <span style="
-                    display:inline-block;
-                    width:11px;
-                    height:11px;
-                    border-radius:50%;
-                    background:#1464dc;
-                    margin-right:6px;
-                "></span>
-                <b>PE</b> ({pe_cases:,})
-            </div>
-
-            <div>
-                <span style="
-                    display:inline-block;
-                    width:11px;
-                    height:11px;
-                    border-radius:50%;
-                    background:#823cc8;
-                    margin-right:6px;
-                "></span>
-                <b>PN</b> ({pn_cases:,})
-            </div>
-
-            <div>
-                <span style="
-                    display:inline-block;
-                    width:11px;
-                    height:11px;
-                    border-radius:50%;
-                    background:#2878b4;
-                    margin-right:6px;
-                "></span>
-                Other Wards
-            </div>
-
-            <div>
-                <span style="
-                    display:inline-block;
-                    width:13px;
-                    height:13px;
-                    border-radius:50%;
-                    background:rgba(220,40,40,0.55);
-                    margin-right:6px;
-                "></span>
-                Hotspot
-            </div>
-
-            <div>
-                <b>P = PE + PN:</b> {p_combined:,}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+        "### Map Legend"
     )
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    with c1:
+
+        st.markdown(
+            f"🔵 **PE**  \n"
+            f"{pe_cases:,} cases"
+        )
+
+    with c2:
+
+        st.markdown(
+            f"🟣 **PN**  \n"
+            f"{pn_cases:,} cases"
+        )
+
+    with c3:
+
+        st.markdown(
+            f"🔷 **Other Wards**  \n"
+            f"{other_cases:,} cases"
+        )
+
+    with c4:
+
+        st.markdown(
+            f"🔴 **Hotspot**  \n"
+            f"{hotspot_count:,} clusters"
+        )
+
+    with c5:
+
+        st.markdown(
+            f"**P = PE + PN**  \n"
+            f"{p_combined:,} cases"
+        )
 
 
 # ============================================================
@@ -1932,7 +1955,7 @@ def render_geographic_map(
     if valid_df.empty:
 
         st.warning(
-            "Latitude / Longitude records available nahi hain."
+            "No valid Latitude / Longitude records are available."
         )
 
         return
@@ -1971,7 +1994,7 @@ def render_geographic_map(
     if not diseases:
 
         st.warning(
-            "Disease records available nahi hain."
+            "No disease records are available."
         )
 
         return
@@ -2018,16 +2041,11 @@ def render_geographic_map(
 
     with right:
 
-        with st.expander(
-            "Disease Selection",
-            expanded=False
-        ):
-
-            selected_diseases = (
-                disease_checkbox_selector(
-                    diseases
-                )
+        selected_diseases = (
+            disease_checkbox_selector(
+                diseases
             )
+        )
 
     # --------------------------------------------------------
     # SELECTED DATA
@@ -2201,13 +2219,14 @@ def render_geographic_map(
 
         render_map_legend(
             ward_summary,
-            case_points
+            case_points,
+            hotspots
         )
 
         if case_points.empty:
 
             st.warning(
-                "Mapped case points available nahi hain."
+                "No mapped case points are available."
             )
 
         else:
@@ -2449,7 +2468,8 @@ def render_geographic_map(
 
         render_map_legend(
             ward_summary,
-            case_points
+            case_points,
+            hotspots
         )
 
         combined_map = build_map(
