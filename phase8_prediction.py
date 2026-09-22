@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
+from chart_helpers import render_line_chart
+
 
 def _clean_text(df, column):
     if df is None or df.empty or column not in df.columns:
@@ -371,7 +373,7 @@ def render_prediction(df):
         "Period"
     )
 
-    st.line_chart(
+    render_line_chart(
         trend_data["Records"],
         use_container_width=True,
     )
@@ -402,7 +404,7 @@ def render_prediction(df):
         }
     )
 
-    st.line_chart(
+    render_line_chart(
         moving_df.set_index(
             "Period"
         ),
@@ -617,7 +619,7 @@ def render_prediction(df):
                 .str.zfill(2)
             )
 
-            st.line_chart(
+            render_line_chart(
                 disease_monthly.set_index(
                     "Period"
                 )["Records"],
@@ -754,7 +756,7 @@ def render_prediction(df):
                 .str.zfill(2)
             )
 
-            st.line_chart(
+            render_line_chart(
                 facility_monthly.set_index(
                     "Period"
                 )["Records"],
