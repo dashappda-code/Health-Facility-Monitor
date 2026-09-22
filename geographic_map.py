@@ -21,9 +21,6 @@ BMC_WARD_URL = (
     "BMConMaps_Nov26gdb/FeatureServer/24"
 )
 
-# Light CARTO map style
-MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-
 PROGRAMME_WARDS = [
     "A",
     "B",
@@ -501,7 +498,9 @@ def create_case_points(df, hotspots=None):
             work[case_id_col].map(clean_text)
         )
     else:
-        work["Case_ID"] = work.index.astype(str)
+        work["Case_ID"] = (
+            work.index.astype(str)
+        )
 
     work["_grid_lat"] = (
         work[LAT_COL] / GRID_SIZE
@@ -617,7 +616,12 @@ def create_ward_summary(df):
         {
             "Ward": PROGRAMME_WARDS,
             "Cases": [
-                int(counts.get(ward, 0))
+                int(
+                    counts.get(
+                        ward,
+                        0,
+                    )
+                )
                 for ward in PROGRAMME_WARDS
             ],
         }
@@ -635,7 +639,10 @@ def create_map_ward_summary(ward_summary):
         or ward_summary.empty
     ):
         return pd.DataFrame(
-            columns=["Ward", "Cases"]
+            columns=[
+                "Ward",
+                "Cases",
+            ]
         )
 
     summary = ward_summary.copy()
@@ -656,7 +663,10 @@ def create_map_ward_summary(ward_summary):
 
     summary = summary[
         ~summary["Ward"].isin(
-            ["PE", "PN"]
+            [
+                "PE",
+                "PN",
+            ]
         )
     ].copy()
 
@@ -691,6 +701,8 @@ def load_bmc_wards():
         "where": "1=1",
         "outFields": "NAME",
         "returnGeometry": "true",
+        "returnM": "false",
+        "returnZ": "false",
         "outSR": "4326",
         "f": "geojson",
     }
@@ -706,17 +718,55 @@ def load_bmc_wards():
 
         data = response.json()
 
-        if (
-            isinstance(data, dict)
-            and data.get("type")
-            == "FeatureCollection"
+        if not isinstance(
+            data,
+            dict,
         ):
-            return data
+            return None
+
+        if data.get("type") != "FeatureCollection":
+            return None
+
+        lightweight_features = []
+
+        for feature in data.get(
+            "features",
+            [],
+        ):
+
+            geometry = feature.get(
+                "geometry"
+            )
+
+            properties = feature.get(
+                "properties",
+                {},
+            )
+
+            ward = get_geojson_ward_name(
+                properties
+            )
+
+            if geometry is None:
+                continue
+
+            lightweight_features.append(
+                {
+                    "type": "Feature",
+                    "geometry": geometry,
+                    "properties": {
+                        "Ward": ward
+                    },
+                }
+            )
+
+        return {
+            "type": "FeatureCollection",
+            "features": lightweight_features,
+        }
 
     except Exception:
         return None
-
-    return None
 
 
 # ============================================================
@@ -813,7 +863,9 @@ DISEASE_PALETTES = [
 ]
 
 
-def get_disease_palette(disease_name=None):
+def get_disease_palette(
+    disease_name=None
+):
     if not disease_name:
         return DISEASE_PALETTES[0]
 
@@ -839,7 +891,10 @@ def get_choropleth_color(
     cases = int(cases or 0)
     max_cases = int(max_cases or 0)
 
-    if cases <= 0 or max_cases <= 0:
+    if (
+        cases <= 0
+        or max_cases <= 0
+    ):
         return [
             245,
             245,
@@ -851,7 +906,10 @@ def get_choropleth_color(
 
     ratio = max(
         0.0,
-        min(1.0, ratio),
+        min(
+            1.0,
+            ratio,
+        ),
     )
 
     light = palette["light"]
@@ -859,7 +917,10 @@ def get_choropleth_color(
     dark = palette["dark"]
 
     if ratio <= 0.5:
-        local_ratio = ratio / 0.5
+
+        local_ratio = (
+            ratio / 0.5
+        )
 
         rgb = [
             int(
@@ -874,6 +935,7 @@ def get_choropleth_color(
         ]
 
     else:
+
         local_ratio = (
             ratio - 0.5
         ) / 0.5
@@ -894,12 +956,12 @@ def get_choropleth_color(
         rgb[0],
         rgb[1],
         rgb[2],
-        190,
+        200,
     ]
 
 
 # ============================================================
-# CHOROPLETH
+# CHOROPLETH PREPARATION
 # ============================================================
 
 def prepare_bmc_choropleth(
@@ -929,9 +991,12 @@ def prepare_bmc_choropleth(
         )
     )
 
-    max_cases = int(
-        map_summary["Cases"].max()
-    ) if not map_summary.empty else 0
+    if map_summary.empty:
+        max_cases = 0
+    else:
+        max_cases = int(
+            map_summary["Cases"].max()
+        )
 
     palette = get_disease_palette(
         disease_name
@@ -943,7 +1008,15 @@ def prepare_bmc_choropleth(
         "features",
         [],
     ):
-        properties = dict(
+
+        geometry = feature.get(
+            "geometry"
+        )
+
+        if geometry is None:
+            continue
+
+        source_properties = (
             feature.get(
                 "properties",
                 {},
@@ -952,13 +1025,12 @@ def prepare_bmc_choropleth(
 
         detected_ward = (
             get_geojson_ward_name(
-                properties
+                source_properties
             )
         )
 
         map_ward = detected_ward
 
-        # PE and PN are displayed as P
         if detected_ward in [
             "PE",
             "PN",
@@ -972,56 +1044,42 @@ def prepare_bmc_choropleth(
             )
         )
 
-        properties["ProgrammeWard"] = (
-            detected_ward
-            if detected_ward
-            else "Unmatched"
-        )
-
-        properties["MapWard"] = (
-            map_ward
-        )
-
-        properties["ProgrammeCases"] = (
-            cases
-        )
-
-        properties["WardDisplay"] = (
-            f"{detected_ward or 'Unmatched'}"
-            f" | Cases: {cases:,}"
-        )
-
-        properties["Disease"] = (
-            clean_text(disease_name)
-            if disease_name
-            else "Combined"
-        )
-
-        properties["fill_color"] = (
-            get_choropleth_color(
-                cases,
-                max_cases,
-                palette,
-            )
-        )
-
-        properties["line_color"] = [
-            80,
-            80,
-            80,
-            220,
-        ]
-
-        new_feature = {
-            "type": "Feature",
-            "geometry": feature.get(
-                "geometry"
+        new_properties = {
+            "ProgrammeWard": (
+                detected_ward
+                if detected_ward
+                else "Unmatched"
             ),
-            "properties": properties,
+            "MapWard": map_ward,
+            "ProgrammeCases": cases,
+            "Disease": (
+                clean_text(
+                    disease_name
+                )
+                if disease_name
+                else "Combined"
+            ),
+            "fill_color": (
+                get_choropleth_color(
+                    cases,
+                    max_cases,
+                    palette,
+                )
+            ),
+            "line_color": [
+                80,
+                80,
+                80,
+                220,
+            ],
         }
 
         features.append(
-            new_feature
+            {
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": new_properties,
+            }
         )
 
     return {
@@ -1031,7 +1089,7 @@ def prepare_bmc_choropleth(
 
 
 # ============================================================
-# DISEASE SELECTION RESET
+# DISEASE SELECTION
 # ============================================================
 
 def reset_geo_disease_selection():
@@ -1040,11 +1098,9 @@ def reset_geo_disease_selection():
     ] = []
 
 
-# ============================================================
-# DISEASE SELECTION
-# ============================================================
-
-def disease_selection_control(diseases):
+def disease_selection_control(
+    diseases
+):
     diseases = [
         clean_text(disease)
         for disease in diseases
@@ -1056,21 +1112,27 @@ def disease_selection_control(diseases):
     )
 
     if not diseases:
-        return diseases
+        return []
 
-    signature = "|".join(diseases)
+    signature = "|".join(
+        diseases
+    )
 
-    if (
+    previous_signature = (
         st.session_state.get(
             "geo_disease_options_signature"
         )
+    )
+
+    if (
+        previous_signature
         != signature
     ):
+
         st.session_state[
             "geo_disease_options_signature"
         ] = signature
 
-        # Only initialise if widget state does not exist
         if (
             "geo_disease_selection"
             not in st.session_state
@@ -1102,93 +1164,51 @@ def disease_selection_control(diseases):
 
 
 # ============================================================
-# MAP VIEW
+# PYDECK CREATION
 # ============================================================
 
-def calculate_view(
-    case_points=None,
-    extent="BMC / Mumbai Focus",
+def create_deck(
+    layers,
+    latitude=19.0760,
+    longitude=72.8777,
+    zoom=10.3,
+    tooltip=None,
 ):
-    if (
-        case_points is None
-        or case_points.empty
-    ):
-        return (
-            19.0760,
-            72.8777,
-            10.3,
-        )
-
-    if (
-        extent
-        == "BMC / Mumbai Focus"
-    ):
-        return (
-            19.0760,
-            72.8777,
-            10.3,
-        )
-
-    lat_values = (
-        pd.to_numeric(
-            case_points[LAT_COL],
-            errors="coerce",
-        )
-        .dropna()
-        .tolist()
+    view_state = pdk.ViewState(
+        latitude=float(latitude),
+        longitude=float(longitude),
+        zoom=float(zoom),
+        pitch=0,
+        bearing=0,
     )
 
-    lon_values = (
-        pd.to_numeric(
-            case_points[LON_COL],
-            errors="coerce",
+    deck_kwargs = {
+        "layers": layers,
+        "initial_view_state": view_state,
+    }
+
+    if tooltip:
+        deck_kwargs["tooltip"] = tooltip
+
+    # Preferred configuration
+    try:
+        return pdk.Deck(
+            map_provider="carto",
+            map_style="light",
+            **deck_kwargs,
         )
-        .dropna()
-        .tolist()
-    )
 
-    if not lat_values or not lon_values:
-        return (
-            19.0760,
-            72.8777,
-            10.3,
+    except TypeError:
+
+        # Compatibility fallback
+        return pdk.Deck(
+            map_style="light",
+            **deck_kwargs,
         )
-
-    center_lat = (
-        min(lat_values)
-        + max(lat_values)
-    ) / 2
-
-    center_lon = (
-        min(lon_values)
-        + max(lon_values)
-    ) / 2
-
-    max_range = max(
-        max(lat_values) - min(lat_values),
-        max(lon_values) - min(lon_values),
-    )
-
-    if max_range < 0.02:
-        zoom = 13
-    elif max_range < 0.05:
-        zoom = 11.5
-    elif max_range < 0.15:
-        zoom = 10
-    elif max_range < 0.5:
-        zoom = 8
-    else:
-        zoom = 5.5
-
-    return (
-        center_lat,
-        center_lon,
-        zoom,
-    )
 
 
 # ============================================================
-# BUILD HOTSPOT MAP
+# HOTSPOT MAP
 # ============================================================
 
 def build_hotspot_map(
@@ -1198,55 +1218,63 @@ def build_hotspot_map(
 ):
     layers = []
 
+    # Ward boundaries only
     if ward_geojson:
-        layers.append(
-            pdk.Layer(
-                "GeoJsonLayer",
-                data=ward_geojson,
-                pickable=False,
-                stroked=True,
-                filled=False,
-                get_line_color=[
-                    90,
-                    90,
-                    90,
-                    200,
-                ],
-                line_width_min_pixels=1,
-            )
+
+        boundary_layer = pdk.Layer(
+            "GeoJsonLayer",
+            data=ward_geojson,
+            pickable=False,
+            stroked=True,
+            filled=False,
+            get_line_color=[
+                90,
+                90,
+                90,
+                200,
+            ],
+            line_width_min_pixels=1,
         )
 
+        layers.append(
+            boundary_layer
+        )
+
+    # Hotspot clusters only
     if (
         hotspots is not None
         and not hotspots.empty
     ):
+
+        hotspot_layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=hotspots,
+            get_position=[
+                "Longitude",
+                "Latitude",
+            ],
+            get_radius="Display_Radius",
+            get_fill_color=[
+                210,
+                40,
+                40,
+                90,
+            ],
+            get_line_color=[
+                160,
+                0,
+                0,
+                210,
+            ],
+            stroked=True,
+            filled=True,
+            pickable=True,
+            radius_min_pixels=5,
+            radius_max_pixels=35,
+        )
+
         layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=hotspots,
-                get_position=[
-                    "Longitude",
-                    "Latitude",
-                ],
-                get_radius="Display_Radius",
-                get_fill_color=[
-                    210,
-                    40,
-                    40,
-                    85,
-                ],
-                get_line_color=[
-                    160,
-                    0,
-                    0,
-                    210,
-                ],
-                stroked=True,
-                filled=True,
-                pickable=True,
-                radius_min_pixels=5,
-                radius_max_pixels=35,
-            )
+            hotspot_layer
         )
 
     center_lat = 19.0760
@@ -1255,44 +1283,42 @@ def build_hotspot_map(
 
     if (
         extent == "All Coordinates"
+        and hotspots is not None
         and not hotspots.empty
     ):
-        center_lat = (
+
+        center_lat = float(
             hotspots["Latitude"].mean()
         )
 
-        center_lon = (
+        center_lon = float(
             hotspots["Longitude"].mean()
         )
 
-    return pdk.Deck(
-        map_provider="carto",
-        map_style="light",
-        layers=layers,
-        initial_view_state=pdk.ViewState(
-            latitude=center_lat,
-            longitude=center_lon,
-            zoom=zoom,
-            pitch=0,
-            bearing=0,
-        ),
-        tooltip={
-            "html": """
-            <b>Cluster Cases:</b> {Cluster_Cases}<br/>
-            <b>Hotspot Level:</b> {Hotspot_Level}<br/>
-            <b>Latitude:</b> {Latitude}<br/>
-            <b>Longitude:</b> {Longitude}
-            """,
-            "style": {
-                "backgroundColor": "white",
-                "color": "black",
-            },
+    tooltip = {
+        "html": """
+        <b>Cluster Cases:</b> {Cluster_Cases}<br/>
+        <b>Hotspot Level:</b> {Hotspot_Level}<br/>
+        <b>Latitude:</b> {Latitude}<br/>
+        <b>Longitude:</b> {Longitude}
+        """,
+        "style": {
+            "backgroundColor": "white",
+            "color": "black",
         },
+    }
+
+    return create_deck(
+        layers=layers,
+        latitude=center_lat,
+        longitude=center_lon,
+        zoom=zoom,
+        tooltip=tooltip,
     )
 
 
 # ============================================================
-# BUILD CHOROPLETH MAP
+# CHOROPLETH MAP
 # ============================================================
 
 def build_choropleth_map(
@@ -1307,120 +1333,125 @@ def build_choropleth_map(
         pickable=True,
         stroked=True,
         filled=True,
-        get_fill_color="properties.fill_color",
-        get_line_color="properties.line_color",
+        get_fill_color=(
+            "properties.fill_color"
+        ),
+        get_line_color=(
+            "properties.line_color"
+        ),
         line_width_min_pixels=1,
-        opacity=0.82,
+        opacity=0.86,
         auto_highlight=True,
     )
 
-    return pdk.Deck(
-        map_provider="carto",
-        map_style="light",
-        layers=[layer],
-        initial_view_state=pdk.ViewState(
-            latitude=19.0760,
-            longitude=72.8777,
-            zoom=10.3,
-            pitch=0,
-            bearing=0,
-        ),
-        tooltip={
-            "html": """
-            <b>Ward:</b> {ProgrammeWard}<br/>
-            <b>Cases:</b> {ProgrammeCases}<br/>
-            <b>Disease:</b> {Disease}
-            """,
-            "style": {
-                "backgroundColor": "white",
-                "color": "black",
-            },
+    tooltip = {
+        "html": """
+        <b>Ward:</b> {ProgrammeWard}<br/>
+        <b>Cases:</b> {ProgrammeCases}<br/>
+        <b>Disease:</b> {Disease}
+        """,
+        "style": {
+            "backgroundColor": "white",
+            "color": "black",
         },
+    }
+
+    return create_deck(
+        layers=[layer],
+        latitude=19.0760,
+        longitude=72.8777,
+        zoom=10.3,
+        tooltip=tooltip,
     )
 
 
 # ============================================================
-# BUILD COMBINED MAP
+# COMBINED MAP
 # ============================================================
 
 def build_combined_map(
     choropleth_geojson=None,
     hotspots=None,
-    extent="BMC / Mumbai Focus",
 ):
     layers = []
 
     if choropleth_geojson:
+
+        choropleth_layer = pdk.Layer(
+            "GeoJsonLayer",
+            data=choropleth_geojson,
+            pickable=True,
+            stroked=True,
+            filled=True,
+            get_fill_color=(
+                "properties.fill_color"
+            ),
+            get_line_color=(
+                "properties.line_color"
+            ),
+            line_width_min_pixels=1,
+            opacity=0.74,
+            auto_highlight=True,
+        )
+
         layers.append(
-            pdk.Layer(
-                "GeoJsonLayer",
-                data=choropleth_geojson,
-                pickable=True,
-                stroked=True,
-                filled=True,
-                get_fill_color="properties.fill_color",
-                get_line_color="properties.line_color",
-                line_width_min_pixels=1,
-                opacity=0.72,
-                auto_highlight=True,
-            )
+            choropleth_layer
         )
 
     if (
         hotspots is not None
         and not hotspots.empty
     ):
-        layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=hotspots,
-                get_position=[
-                    "Longitude",
-                    "Latitude",
-                ],
-                get_radius="Display_Radius",
-                get_fill_color=[
-                    220,
-                    30,
-                    30,
-                    75,
-                ],
-                get_line_color=[
-                    170,
-                    0,
-                    0,
-                    190,
-                ],
-                stroked=True,
-                filled=True,
-                pickable=True,
-                radius_min_pixels=5,
-                radius_max_pixels=30,
-            )
+
+        hotspot_layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=hotspots,
+            get_position=[
+                "Longitude",
+                "Latitude",
+            ],
+            get_radius="Display_Radius",
+            get_fill_color=[
+                220,
+                30,
+                30,
+                75,
+            ],
+            get_line_color=[
+                170,
+                0,
+                0,
+                190,
+            ],
+            stroked=True,
+            filled=True,
+            pickable=True,
+            radius_min_pixels=5,
+            radius_max_pixels=30,
         )
 
-    return pdk.Deck(
-        map_provider="carto",
-        map_style="light",
-        layers=layers,
-        initial_view_state=pdk.ViewState(
-            latitude=19.0760,
-            longitude=72.8777,
-            zoom=10.3,
-            pitch=0,
-            bearing=0,
-        ),
-        tooltip={
-            "html": """
-            <b>Ward:</b> {ProgrammeWard}<br/>
-            <b>Cases:</b> {ProgrammeCases}<br/>
-            <b>Disease:</b> {Disease}
-            """,
-            "style": {
-                "backgroundColor": "white",
-                "color": "black",
-            },
+        layers.append(
+            hotspot_layer
+        )
+
+    tooltip = {
+        "html": """
+        <b>Ward:</b> {ProgrammeWard}<br/>
+        <b>Cases:</b> {ProgrammeCases}<br/>
+        <b>Disease:</b> {Disease}
+        """,
+        "style": {
+            "backgroundColor": "white",
+            "color": "black",
         },
+    }
+
+    return create_deck(
+        layers=layers,
+        latitude=19.0760,
+        longitude=72.8777,
+        zoom=10.3,
+        tooltip=tooltip,
     )
 
 
@@ -1429,7 +1460,9 @@ def build_combined_map(
 # ============================================================
 
 def create_disease_comparison(df):
-    disease_col = get_disease_column(df)
+    disease_col = get_disease_column(
+        df
+    )
 
     if disease_col is None:
         return pd.DataFrame()
@@ -1453,7 +1486,9 @@ def get_disease_map_data(
     df,
     disease,
 ):
-    disease_col = get_disease_column(df)
+    disease_col = get_disease_column(
+        df
+    )
 
     if disease_col is None:
         return pd.DataFrame()
@@ -1488,6 +1523,7 @@ def download_hotspot_data(
             hotspots is not None
             and not hotspots.empty
         ):
+
             hotspots.to_excel(
                 writer,
                 index=False,
@@ -1498,6 +1534,7 @@ def download_hotspot_data(
             case_points is not None
             and not case_points.empty
         ):
+
             case_points.to_excel(
                 writer,
                 index=False,
@@ -1530,9 +1567,11 @@ def render_geographic_map(
         filtered_df is None
         or filtered_df.empty
     ):
+
         st.warning(
             "No data available for the selected filters."
         )
+
         return
 
     coordinate_df = prepare_coordinates(
@@ -1540,10 +1579,12 @@ def render_geographic_map(
     )
 
     if coordinate_df.empty:
+
         st.warning(
             "No valid latitude/longitude coordinates "
             "are available in the filtered data."
         )
+
         return
 
     disease_col = get_disease_column(
@@ -1551,9 +1592,11 @@ def render_geographic_map(
     )
 
     if disease_col is None:
+
         st.error(
             "Disease column could not be identified."
         )
+
         return
 
     diseases = sorted(
@@ -1569,9 +1612,11 @@ def render_geographic_map(
     )
 
     if not diseases:
+
         st.warning(
             "No diseases are available for geographic mapping."
         )
+
         return
 
     st.info(
@@ -1580,31 +1625,37 @@ def render_geographic_map(
         )
     )
 
-    # --------------------------------------------------------
-    # LOAD BMC GEOJSON ONCE
-    # --------------------------------------------------------
+    # ========================================================
+    # LOAD BMC GEOJSON
+    # ========================================================
 
     bmc_geojson = load_bmc_wards()
 
     if bmc_geojson is None:
+
         st.warning(
             "BMC ward boundary data could not be loaded. "
-            "Disease maps will not show ward boundaries."
+            "Maps will continue without ward boundaries."
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # CONTROLS
-    # --------------------------------------------------------
+    # ========================================================
 
     st.markdown(
         "### Map Controls"
     )
 
     control1, control2, control3 = st.columns(
-        [1.2, 2.5, 0.55]
+        [
+            1.3,
+            2.5,
+            0.55,
+        ]
     )
 
     with control1:
+
         extent = st.radio(
             "Map Extent",
             [
@@ -1616,6 +1667,7 @@ def render_geographic_map(
         )
 
     with control2:
+
         selected_diseases = (
             disease_selection_control(
                 diseases
@@ -1623,6 +1675,7 @@ def render_geographic_map(
         )
 
     with control3:
+
         st.markdown(
             "<div style='height:28px'></div>",
             unsafe_allow_html=True,
@@ -1631,33 +1684,45 @@ def render_geographic_map(
         st.button(
             "Reset",
             key="geo_disease_reset",
-            on_click=reset_geo_disease_selection,
-            help="Reset disease selection to all diseases",
+            on_click=(
+                reset_geo_disease_selection
+            ),
+            help=(
+                "Reset disease selection "
+                "to all diseases"
+            ),
         )
 
-    # --------------------------------------------------------
-    # FILTER
-    # --------------------------------------------------------
+    # ========================================================
+    # FILTER DATA
+    # ========================================================
 
     if selected_diseases:
+
         map_df = coordinate_df[
             coordinate_df[
                 disease_col
             ]
             .map(clean_text)
-            .isin(selected_diseases)
+            .isin(
+                selected_diseases
+            )
         ].copy()
+
     else:
+
         map_df = coordinate_df.copy()
 
-    # --------------------------------------------------------
-    # DATA
-    # --------------------------------------------------------
+    # ========================================================
+    # CREATE ANALYSIS DATA
+    # ========================================================
 
     hotspots = create_hotspots(
         map_df
     )
 
+    # Case points are still prepared for Excel export,
+    # but NOT rendered automatically on the map.
     case_points = create_case_points(
         map_df,
         hotspots,
@@ -1673,11 +1738,13 @@ def render_geographic_map(
         )
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # KPI
-    # --------------------------------------------------------
+    # ========================================================
 
-    total_cases = len(map_df)
+    total_cases = len(
+        map_df
+    )
 
     total_diseases = (
         map_df[disease_col]
@@ -1699,35 +1766,41 @@ def render_geographic_map(
         else 0
     )
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4 = st.columns(
+        4
+    )
 
     with k1:
+
         st.metric(
             "Mapped Cases",
             f"{total_cases:,}",
         )
 
     with k2:
+
         st.metric(
             "Diseases",
             f"{total_diseases:,}",
         )
 
     with k3:
+
         st.metric(
             "Wards with Cases",
             f"{total_wards:,}",
         )
 
     with k4:
+
         st.metric(
             "Geographic Clusters",
             f"{total_hotspots:,}",
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # TABS
-    # --------------------------------------------------------
+    # ========================================================
 
     tab1, tab2, tab3, tab4 = st.tabs(
         [
@@ -1752,27 +1825,26 @@ def render_geographic_map(
             hotspots is None
             or hotspots.empty
         ):
+
             st.info(
                 "No geographic hotspots identified."
             )
 
         else:
 
-            # IMPORTANT:
-            # Do NOT render thousands of case points here.
-            # Only hotspot clusters are rendered.
-
-            hotspot_map = build_hotspot_map(
-                hotspots=hotspots,
-                ward_geojson=bmc_geojson,
-                extent=extent,
+            hotspot_map = (
+                build_hotspot_map(
+                    hotspots=hotspots,
+                    ward_geojson=bmc_geojson,
+                    extent=extent,
+                )
             )
 
             st.pydeck_chart(
                 hotspot_map,
                 use_container_width=True,
                 height=430,
-                key="geo_hotspot_map",
+                key="geo_hotspot_map_v2",
             )
 
             st.markdown(
@@ -1835,7 +1907,7 @@ def render_geographic_map(
             )
 
     # ========================================================
-    # TAB 3 — CHOROPLETH
+    # TAB 3 — CHOROPLETH COMPARISON
     # ========================================================
 
     with tab3:
@@ -1845,9 +1917,9 @@ def render_geographic_map(
         )
 
         st.caption(
-            "Each disease is shown as a separate ward-level "
-            "burden map. Two maps are displayed per row "
-            "to reduce page height and improve loading."
+            "Two lightweight ward-level maps are displayed "
+            "per row. Each map contains only the ward polygon "
+            "layer to minimise browser rendering load."
         )
 
         if not bmc_geojson:
@@ -1876,7 +1948,9 @@ def render_geographic_map(
 
             for row_start in range(
                 0,
-                len(comparison_diseases),
+                len(
+                    comparison_diseases
+                ),
                 2,
             ):
 
@@ -1906,9 +1980,11 @@ def render_geographic_map(
                         )
 
                         if disease_df.empty:
+
                             st.info(
                                 f"No data available for {disease}."
                             )
+
                             continue
 
                         disease_ward_summary = (
@@ -1925,8 +2001,10 @@ def render_geographic_map(
                             )
                         )
 
-                        disease_cases = len(
-                            disease_df
+                        disease_cases = (
+                            len(
+                                disease_df
+                            )
                         )
 
                         palette = (
@@ -1952,21 +2030,25 @@ def render_geographic_map(
                                 )
                             )
 
+                            safe_disease = (
+                                re.sub(
+                                    r"[^A-Za-z0-9]+",
+                                    "_",
+                                    disease,
+                                )
+                            )
+
                             st.pydeck_chart(
                                 disease_map,
                                 use_container_width=True,
-                                height=340,
+                                height=330,
                                 key=(
-                                    "geo_choropleth_"
+                                    "geo_choro_v2_"
                                     + str(row_start)
                                     + "_"
                                     + str(index)
                                     + "_"
-                                    + re.sub(
-                                        r"[^A-Za-z0-9]+",
-                                        "_",
-                                        disease,
-                                    )
+                                    + safe_disease
                                 ),
                             )
 
@@ -1976,25 +2058,42 @@ def render_geographic_map(
                                 "Ward map could not be prepared."
                             )
 
+                        # Data immediately below map
                         display_summary = (
-                            disease_ward_summary
+                            disease_ward_summary[
+                                disease_ward_summary[
+                                    "Cases"
+                                ] > 0
+                            ]
                             .sort_values(
                                 "Cases",
                                 ascending=False,
                             )
+                            .copy()
                         )
 
-                        st.dataframe(
-                            display_summary,
-                            use_container_width=True,
-                            hide_index=True,
-                            height=230,
-                        )
+                        if display_summary.empty:
 
-                # visual separation
-                if row_start + 2 < len(
-                    comparison_diseases
+                            st.info(
+                                "No ward-level cases available."
+                            )
+
+                        else:
+
+                            st.dataframe(
+                                display_summary,
+                                use_container_width=True,
+                                hide_index=True,
+                                height=190,
+                            )
+
+                if (
+                    row_start + 2
+                    < len(
+                        comparison_diseases
+                    )
                 ):
+
                     st.markdown(
                         "<hr>",
                         unsafe_allow_html=True,
@@ -2034,24 +2133,21 @@ def render_geographic_map(
 
             combined_choropleth = None
 
-        combined_map = build_combined_map(
-            choropleth_geojson=(
-                combined_choropleth
-            ),
-            hotspots=hotspots,
-            extent=extent,
+        combined_map = (
+            build_combined_map(
+                choropleth_geojson=(
+                    combined_choropleth
+                ),
+                hotspots=hotspots,
+            )
         )
 
         st.pydeck_chart(
             combined_map,
             use_container_width=True,
-            height=480,
-            key="geo_combined_map",
+            height=460,
+            key="geo_combined_map_v2",
         )
-
-        # ----------------------------------------------------
-        # WARD BURDEN
-        # ----------------------------------------------------
 
         st.markdown(
             "### Ward-wise Burden"
@@ -2070,10 +2166,6 @@ def render_geographic_map(
             use_container_width=True,
             hide_index=True,
         )
-
-        # ----------------------------------------------------
-        # DISEASE BURDEN
-        # ----------------------------------------------------
 
         st.markdown(
             "### Disease-wise Burden"
@@ -2110,5 +2202,5 @@ def render_geographic_map(
             "application/vnd.openxmlformats-officedocument."
             "spreadsheetml.sheet"
         ),
-        key="geo_export_excel",
+        key="geo_export_excel_v2",
     )
