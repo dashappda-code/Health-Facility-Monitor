@@ -596,11 +596,7 @@ def spatially_resolve_wards(
     geojson
 ):
 
-    if (
-        df is None
-        or df.empty
-        or geojson is None
-    ):
+    if df is None or df.empty:
         return df
 
     out = df.copy()
@@ -611,14 +607,22 @@ def spatially_resolve_wards(
 
     if ward_col:
 
-        out["_Map_Ward"] = (
+        out["_Report_Ward"] = (
             out[ward_col]
             .apply(normalise_ward)
         )
 
     else:
 
-        out["_Map_Ward"] = ""
+        out["_Report_Ward"] = ""
+
+    out["_Map_Ward"] = (
+        out["_Report_Ward"]
+        .copy()
+    )
+
+    if geojson is None:
+        return out
 
     mask = (
         out["_Map_Ward"].isin(
@@ -668,14 +672,18 @@ def spatially_resolve_wards(
 
 # ============================================================
 # MAP WARD
-# PE + PN ARE COMBINED ONLY FOR MAP GROUPING
+# PE + PN COMBINED ONLY FOR CHOROPLETH
 # ============================================================
 
 def map_ward(value):
 
     ward = normalise_ward(value)
 
-    if ward in ["PE", "PN"]:
+    if ward in [
+        "PE",
+        "PN"
+    ]:
+
         return "P"
 
     return ward
@@ -751,10 +759,10 @@ def create_case_points(
 
         output["Disease"] = "Unknown"
 
-    if "_Map_Ward" in points.columns:
+    if "_Report_Ward" in points.columns:
 
         output["Ward"] = (
-            points["_Map_Ward"]
+            points["_Report_Ward"]
             .apply(normalise_ward)
         )
 
@@ -777,38 +785,6 @@ def create_case_points(
     output["Case_ID"] = range(
         1,
         len(output) + 1
-    )
-
-    def point_color(ward):
-
-        if ward == "PE":
-
-            return [
-                20,
-                100,
-                220,
-                190
-            ]
-
-        if ward == "PN":
-
-            return [
-                130,
-                60,
-                200,
-                190
-            ]
-
-        return [
-            40,
-            120,
-            180,
-            160
-        ]
-
-    output["Point_Color"] = (
-        output["Ward"]
-        .apply(point_color)
     )
 
     return output
@@ -941,27 +917,26 @@ def create_ward_summary(df):
     if df is None or df.empty:
         return summary
 
-    ward_col = get_ward_column(
-        df
-    )
-
-    if ward_col:
+    if "_Report_Ward" in df.columns:
 
         ward_series = (
-            df[ward_col]
-            .apply(normalise_ward)
-        )
-
-    elif "_Map_Ward" in df.columns:
-
-        ward_series = (
-            df["_Map_Ward"]
+            df["_Report_Ward"]
             .apply(normalise_ward)
         )
 
     else:
 
-        return summary
+        ward_col = get_ward_column(
+            df
+        )
+
+        if not ward_col:
+            return summary
+
+        ward_series = (
+            df[ward_col]
+            .apply(normalise_ward)
+        )
 
     counts = ward_series.value_counts()
 
@@ -982,32 +957,40 @@ def create_ward_summary(df):
 
 def create_map_ward_summary(df):
 
-    if df is None or df.empty:
+    map_wards = [
+        x
+        for x in PROGRAMME_WARDS
+        if x not in [
+            "PE",
+            "PN"
+        ]
+    ]
 
-        return pd.DataFrame(
-            {
-                "Ward": PROGRAMME_WARDS,
-                "Cases": [0] * len(
-                    PROGRAMME_WARDS
-                )
-            }
-        )
+    map_wards.append("P")
 
-    ward_col = get_ward_column(
-        df
+    summary = pd.DataFrame(
+        {
+            "Ward": map_wards,
+            "Cases": [0] * len(
+                map_wards
+            ),
+        }
     )
 
-    if ward_col:
+    if df is None or df.empty:
+        return summary
 
-        series = (
-            df[ward_col]
+    if "_Report_Ward" in df.columns:
+
+        ward_series = (
+            df["_Report_Ward"]
             .apply(normalise_ward)
             .apply(map_ward)
         )
 
     elif "_Map_Ward" in df.columns:
 
-        series = (
+        ward_series = (
             df["_Map_Ward"]
             .apply(normalise_ward)
             .apply(map_ward)
@@ -1015,38 +998,29 @@ def create_map_ward_summary(df):
 
     else:
 
-        series = pd.Series(
-            dtype="object"
+        ward_col = get_ward_column(
+            df
         )
 
-    rows = []
+        if not ward_col:
+            return summary
 
-    for ward in PROGRAMME_WARDS:
-
-        if ward in ["PE", "PN"]:
-            continue
-
-        rows.append(
-            {
-                "Ward": ward,
-                "Cases": int(
-                    (series == ward).sum()
-                )
-            }
+        ward_series = (
+            df[ward_col]
+            .apply(normalise_ward)
+            .apply(map_ward)
         )
 
-    pe_pn_cases = int(
-        series.eq("P").sum()
+    counts = ward_series.value_counts()
+
+    summary["Cases"] = (
+        summary["Ward"]
+        .map(counts)
+        .fillna(0)
+        .astype(int)
     )
 
-    rows.append(
-        {
-            "Ward": "P",
-            "Cases": pe_pn_cases
-        }
-    )
-
-    return pd.DataFrame(rows)
+    return summary
 
 
 # ============================================================
@@ -1159,13 +1133,13 @@ def prepare_bmc_choropleth(
             properties
         )
 
-        map_ward_name = map_ward(
+        choropleth_ward = map_ward(
             ward
         )
 
         cases = int(
             case_map.get(
-                map_ward_name,
+                choropleth_ward,
                 0
             )
         )
@@ -1269,54 +1243,8 @@ def build_map(
         )
 
     # --------------------------------------------------------
-    # CASE POINTS
-    # --------------------------------------------------------
-
-    if (
-        case_points is not None
-        and
-        not case_points.empty
-    ):
-
-        layers.append(
-            pdk.Layer(
-
-                "ScatterplotLayer",
-
-                data=case_points,
-
-                pickable=True,
-
-                get_position=[
-                    "Longitude",
-                    "Latitude"
-                ],
-
-                get_radius=40,
-
-                radius_min_pixels=2,
-
-                radius_max_pixels=6,
-
-                get_fill_color=(
-                    "Point_Color"
-                ),
-
-                get_line_color=[
-                    20,
-                    20,
-                    20,
-                    130
-                ],
-
-                stroked=True,
-
-                filled=True,
-            )
-        )
-
-    # --------------------------------------------------------
     # HOTSPOTS
+    # HOTSPOTS ARE DRAWN BEFORE CASE POINTS
     # --------------------------------------------------------
 
     if (
@@ -1340,28 +1268,28 @@ def build_map(
                 ],
 
                 get_radius=(
-                    "50 + "
+                    "45 + "
                     "min("
-                    "Cluster_Cases * 6,"
-                    "120)"
+                    "Cluster_Cases * 5,"
+                    "100)"
                 ),
 
                 radius_min_pixels=3,
 
-                radius_max_pixels=10,
+                radius_max_pixels=9,
 
                 get_fill_color=[
                     220,
                     40,
                     40,
-                    100
+                    75
                 ],
 
                 get_line_color=[
                     150,
                     0,
                     0,
-                    150
+                    130
                 ],
 
                 stroked=True,
@@ -1369,6 +1297,172 @@ def build_map(
                 filled=True,
             )
         )
+
+    # --------------------------------------------------------
+    # CASE POINTS
+    # SEPARATE LAYERS FOR PE / PN / OTHER
+    # --------------------------------------------------------
+
+    if (
+        case_points is not None
+        and
+        not case_points.empty
+    ):
+
+        pe_points = case_points[
+            case_points["Ward"] == "PE"
+        ].copy()
+
+        pn_points = case_points[
+            case_points["Ward"] == "PN"
+        ].copy()
+
+        other_points = case_points[
+            ~case_points["Ward"].isin(
+                [
+                    "PE",
+                    "PN"
+                ]
+            )
+        ].copy()
+
+        # ----------------------------------------------------
+        # PE POINTS
+        # ----------------------------------------------------
+
+        if not pe_points.empty:
+
+            layers.append(
+                pdk.Layer(
+
+                    "ScatterplotLayer",
+
+                    data=pe_points,
+
+                    pickable=True,
+
+                    get_position=[
+                        "Longitude",
+                        "Latitude"
+                    ],
+
+                    get_radius=35,
+
+                    radius_min_pixels=3,
+
+                    radius_max_pixels=7,
+
+                    get_fill_color=[
+                        20,
+                        100,
+                        220,
+                        220
+                    ],
+
+                    get_line_color=[
+                        0,
+                        40,
+                        100,
+                        230
+                    ],
+
+                    stroked=True,
+
+                    filled=True,
+                )
+            )
+
+        # ----------------------------------------------------
+        # PN POINTS
+        # ----------------------------------------------------
+
+        if not pn_points.empty:
+
+            layers.append(
+                pdk.Layer(
+
+                    "ScatterplotLayer",
+
+                    data=pn_points,
+
+                    pickable=True,
+
+                    get_position=[
+                        "Longitude",
+                        "Latitude"
+                    ],
+
+                    get_radius=35,
+
+                    radius_min_pixels=3,
+
+                    radius_max_pixels=7,
+
+                    get_fill_color=[
+                        130,
+                        60,
+                        200,
+                        230
+                    ],
+
+                    get_line_color=[
+                        70,
+                        20,
+                        120,
+                        240
+                    ],
+
+                    stroked=True,
+
+                    filled=True,
+                )
+            )
+
+        # ----------------------------------------------------
+        # OTHER WARD POINTS
+        # ----------------------------------------------------
+
+        if not other_points.empty:
+
+            layers.append(
+                pdk.Layer(
+
+                    "ScatterplotLayer",
+
+                    data=other_points,
+
+                    pickable=True,
+
+                    get_position=[
+                        "Longitude",
+                        "Latitude"
+                    ],
+
+                    get_radius=35,
+
+                    radius_min_pixels=2,
+
+                    radius_max_pixels=6,
+
+                    get_fill_color=[
+                        40,
+                        120,
+                        180,
+                        180
+                    ],
+
+                    get_line_color=[
+                        20,
+                        60,
+                        100,
+                        190
+                    ],
+
+                    stroked=True,
+
+                    filled=True,
+                )
+            )
 
     # --------------------------------------------------------
     # VIEW
@@ -1547,7 +1641,6 @@ def disease_checkbox_selector(
     diseases = list(diseases)
 
     select_all_key = "geo_select_all"
-    reset_key = "geo_reset_diseases"
 
     if select_all_key not in st.session_state:
         st.session_state[
@@ -1559,7 +1652,7 @@ def disease_checkbox_selector(
             "geo_selected_diseases"
         ] = []
 
-    selected_before = [
+    current_selected = [
         x
         for x in st.session_state[
             "geo_selected_diseases"
@@ -1567,93 +1660,119 @@ def disease_checkbox_selector(
         if x in diseases
     ]
 
-    all_selected = (
-        len(selected_before) == len(diseases)
-        and len(diseases) > 0
-    )
-
-    if all_selected:
-        st.session_state[
-            select_all_key
-        ] = True
-
     st.markdown(
         "### Disease Selection"
     )
 
-    reset_clicked = st.button(
-        "Reset",
-        key=reset_key,
-        use_container_width=False
+    control_col1, control_col2 = st.columns(
+        [1, 1]
     )
 
-    if reset_clicked:
+    with control_col1:
 
-        st.session_state[
-            select_all_key
-        ] = False
+        select_all = st.checkbox(
+            "Select All Diseases",
+            key=select_all_key
+        )
 
-        st.session_state[
-            "geo_selected_diseases"
-        ] = []
+    with control_col2:
 
-        for i in range(len(diseases)):
+        if st.button(
+            "Reset",
+            key="geo_reset_diseases"
+        ):
 
             st.session_state[
-                f"geo_disease_{i}"
+                select_all_key
             ] = False
 
-        st.rerun()
+            st.session_state[
+                "geo_selected_diseases"
+            ] = []
 
-    select_all = st.checkbox(
-        "Select All Diseases",
-        key=select_all_key
-    )
+            for i in range(
+                len(diseases)
+            ):
+
+                key = (
+                    f"geo_disease_{i}"
+                )
+
+                if key in st.session_state:
+                    st.session_state[
+                        key
+                    ] = False
+
+            st.rerun()
 
     selected = []
 
+    # --------------------------------------------------------
+    # SELECT ALL
+    # --------------------------------------------------------
+
     if select_all:
 
-        selected = list(diseases)
+        selected = list(
+            diseases
+        )
+
+        cols = st.columns(4)
 
         for i, disease in enumerate(
             diseases
         ):
 
-            st.checkbox(
-                str(disease),
-                value=True,
-                key=f"geo_all_{i}",
-                disabled=True
-            )
+            with cols[
+                i % 4
+            ]:
+
+                st.checkbox(
+                    str(disease),
+                    value=True,
+                    key=f"geo_all_{i}",
+                    disabled=True
+                )
+
+    # --------------------------------------------------------
+    # INDIVIDUAL SELECTION
+    # --------------------------------------------------------
 
     else:
 
-        cols = st.columns(3)
+        cols = st.columns(4)
 
         for i, disease in enumerate(
             diseases
         ):
 
-            key = f"geo_disease_{i}"
-
-            current_value = (
-                disease
-                in st.session_state[
-                    "geo_selected_diseases"
-                ]
+            key = (
+                f"geo_disease_{i}"
             )
 
-            with cols[i % 3]:
+            if key not in st.session_state:
+
+                st.session_state[
+                    key
+                ] = (
+                    disease
+                    in current_selected
+                )
+
+            with cols[
+                i % 4
+            ]:
 
                 checked = st.checkbox(
                     str(disease),
-                    value=current_value,
                     key=key
                 )
 
             if checked:
-                selected.append(disease)
+
+                selected.append(
+                    disease
+                )
 
     st.session_state[
         "geo_selected_diseases"
@@ -1687,8 +1806,7 @@ def render_map_legend(
 
     p_combined = (
         pe_cases
-        +
-        pn_cases
+        + pn_cases
     )
 
     st.markdown(
@@ -1701,6 +1819,7 @@ def render_map_legend(
             margin:8px 0 14px 0;
             font-size:14px;
         ">
+
             <div>
                 <span style="
                     display:inline-block;
@@ -1752,6 +1871,7 @@ def render_map_legend(
             <div>
                 <b>P = PE + PN:</b> {p_combined:,}
             </div>
+
         </div>
         """,
         unsafe_allow_html=True
@@ -2358,7 +2478,7 @@ def render_geographic_map(
         )
 
         # ----------------------------------------------------
-        # PE / PN INDIVIDUAL SUMMARY
+        # PE / PN SUMMARY
         # ----------------------------------------------------
 
         pe_cases = int(
