@@ -4,6 +4,10 @@ import pandas as pd
 from chart_helpers import render_bar_chart
 
 
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
 def _clean_text(df, column):
     if df is None or df.empty or column not in df.columns:
         return pd.Series(dtype="object")
@@ -34,6 +38,10 @@ def _find_column(df, candidates):
     return None
 
 
+# ============================================================
+# MAIN MAP FUNCTION
+# ============================================================
+
 def render_map(df):
 
     st.subheader("🗺️ Map & Geographic Analysis")
@@ -45,115 +53,365 @@ def render_map(df):
         return
 
     st.caption(
-        "Geographic view based on the location information "
+        "Geographic view based on facility coordinates "
         "available in the current Google Sheet data."
+    )
+
+    # ========================================================
+    # BASIC COLUMN DETECTION
+    # ========================================================
+
+    facility_column = _find_column(
+        df,
+        [
+            "Facility Name",
+            "Facility",
+            "facility_name",
+            "facility",
+        ],
+    )
+
+    ward_column = _find_column(
+        df,
+        [
+            "Ward Name",
+            "Ward",
+            "ward_name",
+            "ward",
+        ],
+    )
+
+    facility_type_column = _find_column(
+        df,
+        [
+            "Facility Type",
+            "facility_type",
+        ],
     )
 
     latitude_column = _find_column(
         df,
         [
-            "Latitude",
-            "Lat",
-            "latitude",
-            "lat",
+            "Facility Latitude",
         ],
     )
 
     longitude_column = _find_column(
         df,
         [
-            "Longitude",
-            "Long",
-            "Lng",
-            "longitude",
-            "long",
-            "lng",
+            "Facility Longitude",
         ],
     )
+
+    # ========================================================
+    # GEOGRAPHIC DATA AVAILABILITY
+    # ========================================================
 
     st.markdown("### 📍 Geographic Data Availability")
 
     c1, c2, c3, c4 = st.columns(4)
 
+    # Filtered Records
     with c1:
-        st.metric("Filtered Records", f"{len(df):,}")
+        st.metric(
+            "Filtered Records",
+            f"{len(df):,}"
+        )
 
+    # Wards
     with c2:
-        if "Ward Name" in df.columns:
-            ward_count = _clean_text(df, "Ward Name")
+
+        if ward_column is not None:
+
+            ward_count = _clean_text(
+                df,
+                ward_column,
+            )
+
             ward_count = ward_count[
-                ward_count.ne("") & ward_count.ne("nan")
+                ward_count.ne("")
+                & ward_count.ne("nan")
+                & ward_count.ne("NaT")
             ]
-            st.metric("Wards", f"{ward_count.nunique():,}")
-        else:
-            st.metric("Wards", "0")
 
+            st.metric(
+                "Wards",
+                f"{ward_count.nunique():,}"
+            )
+
+        else:
+
+            st.metric(
+                "Wards",
+                "0"
+            )
+
+    # Facilities
     with c3:
-        if "Facility Name" in df.columns:
-            facility_count = _clean_text(df, "Facility Name")
+
+        if facility_column is not None:
+
+            facility_count = _clean_text(
+                df,
+                facility_column,
+            )
+
             facility_count = facility_count[
-                facility_count.ne("") & facility_count.ne("nan")
+                facility_count.ne("")
+                & facility_count.ne("nan")
+                & facility_count.ne("NaT")
             ]
-            st.metric("Facilities", f"{facility_count.nunique():,}")
-        else:
-            st.metric("Facilities", "0")
 
+            st.metric(
+                "Facilities",
+                f"{facility_count.nunique():,}"
+            )
+
+        else:
+
+            st.metric(
+                "Facilities",
+                "0"
+            )
+
+    # Coordinates status
     with c4:
-        if latitude_column is not None and longitude_column is not None:
-            st.metric("Coordinates", "Available")
+
+        if (
+            latitude_column is not None
+            and longitude_column is not None
+        ):
+
+            st.metric(
+                "Coordinates",
+                "Available"
+            )
+
         else:
-            st.metric("Coordinates", "Not available")
 
-    if latitude_column is not None and longitude_column is not None:
+            st.metric(
+                "Coordinates",
+                "Not available"
+            )
+
+    # ========================================================
+    # FACILITY MAP
+    # ========================================================
+
+    if (
+        latitude_column is not None
+        and longitude_column is not None
+    ):
+
         st.divider()
-        st.markdown("### 🗺️ Facility / Record Map")
 
-        map_df = df[
-            [
-                latitude_column,
-                longitude_column,
-            ]
+        st.markdown(
+            "### 🗺️ Facility Geographic Map"
+        )
+
+        # ----------------------------------------------------
+        # Prepare working dataframe
+        # ----------------------------------------------------
+
+        map_source = df.copy()
+
+        map_source["_facility_latitude"] = pd.to_numeric(
+            map_source[latitude_column],
+            errors="coerce",
+        )
+
+        map_source["_facility_longitude"] = pd.to_numeric(
+            map_source[longitude_column],
+            errors="coerce",
+        )
+
+        # ----------------------------------------------------
+        # Remove invalid coordinates
+        # ----------------------------------------------------
+
+        map_source = map_source[
+            map_source["_facility_latitude"].between(
+                -90,
+                90,
+            )
+            &
+            map_source["_facility_longitude"].between(
+                -180,
+                180,
+            )
         ].copy()
 
-        map_df["latitude"] = pd.to_numeric(
-            map_df[latitude_column],
-            errors="coerce",
-        )
+        # ----------------------------------------------------
+        # Facility name cleanup
+        # ----------------------------------------------------
 
-        map_df["longitude"] = pd.to_numeric(
-            map_df[longitude_column],
-            errors="coerce",
-        )
+        if facility_column is not None:
 
-        map_df = map_df[
-            map_df["latitude"].between(-90, 90)
-            & map_df["longitude"].between(-180, 180)
-        ]
+            map_source["_facility_name"] = _clean_text(
+                map_source,
+                facility_column,
+            )
 
-        if not map_df.empty:
+            map_source = map_source[
+                map_source["_facility_name"].ne("")
+                & map_source["_facility_name"].ne("nan")
+                & map_source["_facility_name"].ne("NaT")
+            ].copy()
+
+        # ----------------------------------------------------
+        # Create facility-level map
+        # ----------------------------------------------------
+
+        if map_source.empty:
+
+            st.info(
+                "Facility Latitude and Facility Longitude "
+                "fields are available, but no valid facility "
+                "coordinates are available for the selected records."
+            )
+
+        else:
+
+            # ------------------------------------------------
+            # Build facility-level aggregation
+            # ------------------------------------------------
+
+            if facility_column is not None:
+
+                aggregation = {
+                    "_facility_latitude": "first",
+                    "_facility_longitude": "first",
+                }
+
+                if ward_column is not None:
+                    aggregation[ward_column] = "first"
+
+                if facility_type_column is not None:
+                    aggregation[facility_type_column] = "first"
+
+                facility_map = (
+                    map_source
+                    .groupby(
+                        "_facility_name",
+                        dropna=False,
+                    )
+                    .agg(aggregation)
+                    .reset_index()
+                )
+
+                # Count filtered records for each facility
+                record_counts = (
+                    map_source["_facility_name"]
+                    .value_counts()
+                    .rename("Filtered Records")
+                    .reset_index()
+                )
+
+                record_counts = record_counts.rename(
+                    columns={
+                        "index": "_facility_name"
+                    }
+                )
+
+                facility_map = facility_map.merge(
+                    record_counts,
+                    on="_facility_name",
+                    how="left",
+                )
+
+            else:
+
+                facility_map = map_source[
+                    [
+                        "_facility_latitude",
+                        "_facility_longitude",
+                    ]
+                ].copy()
+
+                facility_map["Filtered Records"] = 1
+
+            # ------------------------------------------------
+            # Final map dataframe
+            # ------------------------------------------------
+
+            final_map = pd.DataFrame(
+                {
+                    "latitude":
+                        facility_map[
+                            "_facility_latitude"
+                        ],
+                    "longitude":
+                        facility_map[
+                            "_facility_longitude"
+                        ],
+                }
+            )
+
+            # ------------------------------------------------
+            # Map
+            # ------------------------------------------------
 
             st.map(
-                map_df[
-                    [
-                        "latitude",
-                        "longitude",
-                    ]
-                ],
+                final_map,
                 use_container_width=True,
             )
 
             st.caption(
-                f"{len(map_df):,} valid geographic records "
-                "are displayed on the map."
+                f"{len(facility_map):,} facility location(s) "
+                "with valid coordinates are displayed."
             )
 
-        else:
+            # ------------------------------------------------
+            # Facilities without coordinates
+            # ------------------------------------------------
 
-            st.warning(
-                "Latitude and Longitude columns exist, "
-                "but no valid coordinates are available "
-                "for the selected records."
-            )
+            if facility_column is not None:
+
+                all_facilities = set(
+                    _clean_text(
+                        df,
+                        facility_column,
+                    )
+                    .loc[
+                        lambda s:
+                        s.ne("")
+                        & s.ne("nan")
+                        & s.ne("NaT")
+                    ]
+                    .unique()
+                )
+
+                mapped_facilities = set(
+                    facility_map[
+                        "_facility_name"
+                    ]
+                    .dropna()
+                    .astype(str)
+                )
+
+                missing_facilities = sorted(
+                    all_facilities
+                    - mapped_facilities
+                )
+
+                if missing_facilities:
+
+                    st.info(
+                        f"{len(missing_facilities):,} "
+                        "facility/facilities do not have valid "
+                        "coordinates and are not shown on the map."
+                    )
+
+    else:
+
+        st.info(
+            "Facility Latitude and Facility Longitude "
+            "fields are not available in the current data."
+        )
+
+    # ========================================================
+    # LOCATION-WISE PROGRAMME DISTRIBUTION
+    # ========================================================
 
     st.divider()
 
@@ -163,17 +421,29 @@ def render_map(df):
 
     location_columns = []
 
-    if "Ward Name" in df.columns:
-        location_columns.append("Ward Name")
+    if ward_column is not None:
+        location_columns.append(ward_column)
 
-    if "Facility Name" in df.columns:
-        location_columns.append("Facility Name")
+    if facility_column is not None:
+        location_columns.append(facility_column)
 
-    if "Facility Type" in df.columns:
-        location_columns.append("Facility Type")
+    if facility_type_column is not None:
+        location_columns.append(facility_type_column)
 
-    if "Patient Address" in df.columns:
-        location_columns.append("Patient Address")
+    patient_address_column = _find_column(
+        df,
+        [
+            "Patient Address",
+            "Patient_Address",
+            "Address",
+            "patient_address",
+        ],
+    )
+
+    if patient_address_column is not None:
+        location_columns.append(
+            patient_address_column
+        )
 
     if not location_columns:
 
@@ -259,17 +529,21 @@ def render_map(df):
                 hide_index=True,
             )
 
+    # ========================================================
+    # WARD-WISE SUMMARY
+    # ========================================================
+
     st.divider()
 
     st.markdown(
         "### 📍 Ward-wise Geographic Summary"
     )
 
-    if "Ward Name" in df.columns:
+    if ward_column is not None:
 
         ward_values = _clean_text(
             df,
-            "Ward Name",
+            ward_column,
         )
 
         ward_values = ward_values[
@@ -305,17 +579,27 @@ def render_map(df):
                 "Ward information is not available."
             )
 
+    else:
+
+        st.info(
+            "Ward information is not available."
+        )
+
+    # ========================================================
+    # FACILITY-WISE SUMMARY
+    # ========================================================
+
     st.divider()
 
     st.markdown(
         "### 🏥 Facility-wise Geographic Summary"
     )
 
-    if "Facility Name" in df.columns:
+    if facility_column is not None:
 
         facility_values = _clean_text(
             df,
-            "Facility Name",
+            facility_column,
         )
 
         facility_values = facility_values[
@@ -354,17 +638,27 @@ def render_map(df):
                 "Facility information is not available."
             )
 
+    else:
+
+        st.info(
+            "Facility information is not available."
+        )
+
+    # ========================================================
+    # PATIENT ADDRESS INFORMATION
+    # ========================================================
+
     st.divider()
 
     st.markdown(
         "### 🏠 Patient Address Information"
     )
 
-    if "Patient Address" in df.columns:
+    if patient_address_column is not None:
 
         address_values = _clean_text(
             df,
-            "Patient Address",
+            patient_address_column,
         )
 
         address_values = address_values[
@@ -405,6 +699,16 @@ def render_map(df):
                 hide_index=True,
             )
 
+    else:
+
+        st.info(
+            "Patient address information is not available."
+        )
+
+    # ========================================================
+    # GEOGRAPHIC DATA REQUIREMENT
+    # ========================================================
+
     st.divider()
 
     st.markdown(
@@ -418,33 +722,73 @@ def render_map(df):
 
         st.info(
             "The current Google Sheet does not contain "
-            "Latitude and Longitude fields. Therefore, "
-            "the dashboard does not generate artificial "
-            "coordinates. Ward, facility and patient-location "
-            "analysis is shown using the actual available data."
+            "Facility Latitude and Facility Longitude "
+            "fields. Therefore, the dashboard does not "
+            "generate artificial coordinates. Ward, facility "
+            "and patient-location analysis is shown using "
+            "the actual available data."
         )
 
         st.markdown(
             """
-            **For a true geographic map in a future update, "
-            "the Google Sheet can include:**
+**For a true facility geographic map, the Google Sheet should include:**
 
-            - Latitude
-            - Longitude
-            - Facility Latitude
-            - Facility Longitude
-            - Ward Latitude
-            - Ward Longitude
+- Facility Latitude
+- Facility Longitude
 
-            Once these fields are available, the dashboard "
-            "can plot the corresponding facilities/wards "
-            "without changing the existing Global Dashboard Filters.
-            """
+Once these fields contain valid coordinates, the dashboard
+can plot the corresponding facilities without changing the
+existing Global Dashboard Filters.
+"""
         )
 
     else:
 
-        st.success(
-            "Latitude and Longitude fields are available. "
-            "Valid geographic records are being used for mapping."
+        # Check whether any valid coordinates actually exist
+
+        coordinate_check = df[
+            [
+                latitude_column,
+                longitude_column,
+            ]
+        ].copy()
+
+        coordinate_check["latitude"] = pd.to_numeric(
+            coordinate_check[latitude_column],
+            errors="coerce",
         )
+
+        coordinate_check["longitude"] = pd.to_numeric(
+            coordinate_check[longitude_column],
+            errors="coerce",
+        )
+
+        valid_coordinate_count = len(
+            coordinate_check[
+                coordinate_check["latitude"].between(
+                    -90,
+                    90,
+                )
+                &
+                coordinate_check["longitude"].between(
+                    -180,
+                    180,
+                )
+            ]
+        )
+
+        if valid_coordinate_count > 0:
+
+            st.success(
+                "Facility Latitude and Facility Longitude "
+                "fields are available and valid coordinates "
+                "are being used for mapping."
+            )
+
+        else:
+
+            st.info(
+                "Facility Latitude and Facility Longitude "
+                "fields are available, but no valid coordinates "
+                "have been entered for the selected records yet."
+            )
