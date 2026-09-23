@@ -28,9 +28,7 @@ CALENDAR_MONTHS = [
     "Dec",
 ]
 
-# Common chart colour.
-# The data labels use the same colour so that they remain visible
-# against the chart background.
+# Main colour used for Month-wise and Ward-wise charts.
 CHART_LABEL_COLOR = "#1f77b4"
 
 
@@ -183,18 +181,10 @@ def _sort_wards(df, column="Ward"):
 
 
 # ============================================================
-# MONTH-WISE CHART
+# MONTH-WISE PROGRAMME TREND
 # ============================================================
 
 def _render_month_chart(month_df):
-    """
-    Month-wise programme trend.
-
-    Data labels:
-    - Bold
-    - Same colour as chart
-    - Positioned above bars
-    """
 
     bars = (
         alt.Chart(month_df)
@@ -271,6 +261,7 @@ def _render_month_disease_chart(
     chart_df,
     disease_columns,
 ):
+
     long_df = (
         chart_df
         .reset_index()
@@ -288,10 +279,15 @@ def _render_month_disease_chart(
         value_name="Records",
     )
 
-    chart = (
+    # --------------------------------------------------------
+    # Main disease lines
+    # --------------------------------------------------------
+
+    lines = (
         alt.Chart(long_df)
         .mark_line(
-            point=True
+            point=True,
+            strokeWidth=3,
         )
         .encode(
             x=alt.X(
@@ -326,9 +322,49 @@ def _render_month_disease_chart(
                 ),
             ],
         )
-        .properties(
-            height=450
+    )
+
+    # --------------------------------------------------------
+    # Bold coloured data labels
+    #
+    # The colour is linked to Disease, therefore every
+    # label automatically gets the same colour as its line.
+    # --------------------------------------------------------
+
+    labels = (
+        alt.Chart(long_df)
+        .mark_text(
+            dy=-12,
+            fontSize=12,
+            fontWeight="bold",
         )
+        .encode(
+            x=alt.X(
+                "Month:N",
+                sort=CALENDAR_MONTHS,
+            ),
+            y=alt.Y(
+                "Records:Q"
+            ),
+            text=alt.Text(
+                "Records:Q",
+                format=",d",
+            ),
+            color=alt.Color(
+                "Disease:N",
+                legend=None,
+            ),
+        )
+    )
+
+    # --------------------------------------------------------
+    # Combine lines + labels
+    # --------------------------------------------------------
+
+    chart = (
+        lines + labels
+    ).properties(
+        height=450
     )
 
     st.altair_chart(
@@ -338,18 +374,10 @@ def _render_month_disease_chart(
 
 
 # ============================================================
-# WARD-WISE CHART
+# WARD-WISE BURDEN
 # ============================================================
 
 def _render_ward_chart(ward_df):
-    """
-    Ward-wise burden chart.
-
-    Data labels:
-    - Bold
-    - Same colour as bars
-    - Positioned above bars
-    """
 
     ward_order = (
         ward_df["Ward"]
@@ -605,8 +633,7 @@ def render_charts(df):
                 )
 
                 temp = temp[
-                    temp["Disease"]
-                    .isin(
+                    temp["Disease"].isin(
                         selected_diseases
                     )
                 ]
@@ -656,7 +683,8 @@ def render_charts(df):
                 st.caption(
                     "The chart displays the top 10 diseases "
                     "by total records within the selected filters. "
-                    "Months are shown in calendar order."
+                    "Months are shown in calendar order. "
+                    "Data labels show the record count at each point."
                 )
 
                 display_disease_df = (
@@ -714,7 +742,9 @@ def render_charts(df):
                 disease_series
                 .value_counts()
                 .head(15)
-                .rename_axis("Disease")
+                .rename_axis(
+                    "Disease"
+                )
                 .reset_index(
                     name="Records"
                 )
@@ -741,7 +771,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # TEST PERFORMED / PATHOGEN NAME
+    # TEST PERFORMED / PATHOGEN NAME-WISE ANALYSIS
     # ========================================================
 
     st.divider()
@@ -767,7 +797,8 @@ def render_charts(df):
             break
 
     # --------------------------------------------------------
-    # CASE 1: Combined pathogen field already exists
+    # CASE 1:
+    # Combined pathogen field already exists
     # --------------------------------------------------------
 
     if pathogen_column is not None:
@@ -820,7 +851,8 @@ def render_charts(df):
             )
 
     # --------------------------------------------------------
-    # CASE 2: Separate Test Performed + Pathogen Name
+    # CASE 2:
+    # Separate Test Performed + Pathogen Name
     # --------------------------------------------------------
 
     elif (
@@ -959,7 +991,9 @@ def render_charts(df):
                 facility_series
                 .value_counts()
                 .head(20)
-                .rename_axis("Facility")
+                .rename_axis(
+                    "Facility"
+                )
                 .reset_index(
                     name="Records"
                 )
@@ -1009,7 +1043,9 @@ def render_charts(df):
             ward_counts = (
                 ward_series
                 .value_counts()
-                .rename_axis("Ward")
+                .rename_axis(
+                    "Ward"
+                )
                 .reset_index(
                     name="Records"
                 )
@@ -1101,7 +1137,9 @@ def render_charts(df):
     if "Reporting Date" in df.columns:
 
         date_df = df[
-            ["Reporting Date"]
+            [
+                "Reporting Date"
+            ]
         ].copy()
 
         date_df[
@@ -1162,7 +1200,7 @@ def render_charts(df):
     summary_columns = st.columns(4)
 
     # --------------------------------------------------------
-    # Records
+    # Records Analysed
     # --------------------------------------------------------
 
     with summary_columns[0]:
