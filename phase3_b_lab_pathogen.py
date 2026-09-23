@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 
 from chart_helpers import (
     render_bar_chart,
@@ -9,7 +10,7 @@ from chart_helpers import (
 
 
 # ============================================================
-# CONSTANTS
+# CONFIGURATION
 # ============================================================
 
 MONTH_ORDER = [
@@ -28,35 +29,64 @@ MONTH_ORDER = [
 ]
 
 MONTH_LOOKUP = {
-    "jan": "Jan",
     "january": "Jan",
-    "feb": "Feb",
+    "jan": "Jan",
+    "01": "Jan",
+    "1": "Jan",
+
     "february": "Feb",
-    "mar": "Mar",
+    "feb": "Feb",
+    "02": "Feb",
+    "2": "Feb",
+
     "march": "Mar",
-    "apr": "Apr",
+    "mar": "Mar",
+    "03": "Mar",
+    "3": "Mar",
+
     "april": "Apr",
+    "apr": "Apr",
+    "04": "Apr",
+    "4": "Apr",
+
     "may": "May",
-    "jun": "Jun",
+    "05": "May",
+    "5": "May",
+
     "june": "Jun",
-    "jul": "Jul",
+    "jun": "Jun",
+    "06": "Jun",
+    "6": "Jun",
+
     "july": "Jul",
-    "aug": "Aug",
+    "jul": "Jul",
+    "07": "Jul",
+    "7": "Jul",
+
     "august": "Aug",
-    "sep": "Sep",
-    "sept": "Sep",
+    "aug": "Aug",
+    "08": "Aug",
+    "8": "Aug",
+
     "september": "Sep",
-    "oct": "Oct",
+    "sep": "Sep",
+    "09": "Sep",
+    "9": "Sep",
+
     "october": "Oct",
-    "nov": "Nov",
+    "oct": "Oct",
+    "10": "Oct",
+
     "november": "Nov",
-    "dec": "Dec",
+    "nov": "Nov",
+    "11": "Nov",
+
     "december": "Dec",
+    "dec": "Dec",
+    "12": "Dec",
 }
 
 
-# IMPORTANT:
-# Keep Ward ordering exactly as currently working.
 WARD_ORDER = [
     "A",
     "B",
@@ -82,18 +112,19 @@ WARD_ORDER = [
 
 
 # ============================================================
-# BASIC HELPERS
+# COLUMN HELPERS
 # ============================================================
 
 def _find_column(df, candidates):
     """
-    Return the first matching column from candidates.
+    Find the first matching column from a list of candidates.
     Matching is case-insensitive and whitespace-insensitive.
     """
+
     if df is None or df.empty:
         return None
 
-    column_map = {
+    normalized = {
         str(col).strip().lower(): col
         for col in df.columns
     }
@@ -101,80 +132,198 @@ def _find_column(df, candidates):
     for candidate in candidates:
         key = str(candidate).strip().lower()
 
-        if key in column_map:
-            return column_map[key]
+        if key in normalized:
+            return normalized[key]
+
+    # Partial matching
+    for col in df.columns:
+
+        col_norm = (
+            str(col)
+            .strip()
+            .lower()
+        )
+
+        for candidate in candidates:
+
+            candidate_norm = (
+                str(candidate)
+                .strip()
+                .lower()
+            )
+
+            if (
+                candidate_norm in col_norm
+                or col_norm in candidate_norm
+            ):
+                return col
 
     return None
 
 
+# ============================================================
+# TEXT CLEANING
+# ============================================================
+
 def _clean_text_series(series):
     """
-    Clean text values safely.
+    Convert values to clean text.
     """
+
     if series is None:
-        return pd.Series(dtype="string")
+        return pd.Series(dtype="object")
 
     return (
         series
-        .astype("string")
         .fillna("")
+        .astype(str)
         .str.strip()
+        .replace(
+            {
+                "nan": "",
+                "None": "",
+                "none": "",
+                "NaN": "",
+            }
+        )
     )
 
 
 def _valid_value_mask(series):
     """
-    Identify valid non-empty values.
+    Return mask for non-empty valid values.
     """
+
     cleaned = _clean_text_series(series)
 
     return (
-        cleaned.ne("")
-        & cleaned.ne("nan")
-        & cleaned.ne("NaN")
-        & cleaned.ne("None")
-        & cleaned.ne("NaT")
+        cleaned
+        .ne("")
+        & cleaned.str.lower().ne("na")
+        & cleaned.str.lower().ne("n/a")
+        & cleaned.str.lower().ne("null")
+        & cleaned.str.lower().ne("-")
     )
 
 
+# ============================================================
+# PREPARE WORKING DATA
+# ============================================================
+
 def _prepare_working_data(df):
-    """
-    Prepare a safe working copy without changing
-    the original dataframe.
-    """
-    if df is None or df.empty:
+
+    if df is None:
         return pd.DataFrame()
 
-    working = df.copy()
+    if df.empty:
+        return df.copy()
 
-    columns_to_clean = [
-        "Test Performed",
-        "Pathogen Name",
-        "Month",
-        "Year",
-        "Facility Name",
-        "Facility Name Lform",
-        "Ward Name",
-        "Ward",
-    ]
+    work_df = df.copy()
 
-    for col in columns_to_clean:
-        if col in working.columns:
-            working[col] = _clean_text_series(
-                working[col]
-            )
+    # --------------------------------------------------------
+    # Detect important columns
+    # --------------------------------------------------------
 
-    return working
+    month_col = _find_column(
+        work_df,
+        [
+            "Month",
+            "Month Name",
+            "Reporting Month",
+            "Month-Year",
+            "Month Year",
+        ],
+    )
+
+    test_col = _find_column(
+        work_df,
+        [
+            "Test Performed",
+            "Test Performed Name",
+            "Test",
+            "Laboratory Test",
+            "Test Name",
+        ],
+    )
+
+    pathogen_col = _find_column(
+        work_df,
+        [
+            "Pathogen Name",
+            "Pathogen",
+            "Detected Pathogen",
+            "Organism",
+        ],
+    )
+
+    facility_col = _find_column(
+        work_df,
+        [
+            "Facility Name",
+            "Facility",
+            "Health Facility",
+            "Hospital",
+        ],
+    )
+
+    ward_col = _find_column(
+        work_df,
+        [
+            "Ward",
+            "Ward Name",
+            "BMC Ward",
+            "Administrative Ward",
+        ],
+    )
+
+    # --------------------------------------------------------
+    # Standard internal columns
+    # --------------------------------------------------------
+
+    if month_col is not None:
+        work_df["_LAB_MONTH"] = _normalise_month(
+            work_df[month_col]
+        )
+    else:
+        work_df["_LAB_MONTH"] = ""
+
+    if test_col is not None:
+        work_df["_LAB_TEST"] = _clean_text_series(
+            work_df[test_col]
+        )
+    else:
+        work_df["_LAB_TEST"] = ""
+
+    if pathogen_col is not None:
+        work_df["_LAB_PATHOGEN"] = _clean_text_series(
+            work_df[pathogen_col]
+        )
+    else:
+        work_df["_LAB_PATHOGEN"] = ""
+
+    if facility_col is not None:
+        work_df["_LAB_FACILITY"] = _clean_text_series(
+            work_df[facility_col]
+        )
+    else:
+        work_df["_LAB_FACILITY"] = ""
+
+    if ward_col is not None:
+        work_df["_LAB_WARD"] = _normalise_ward(
+            work_df[ward_col]
+        )
+    else:
+        work_df["_LAB_WARD"] = ""
+
+    return work_df
 
 
 # ============================================================
-# MONTH HELPERS
+# MONTH NORMALISATION
 # ============================================================
 
 def _normalise_month(value):
-    """
-    Convert month values to standard Jan-Dec labels.
-    """
+
     if pd.isna(value):
         return ""
 
@@ -183,158 +332,126 @@ def _normalise_month(value):
     if not text:
         return ""
 
-    # Numeric month
+    lower = text.lower()
+
+    # Direct lookup
+    if lower in MONTH_LOOKUP:
+        return MONTH_LOOKUP[lower]
+
+    # Extract first 3 letters
+    first_three = lower[:3]
+
+    for key, month_name in MONTH_LOOKUP.items():
+
+        if (
+            len(key) >= 3
+            and first_three == key[:3]
+        ):
+            return month_name
+
+    # Date parsing
     try:
-        numeric = float(text)
 
-        if numeric.is_integer():
-            numeric = int(numeric)
+        parsed = pd.to_datetime(
+            value,
+            errors="coerce",
+        )
 
-            if 1 <= numeric <= 12:
-                return MONTH_ORDER[numeric - 1]
+        if not pd.isna(parsed):
+            return parsed.strftime("%b")
 
     except Exception:
         pass
 
-    # Text month
-    key = text.lower()
-
-    if key in MONTH_LOOKUP:
-        return MONTH_LOOKUP[key]
-
-    short_key = key[:3]
-
-    if short_key in MONTH_LOOKUP:
-        return MONTH_LOOKUP[short_key]
-
-    return text
+    return text[:3].title()
 
 
 def _month_order_value(value):
-    """
-    Return chronological order value for a month.
-    """
-    month = _normalise_month(value)
 
     try:
-        return MONTH_ORDER.index(month) + 1
-
+        return MONTH_ORDER.index(value)
     except ValueError:
         return 999
 
 
-def _ordered_month_chart_data(month_df):
-    """
-    Prepare explicitly ordered Jan-Dec data.
-    """
-    if (
-        month_df is None
-        or month_df.empty
-        or "Month" not in month_df.columns
-        or "Records" not in month_df.columns
-    ):
+# ============================================================
+# ORDER MONTH CHART DATA
+# ============================================================
+
+def _ordered_month_chart_data(chart_data):
+
+    if chart_data is None:
         return pd.DataFrame()
 
-    temp = month_df.copy()
+    if chart_data.empty:
+        return chart_data.copy()
 
-    temp["Month"] = (
-        temp["Month"]
-        .map(_normalise_month)
+    plot_df = chart_data.copy()
+
+    if "Month" not in plot_df.columns:
+        return plot_df
+
+    plot_df["Month"] = plot_df["Month"].apply(
+        _normalise_month
     )
 
-    temp = temp[
-        temp["Month"].ne("")
-    ].copy()
-
-    if temp.empty:
-        return pd.DataFrame()
-
-    temp["_Month_Order"] = (
-        temp["Month"]
-        .map(_month_order_value)
+    plot_df["_MONTH_ORDER"] = plot_df["Month"].apply(
+        _month_order_value
     )
 
-    temp = (
-        temp
+    plot_df = (
+        plot_df
         .sort_values(
-            "_Month_Order",
-            ascending=True,
+            "_MONTH_ORDER",
             kind="stable",
+        )
+        .drop(
+            columns=["_MONTH_ORDER"],
+            errors="ignore",
         )
         .reset_index(drop=True)
     )
 
-    temp["Month"] = pd.Categorical(
-        temp["Month"],
-        categories=MONTH_ORDER,
-        ordered=True,
-    )
-
-    temp = (
-        temp
-        .sort_values(
-            "Month",
-            ascending=True,
-            kind="stable",
-        )
-        .reset_index(drop=True)
-    )
-
-    chart_data = temp[
-        [
-            "Month",
-            "Records",
-        ]
-    ].copy()
-
-    return chart_data
+    return plot_df
 
 
 # ============================================================
-# WARD HELPERS
+# WARD NORMALISATION
 # ============================================================
 
 def _normalise_ward(value):
-    """
-    Standardise ward labels while preserving
-    the existing A-T ordering.
-    """
+
     if pd.isna(value):
         return ""
 
-    text = str(value).strip().upper()
+    text = str(value).strip()
 
     if not text:
         return ""
 
-    if text.startswith("WARD "):
-        text = text.replace(
-            "WARD ",
-            "",
-            1,
-        ).strip()
+    # Remove common prefixes
+    cleaned = (
+        text
+        .replace("Ward", "")
+        .replace("WARD", "")
+        .replace("ward", "")
+        .replace("-", " ")
+        .strip()
+    )
 
-    if text.startswith("W"):
-        possible = text[1:].strip()
+    # Keep first token if there is extra text
+    first_token = cleaned.split()[0] if cleaned else ""
 
-        if possible in WARD_ORDER:
-            return possible
+    if first_token.upper() in WARD_ORDER:
+        return first_token.upper()
 
-    if text in WARD_ORDER:
-        return text
-
-    return text
+    return cleaned.upper()
 
 
 def _ward_order_value(value):
-    """
-    Return ward order value for A-T.
-    """
-    ward = _normalise_ward(value)
 
     try:
-        return WARD_ORDER.index(ward) + 1
-
+        return WARD_ORDER.index(value)
     except ValueError:
         return 999
 
@@ -347,96 +464,70 @@ def _count_table(
     df,
     column,
     output_name,
-    order_type=None,
+    include_empty=False,
 ):
-    """
-    Create a frequency table with optional
-    month or ward ordering.
-    """
-    if (
-        df is None
-        or df.empty
-        or column not in df.columns
-    ):
-        return pd.DataFrame()
 
-    series = _clean_text_series(
-        df[column]
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=[
+                output_name,
+                "Records",
+            ]
+        )
+
+    if column not in df.columns:
+        return pd.DataFrame(
+            columns=[
+                output_name,
+                "Records",
+            ]
+        )
+
+    temp = df.copy()
+
+    temp[output_name] = _clean_text_series(
+        temp[column]
     )
 
-    valid = series[
-        series.ne("")
-        & series.ne("nan")
-        & series.ne("NaN")
-        & series.ne("None")
-        & series.ne("NaT")
-    ]
+    if not include_empty:
 
-    if valid.empty:
-        return pd.DataFrame()
+        temp = temp[
+            _valid_value_mask(
+                temp[output_name]
+            )
+        ]
+
+    if temp.empty:
+        return pd.DataFrame(
+            columns=[
+                output_name,
+                "Records",
+            ]
+        )
 
     result = (
-        valid
-        .value_counts()
-        .rename_axis(output_name)
-        .reset_index(name="Records")
+        temp
+        .groupby(
+            output_name,
+            dropna=False,
+        )
+        .size()
+        .reset_index(
+            name="Records"
+        )
+        .sort_values(
+            "Records",
+            ascending=False,
+            kind="stable",
+        )
+        .reset_index(drop=True)
     )
-
-    if order_type == "month":
-
-        result[output_name] = (
-            result[output_name]
-            .map(_normalise_month)
-        )
-
-        result["_Order"] = (
-            result[output_name]
-            .map(_month_order_value)
-        )
-
-        result = (
-            result
-            .sort_values(
-                "_Order",
-                ascending=True,
-                kind="stable",
-            )
-            .drop(
-                columns=["_Order"]
-            )
-            .reset_index(drop=True)
-        )
-
-    elif order_type == "ward":
-
-        result[output_name] = (
-            result[output_name]
-            .map(_normalise_ward)
-        )
-
-        result["_Order"] = (
-            result[output_name]
-            .map(_ward_order_value)
-        )
-
-        result = (
-            result
-            .sort_values(
-                "_Order",
-                ascending=True,
-                kind="stable",
-            )
-            .drop(
-                columns=["_Order"]
-            )
-            .reset_index(drop=True)
-        )
 
     return result
 
 
 # ============================================================
-# PLOTLY MONTH CHART
+# MONTH LINE CHART
 # ============================================================
 
 def _render_month_line_chart(
@@ -446,73 +537,99 @@ def _render_month_line_chart(
 ):
     """
     Render a monthly line chart with strict
-    Jan-Dec categorical order and visible
-    data labels on the chart.
+    Jan-Dec order and visible data labels.
+
+    Uses graph_objects instead of Plotly Express
+    so labels are attached directly to the trace.
     """
 
     if (
         chart_data is None
         or chart_data.empty
     ):
+        st.info(
+            "No monthly data available for this analysis."
+        )
         return
 
-    plot_df = chart_data.copy()
-
-    plot_df["Month"] = pd.Categorical(
-        plot_df["Month"],
-        categories=MONTH_ORDER,
-        ordered=True,
+    plot_df = _ordered_month_chart_data(
+        chart_data
     )
 
-    plot_df = (
-        plot_df
-        .sort_values(
-            "Month",
-            kind="stable",
+    if plot_df.empty:
+        st.info(
+            "No monthly data available for this analysis."
         )
-        .reset_index(drop=True)
+        return
+
+    plot_df["Records"] = pd.to_numeric(
+        plot_df["Records"],
+        errors="coerce",
+    ).fillna(0)
+
+    # --------------------------------------------------------
+    # Create figure
+    # --------------------------------------------------------
+
+    fig = go.Figure()
+
+    label_values = (
+        plot_df["Records"]
+        .astype(int)
+        .map(
+            lambda value: f"{value:,}"
+        )
     )
 
-    fig = px.line(
-        plot_df,
-        x="Month",
-        y="Records",
-        markers=True,
-        title=title,
-        category_orders={
-            "Month": MONTH_ORDER
-        },
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["Month"].astype(str),
+            y=plot_df["Records"],
+            mode="lines+markers+text",
+            text=label_values,
+            textposition="top center",
+            textfont=dict(
+                size=12,
+            ),
+            cliponaxis=False,
+            name="Records",
+            hovertemplate=(
+                "Month: %{x}<br>"
+                "Records: %{y:,}"
+                "<extra></extra>"
+            ),
+        )
     )
+
+    # --------------------------------------------------------
+    # X-axis
+    # --------------------------------------------------------
 
     fig.update_xaxes(
         categoryorder="array",
         categoryarray=MONTH_ORDER,
+        title="Month",
     )
 
+    fig.update_yaxes(
+        title="Records",
+        rangemode="tozero",
+    )
+
+    # --------------------------------------------------------
+    # Layout
+    # --------------------------------------------------------
+
     fig.update_layout(
+        title=title,
         height=height,
         margin=dict(
             l=40,
-            r=20,
-            t=60,
-            b=40,
+            r=30,
+            t=70,
+            b=50,
         ),
-    )
-
-    # ========================================================
-    # DATA LABELS - ACTIVE ON CHART
-    # ========================================================
-
-    fig.update_traces(
-        text=plot_df["Records"].astype(int),
-        texttemplate="%{text:,}",
-        textposition="top center",
-        cliponaxis=False,
-        hovertemplate=(
-            "Month: %{x}<br>"
-            "Records: %{y:,}"
-            "<extra></extra>"
-        ),
+        hovermode="x unified",
     )
 
     st.plotly_chart(
@@ -525,230 +642,211 @@ def _render_month_line_chart(
 # MAIN RENDER FUNCTION
 # ============================================================
 
-def render_lab_pathogen(filtered_df):
+def render_lab_pathogen(df):
 
-    st.subheader(
+    st.header(
         "Laboratory & Pathogen Analysis"
     )
 
     st.caption(
-        "Laboratory testing and pathogen analysis based "
-        "on the currently selected Global Dashboard Filters."
+        "Interactive analysis of laboratory tests "
+        "and identified pathogens."
     )
 
     # ========================================================
-    # DATA PREPARATION
+    # PREPARE DATA
     # ========================================================
 
-    laboratory_records = _prepare_working_data(
-        filtered_df
-    )
+    work_df = _prepare_working_data(df)
 
-    if laboratory_records.empty:
+    if work_df.empty:
 
         st.warning(
-            "No laboratory or pathogen records are available "
-            "for the selected filters."
+            "No data available for Laboratory & Pathogen Analysis."
         )
 
         return
 
     # ========================================================
-    # COLUMN DETECTION
+    # COLUMN AVAILABILITY
     # ========================================================
 
-    test_col = _find_column(
-        laboratory_records,
-        [
-            "Test Performed",
-            "Test performed",
-            "Test",
-        ],
+    has_test = (
+        "_LAB_TEST" in work_df.columns
+        and _valid_value_mask(
+            work_df["_LAB_TEST"]
+        ).any()
     )
 
-    pathogen_col = _find_column(
-        laboratory_records,
-        [
-            "Pathogen Name",
-            "Pathogen",
-        ],
+    has_pathogen = (
+        "_LAB_PATHOGEN" in work_df.columns
+        and _valid_value_mask(
+            work_df["_LAB_PATHOGEN"]
+        ).any()
     )
 
-    facility_col = _find_column(
-        laboratory_records,
-        [
-            "Facility Name",
-            "Facility Name Lform",
-        ],
+    has_month = (
+        "_LAB_MONTH" in work_df.columns
+        and _valid_value_mask(
+            work_df["_LAB_MONTH"]
+        ).any()
     )
 
-    ward_col = _find_column(
-        laboratory_records,
-        [
-            "Ward Name",
-            "Ward",
-        ],
+    has_facility = (
+        "_LAB_FACILITY" in work_df.columns
+        and _valid_value_mask(
+            work_df["_LAB_FACILITY"]
+        ).any()
     )
 
-    month_col = _find_column(
-        laboratory_records,
-        [
-            "Month",
-        ],
+    has_ward = (
+        "_LAB_WARD" in work_df.columns
+        and _valid_value_mask(
+            work_df["_LAB_WARD"]
+        ).any()
     )
 
     # ========================================================
-    # 1. SUMMARY KPIs
+    # SECTION 1
+    # LABORATORY & PATHOGEN SUMMARY
     # ========================================================
 
-    st.markdown(
-        "### Laboratory & Pathogen Summary"
+    st.subheader(
+        "Laboratory & Pathogen Summary"
     )
 
-    total_records = len(
-        laboratory_records
-    )
+    total_records = len(work_df)
 
     pathogen_records = 0
-    pathogen_types = 0
+
+    if has_pathogen:
+        pathogen_records = int(
+            _valid_value_mask(
+                work_df["_LAB_PATHOGEN"]
+            ).sum()
+        )
+
     test_types = 0
 
-    top_test = "Not available"
-    top_pathogen = "Not available"
+    if has_test:
 
-    if test_col is not None:
-
-        valid_tests = _clean_text_series(
-            laboratory_records[test_col]
+        test_types = int(
+            work_df.loc[
+                _valid_value_mask(
+                    work_df["_LAB_TEST"]
+                ),
+                "_LAB_TEST",
+            ]
+            .nunique()
         )
 
-        valid_tests = valid_tests[
-            valid_tests.ne("")
-            & valid_tests.ne("nan")
-            & valid_tests.ne("None")
-        ]
+    pathogen_types = 0
 
-        if not valid_tests.empty:
+    if has_pathogen:
 
-            test_types = (
-                valid_tests.nunique()
+        pathogen_types = int(
+            work_df.loc[
+                _valid_value_mask(
+                    work_df["_LAB_PATHOGEN"]
+                ),
+                "_LAB_PATHOGEN",
+            ]
+            .nunique()
+        )
+
+    top_test = "N/A"
+
+    if has_test:
+
+        test_table = _count_table(
+            work_df,
+            "_LAB_TEST",
+            "Test Performed",
+        )
+
+        if not test_table.empty:
+            top_test = str(
+                test_table.iloc[0][
+                    "Test Performed"
+                ]
             )
 
-            test_counts = (
-                valid_tests
-                .value_counts()
+    top_pathogen = "N/A"
+
+    if has_pathogen:
+
+        pathogen_table = _count_table(
+            work_df,
+            "_LAB_PATHOGEN",
+            "Pathogen Name",
+        )
+
+        if not pathogen_table.empty:
+            top_pathogen = str(
+                pathogen_table.iloc[0][
+                    "Pathogen Name"
+                ]
             )
 
-            if not test_counts.empty:
-                top_test = str(
-                    test_counts.index[0]
-                )
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi4, kpi5, kpi6 = st.columns(3)
 
-    if pathogen_col is not None:
+    kpi1.metric(
+        "Total Tests / Records",
+        f"{total_records:,}",
+    )
 
-        valid_pathogens = _clean_text_series(
-            laboratory_records[pathogen_col]
-        )
+    kpi2.metric(
+        "Pathogen Records",
+        f"{pathogen_records:,}",
+    )
 
-        valid_pathogens = valid_pathogens[
-            valid_pathogens.ne("")
-            & valid_pathogens.ne("nan")
-            & valid_pathogens.ne("None")
-        ]
+    kpi3.metric(
+        "Test Types",
+        f"{test_types:,}",
+    )
 
-        pathogen_records = len(
-            valid_pathogens
-        )
+    kpi4.metric(
+        "Pathogen Types",
+        f"{pathogen_types:,}",
+    )
 
-        pathogen_types = (
-            valid_pathogens.nunique()
-        )
+    kpi5.metric(
+        "Top Test",
+        top_test,
+    )
 
-        if not valid_pathogens.empty:
-
-            pathogen_counts = (
-                valid_pathogens
-                .value_counts()
-            )
-
-            if not pathogen_counts.empty:
-                top_pathogen = str(
-                    pathogen_counts.index[0]
-                )
-
-    kpi_cols = st.columns(6)
-
-    with kpi_cols[0]:
-        st.metric(
-            "Total Records",
-            f"{total_records:,}",
-        )
-
-    with kpi_cols[1]:
-        st.metric(
-            "Pathogen Records",
-            f"{pathogen_records:,}",
-        )
-
-    with kpi_cols[2]:
-        st.metric(
-            "Test Types",
-            f"{test_types:,}",
-        )
-
-    with kpi_cols[3]:
-        st.metric(
-            "Pathogen Types",
-            f"{pathogen_types:,}",
-        )
-
-    with kpi_cols[4]:
-        st.metric(
-            "Top Test",
-            top_test,
-        )
-
-    with kpi_cols[5]:
-        st.metric(
-            "Top Pathogen",
-            top_pathogen,
-        )
+    kpi6.metric(
+        "Top Pathogen",
+        top_pathogen,
+    )
 
     st.divider()
 
     # ========================================================
-    # 2. TEST PERFORMED-WISE ANALYSIS
+    # SECTION 2
+    # TEST PERFORMED-WISE ANALYSIS
     # ========================================================
 
-    st.markdown(
-        "### 1. Test Performed-wise Analysis"
+    st.subheader(
+        "Test Performed-wise Analysis"
     )
 
-    if test_col is not None:
+    if has_test:
 
         test_table = _count_table(
-            laboratory_records,
-            test_col,
+            work_df,
+            "_LAB_TEST",
             "Test Performed",
         )
 
         if not test_table.empty:
 
-            chart_table = (
-                test_table
-                .head(20)
-                .sort_values(
-                    "Records",
-                    ascending=True,
-                )
-            )
-
             render_bar_chart(
-                chart_table
-                .set_index(
-                    "Test Performed"
-                )["Records"],
-                use_container_width=True,
+                test_table,
+                x_col="Test Performed",
+                y_col="Records",
+                title="Laboratory Tests by Test Performed",
             )
 
             st.dataframe(
@@ -760,51 +858,41 @@ def render_lab_pathogen(filtered_df):
         else:
 
             st.info(
-                "Test performed information is not available."
+                "No valid Test Performed data available."
             )
 
     else:
 
         st.info(
-            "The 'Test Performed' column is not available "
-            "in the selected dataset."
+            "Test Performed column was not found."
         )
 
     st.divider()
 
     # ========================================================
-    # 3. PATHOGEN NAME-WISE ANALYSIS
+    # SECTION 3
+    # PATHOGEN NAME-WISE ANALYSIS
     # ========================================================
 
-    st.markdown(
-        "### 2. Pathogen Name-wise Analysis"
+    st.subheader(
+        "Pathogen Name-wise Analysis"
     )
 
-    if pathogen_col is not None:
+    if has_pathogen:
 
         pathogen_table = _count_table(
-            laboratory_records,
-            pathogen_col,
+            work_df,
+            "_LAB_PATHOGEN",
             "Pathogen Name",
         )
 
         if not pathogen_table.empty:
 
-            chart_table = (
-                pathogen_table
-                .head(20)
-                .sort_values(
-                    "Records",
-                    ascending=True,
-                )
-            )
-
             render_bar_chart(
-                chart_table
-                .set_index(
-                    "Pathogen Name"
-                )["Records"],
-                use_container_width=True,
+                pathogen_table,
+                x_col="Pathogen Name",
+                y_col="Records",
+                title="Pathogen Distribution",
             )
 
             st.dataframe(
@@ -816,564 +904,544 @@ def render_lab_pathogen(filtered_df):
         else:
 
             st.info(
-                "Pathogen information is not available."
+                "No valid Pathogen Name data available."
             )
 
     else:
 
         st.info(
-            "The 'Pathogen Name' column is not available "
-            "in the selected dataset."
+            "Pathogen Name column was not found."
         )
 
     st.divider()
 
     # ========================================================
-    # 4. TEST × PATHOGEN ANALYSIS
+    # SECTION 4
+    # TEST × PATHOGEN ANALYSIS
     # ========================================================
 
-    st.markdown(
-        "### 3. Test × Pathogen Analysis"
+    st.subheader(
+        "Test × Pathogen Analysis"
     )
 
-    if (
-        test_col is not None
-        and pathogen_col is not None
-    ):
+    if has_test and has_pathogen:
 
-        temp = laboratory_records[
-            [
-                test_col,
-                pathogen_col,
-            ]
+        cross_df = work_df[
+            _valid_value_mask(
+                work_df["_LAB_TEST"]
+            )
+            &
+            _valid_value_mask(
+                work_df["_LAB_PATHOGEN"]
+            )
         ].copy()
 
-        temp[test_col] = _clean_text_series(
-            temp[test_col]
-        )
-
-        temp[pathogen_col] = _clean_text_series(
-            temp[pathogen_col]
-        )
-
-        temp = temp[
-            temp[test_col].ne("")
-            & temp[pathogen_col].ne("")
-        ].copy()
-
-        if not temp.empty:
-
-            cross_table = pd.crosstab(
-                temp[test_col],
-                temp[pathogen_col],
-            )
-
-            test_totals = (
-                cross_table
-                .sum(axis=1)
-                .sort_values(
-                    ascending=False
-                )
-                .head(15)
-            )
+        if not cross_df.empty:
 
             cross_table = (
-                cross_table
-                .loc[test_totals.index]
-            )
-
-            pathogen_totals = (
-                cross_table
-                .sum(axis=0)
-                .sort_values(
-                    ascending=False
+                cross_df
+                .groupby(
+                    [
+                        "_LAB_TEST",
+                        "_LAB_PATHOGEN",
+                    ]
                 )
-                .head(15)
-            )
-
-            cross_table = (
-                cross_table[
-                    pathogen_totals.index
-                ]
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .rename(
+                    columns={
+                        "_LAB_TEST": "Test Performed",
+                        "_LAB_PATHOGEN": "Pathogen Name",
+                    }
+                )
+                .sort_values(
+                    "Records",
+                    ascending=False,
+                    kind="stable",
+                )
+                .reset_index(drop=True)
             )
 
             st.dataframe(
                 cross_table,
                 use_container_width=True,
+                hide_index=True,
             )
 
         else:
 
             st.info(
-                "Test and pathogen combination data "
-                "is not available."
+                "No records are available for Test × Pathogen analysis."
             )
 
     else:
 
         st.info(
-            "Test × Pathogen analysis requires both "
-            "'Test Performed' and 'Pathogen Name'."
+            "Both Test Performed and Pathogen Name are required "
+            "for Test × Pathogen analysis."
         )
 
     st.divider()
 
     # ========================================================
-    # 5. MONTH-WISE LABORATORY TEST TREND
+    # SECTION 5
+    # MONTH-WISE LABORATORY TEST TREND
     # ========================================================
 
-    st.markdown(
-        "### 4. Month-wise Laboratory Test Trend"
+    st.subheader(
+        "Month-wise Laboratory Test Trend"
     )
 
-    if (
-        test_col is not None
-        and month_col is not None
-    ):
+    if has_month:
 
-        temp = laboratory_records[
-            [
-                month_col,
-                test_col,
-            ]
+        month_test_df = work_df[
+            _valid_value_mask(
+                work_df["_LAB_MONTH"]
+            )
+            &
+            _valid_value_mask(
+                work_df["_LAB_TEST"]
+            )
         ].copy()
 
-        temp["Month"] = (
-            temp[month_col]
-            .map(_normalise_month)
-        )
-
-        temp["Test"] = _clean_text_series(
-            temp[test_col]
-        )
-
-        temp = temp[
-            temp["Month"].ne("")
-            & temp["Test"].ne("")
-        ].copy()
-
-        if not temp.empty:
+        if not month_test_df.empty:
 
             month_test = (
-                temp
+                month_test_df
                 .groupby(
-                    "Month",
-                    sort=False,
+                    "_LAB_MONTH"
                 )
                 .size()
-                .rename("Records")
-                .reset_index()
-            )
-
-            chart_data = (
-                _ordered_month_chart_data(
-                    month_test
+                .reset_index(
+                    name="Records"
+                )
+                .rename(
+                    columns={
+                        "_LAB_MONTH": "Month"
+                    }
                 )
             )
 
-            if not chart_data.empty:
-
-                _render_month_line_chart(
-                    chart_data,
-                    "Monthly Laboratory Test Trend",
-                    height=400,
-                )
-
-                display_table = (
-                    chart_data
-                    .reset_index(drop=True)
-                )
-
-                st.dataframe(
-                    display_table,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+            _render_month_line_chart(
+                month_test,
+                "Monthly Laboratory Test Trend",
+                height=420,
+            )
 
         else:
 
             st.info(
-                "Month-wise laboratory test data "
-                "is not available."
+                "No monthly laboratory test data available."
             )
 
     else:
 
         st.info(
-            "Month-wise laboratory test trend requires "
-            "'Month' and 'Test Performed'."
+            "Month information was not found."
         )
 
     st.divider()
 
     # ========================================================
-    # 6. MONTH-WISE PATHOGEN TREND
+    # SECTION 6
+    # MONTH-WISE PATHOGEN TREND
     # ========================================================
 
-    st.markdown(
-        "### 5. Month-wise Pathogen Trend"
+    st.subheader(
+        "Month-wise Pathogen Trend"
     )
 
-    if (
-        pathogen_col is not None
-        and month_col is not None
-    ):
+    if has_month and has_pathogen:
 
-        temp = laboratory_records[
-            [
-                month_col,
-                pathogen_col,
-            ]
+        month_pathogen_df = work_df[
+            _valid_value_mask(
+                work_df["_LAB_MONTH"]
+            )
+            &
+            _valid_value_mask(
+                work_df["_LAB_PATHOGEN"]
+            )
         ].copy()
 
-        temp["Month"] = (
-            temp[month_col]
-            .map(_normalise_month)
-        )
+        if not month_pathogen_df.empty:
 
-        temp["Pathogen"] = _clean_text_series(
-            temp[pathogen_col]
-        )
-
-        temp = temp[
-            temp["Month"].ne("")
-            & temp["Pathogen"].ne("")
-        ].copy()
-
-        if not temp.empty:
-
-            pathogen_month = (
-                temp
+            month_pathogen = (
+                month_pathogen_df
                 .groupby(
-                    "Month",
-                    sort=False,
+                    "_LAB_MONTH"
                 )
                 .size()
-                .rename("Records")
-                .reset_index()
-            )
-
-            chart_data = (
-                _ordered_month_chart_data(
-                    pathogen_month
+                .reset_index(
+                    name="Records"
+                )
+                .rename(
+                    columns={
+                        "_LAB_MONTH": "Month"
+                    }
                 )
             )
 
-            if not chart_data.empty:
-
-                _render_month_line_chart(
-                    chart_data,
-                    "Monthly Pathogen Trend",
-                    height=400,
-                )
-
-                display_table = (
-                    chart_data
-                    .reset_index(drop=True)
-                )
-
-                st.dataframe(
-                    display_table,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+            _render_month_line_chart(
+                month_pathogen,
+                "Monthly Pathogen Trend",
+                height=420,
+            )
 
         else:
 
             st.info(
-                "Month-wise pathogen data is not available."
+                "No monthly pathogen data available."
             )
 
     else:
 
         st.info(
-            "Month-wise pathogen trend requires "
-            "'Month' and 'Pathogen Name'."
+            "Month and Pathogen Name information "
+            "are required for this analysis."
         )
 
     st.divider()
 
     # ========================================================
-    # 7. SELECTED LABORATORY ITEM TREND
+    # SECTION 7
+    # SELECTED LABORATORY ITEM TREND
     # ========================================================
 
-    st.markdown(
-        "### 6. Selected Laboratory Item Trend"
+    st.subheader(
+        "Selected Laboratory Item Trend"
     )
 
-    available_items = []
+    available_options = []
 
-    if test_col is not None:
-        available_items.append(
+    if has_test:
+        available_options.append(
             "Test Performed"
         )
 
-    if pathogen_col is not None:
-        available_items.append(
+    if has_pathogen:
+        available_options.append(
             "Pathogen Name"
         )
 
-    if (
-        month_col is not None
-        and available_items
-    ):
+    if not available_options:
 
-        selected_item = st.selectbox(
-            "Select Laboratory Item",
-            available_items,
-            key="lab_pathogen_selected_item",
+        st.info(
+            "No laboratory or pathogen fields are available."
         )
 
-        if selected_item == "Test Performed":
-            selected_column = test_col
+    elif not has_month:
+
+        st.info(
+            "Month information is required for trend analysis."
+        )
+
+    else:
+
+        selected_label = st.selectbox(
+            "Select Item Type",
+            available_options,
+            key="lab_selected_item_type",
+        )
+
+        if selected_label == "Test Performed":
+
+            source_column = "_LAB_TEST"
+
         else:
-            selected_column = pathogen_col
 
-        selected_label = selected_item
+            source_column = "_LAB_PATHOGEN"
 
-        temp = laboratory_records[
-            [
-                month_col,
-                selected_column,
+        selected_items = (
+            work_df.loc[
+                _valid_value_mask(
+                    work_df[source_column]
+                ),
+                source_column,
             ]
-        ].copy()
-
-        temp["Month"] = (
-            temp[month_col]
-            .map(_normalise_month)
+            .drop_duplicates()
+            .tolist()
         )
 
-        temp["Selected Item"] = _clean_text_series(
-            temp[selected_column]
+        selected_items = [
+            str(item)
+            for item in selected_items
+            if str(item).strip()
+        ]
+
+        selected_items = sorted(
+            selected_items,
+            key=lambda x: x.lower(),
         )
 
-        temp = temp[
-            temp["Month"].ne("")
-            & temp["Selected Item"].ne("")
-        ].copy()
+        if selected_items:
 
-        if not temp.empty:
-
-            item_totals = (
-                temp["Selected Item"]
-                .value_counts()
-                .head(10)
+            selected_values = st.multiselect(
+                f"Select {selected_label}",
+                selected_items,
+                default=selected_items[:5],
+                key="lab_selected_items",
             )
 
-            selected_items = (
-                item_totals.index.tolist()
-            )
+            if selected_values:
 
-            item_month = (
-                temp[
-                    temp["Selected Item"]
-                    .isin(selected_items)
-                ]
-                .groupby(
-                    [
-                        "Month",
-                        "Selected Item",
-                    ],
-                    sort=False,
+                selected_df = work_df[
+                    _valid_value_mask(
+                        work_df["_LAB_MONTH"]
+                    )
+                    &
+                    work_df[source_column].isin(
+                        selected_values
+                    )
+                ].copy()
+
+                if not selected_df.empty:
+
+                    trend_df = (
+                        selected_df
+                        .groupby(
+                            [
+                                "_LAB_MONTH",
+                                source_column,
+                            ]
+                        )
+                        .size()
+                        .reset_index(
+                            name="Records"
+                        )
+                        .rename(
+                            columns={
+                                "_LAB_MONTH": "Month",
+                                source_column: "Selected Item",
+                            }
+                        )
+                    )
+
+                    trend_df["Month"] = pd.Categorical(
+                        trend_df["Month"],
+                        categories=MONTH_ORDER,
+                        ordered=True,
+                    )
+
+                    trend_df = (
+                        trend_df
+                        .sort_values(
+                            [
+                                "Month",
+                                "Selected Item",
+                            ],
+                            kind="stable",
+                        )
+                        .reset_index(drop=True)
+                    )
+
+                    # ------------------------------------------------
+                    # Create multi-trace line chart
+                    # ------------------------------------------------
+
+                    fig = go.Figure()
+
+                    for item_name in selected_values:
+
+                        item_df = trend_df[
+                            trend_df[
+                                "Selected Item"
+                            ].astype(str)
+                            == str(item_name)
+                        ].copy()
+
+                        if item_df.empty:
+                            continue
+
+                        # ------------------------------------------------
+                        # Reindex to Jan-Dec
+                        # ------------------------------------------------
+
+                        item_df = (
+                            item_df
+                            .set_index("Month")
+                            .reindex(
+                                MONTH_ORDER
+                            )
+                            .reset_index()
+                        )
+
+                        item_df[
+                            "Selected Item"
+                        ] = str(item_name)
+
+                        item_df[
+                            "Records"
+                        ] = pd.to_numeric(
+                            item_df["Records"],
+                            errors="coerce",
+                        ).fillna(0)
+
+                        # ------------------------------------------------
+                        # Visible labels
+                        # ------------------------------------------------
+
+                        label_values = (
+                            item_df["Records"]
+                            .astype(int)
+                            .map(
+                                lambda value:
+                                f"{value:,}"
+                                if value != 0
+                                else ""
+                            )
+                        )
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=item_df[
+                                    "Month"
+                                ].astype(str),
+                                y=item_df[
+                                    "Records"
+                                ],
+                                mode=(
+                                    "lines+markers+text"
+                                ),
+                                text=label_values,
+                                textposition=(
+                                    "top center"
+                                ),
+                                textfont=dict(
+                                    size=10,
+                                ),
+                                cliponaxis=False,
+                                name=str(item_name),
+                                hovertemplate=(
+                                    "Month: %{x}<br>"
+                                    "Records: %{y:,}<br>"
+                                    f"Item: {item_name}"
+                                    "<extra></extra>"
+                                ),
+                            )
+                        )
+
+                    # ------------------------------------------------
+                    # X-axis
+                    # ------------------------------------------------
+
+                    fig.update_xaxes(
+                        categoryorder="array",
+                        categoryarray=MONTH_ORDER,
+                        title="Month",
+                    )
+
+                    fig.update_yaxes(
+                        title="Records",
+                        rangemode="tozero",
+                    )
+
+                    # ------------------------------------------------
+                    # Layout
+                    # ------------------------------------------------
+
+                    fig.update_layout(
+                        title=(
+                            f"Monthly Trend — "
+                            f"{selected_label}"
+                        ),
+                        height=470,
+                        margin=dict(
+                            l=40,
+                            r=30,
+                            t=70,
+                            b=50,
+                        ),
+                        hovermode="x unified",
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="left",
+                            x=0,
+                        ),
+                    )
+
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True,
+                    )
+
+                else:
+
+                    st.info(
+                        "No records available for the selected items."
+                    )
+
+            else:
+
+                st.info(
+                    f"Select at least one {selected_label.lower()} "
+                    "to display the trend."
                 )
-                .size()
-                .rename("Records")
-                .reset_index()
-            )
-
-            # ------------------------------------------------
-            # STRICT JAN-DEC ORDER
-            # ------------------------------------------------
-
-            item_month["Month"] = pd.Categorical(
-                item_month["Month"],
-                categories=MONTH_ORDER,
-                ordered=True,
-            )
-
-            item_month = (
-                item_month
-                .sort_values(
-                    [
-                        "Month",
-                        "Selected Item",
-                    ],
-                    kind="stable",
-                )
-                .reset_index(drop=True)
-            )
-
-            # ------------------------------------------------
-            # PIVOT
-            # ------------------------------------------------
-
-            pivot_data = (
-                item_month
-                .pivot(
-                    index="Month",
-                    columns="Selected Item",
-                    values="Records",
-                )
-                .fillna(0)
-            )
-
-            # ------------------------------------------------
-            # STRICT JAN-DEC REINDEX
-            # ------------------------------------------------
-
-            valid_months = [
-                month
-                for month in MONTH_ORDER
-                if month in pivot_data.index
-            ]
-
-            pivot_data = (
-                pivot_data
-                .reindex(valid_months)
-            )
-
-            # ------------------------------------------------
-            # CONVERT TO LONG FORMAT
-            # FOR PLOTLY
-            # ------------------------------------------------
-
-            plot_df = (
-                pivot_data
-                .reset_index()
-                .melt(
-                    id_vars=["Month"],
-                    var_name="Selected Item",
-                    value_name="Records",
-                )
-            )
-
-            plot_df["Month"] = pd.Categorical(
-                plot_df["Month"],
-                categories=MONTH_ORDER,
-                ordered=True,
-            )
-
-            plot_df = (
-                plot_df
-                .sort_values(
-                    [
-                        "Month",
-                        "Selected Item",
-                    ],
-                    kind="stable",
-                )
-                .reset_index(drop=True)
-            )
-
-            # ------------------------------------------------
-            # PLOTLY CHART
-            # ------------------------------------------------
-
-            fig = px.line(
-                plot_df,
-                x="Month",
-                y="Records",
-                color="Selected Item",
-                markers=True,
-                title=(
-                    f"Monthly Trend — "
-                    f"{selected_label}"
-                ),
-                category_orders={
-                    "Month": MONTH_ORDER
-                },
-            )
-
-            fig.update_xaxes(
-                categoryorder="array",
-                categoryarray=MONTH_ORDER,
-            )
-
-            fig.update_layout(
-                height=450,
-                margin=dict(
-                    l=40,
-                    r=20,
-                    t=60,
-                    b=40,
-                ),
-            )
-
-            # =================================================
-            # DATA LABELS - ACTIVE ON CHART
-            # =================================================
-
-            fig.update_traces(
-                text=plot_df["Records"].astype(int),
-                texttemplate="%{text:,}",
-                textposition="top center",
-                cliponaxis=False,
-                hovertemplate=(
-                    "Month: %{x}<br>"
-                    "Records: %{y:,}<br>"
-                    "Item: %{fullData.name}"
-                    "<extra></extra>"
-                )
-            )
-
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-            )
-
-            st.caption(
-                f"Showing monthly trend for the selected "
-                f"{selected_label.lower()} values."
-            )
 
         else:
 
             st.info(
-                "No trend data is available for the "
-                "selected laboratory item."
+                f"No valid {selected_label.lower()} data available."
             )
-
-    else:
-
-        st.info(
-            "Selected laboratory item trend is not available."
-        )
 
     st.divider()
 
     # ========================================================
-    # 8. FACILITY-WISE LABORATORY ANALYSIS
+    # SECTION 8
+    # FACILITY-WISE LABORATORY ANALYSIS
     # ========================================================
 
-    st.markdown(
-        "### 7. Facility-wise Laboratory Analysis"
+    st.subheader(
+        "Facility-wise Laboratory Analysis"
     )
 
-    if facility_col is not None:
+    if has_facility and has_test:
 
-        facility_table = _count_table(
-            laboratory_records,
-            facility_col,
-            "Facility Name",
-        )
+        facility_test_df = work_df[
+            _valid_value_mask(
+                work_df["_LAB_FACILITY"]
+            )
+            &
+            _valid_value_mask(
+                work_df["_LAB_TEST"]
+            )
+        ].copy()
 
-        if not facility_table.empty:
+        if not facility_test_df.empty:
 
-            chart_table = (
-                facility_table
-                .head(20)
+            facility_table = (
+                facility_test_df
+                .groupby(
+                    "_LAB_FACILITY"
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .rename(
+                    columns={
+                        "_LAB_FACILITY":
+                        "Facility Name"
+                    }
+                )
                 .sort_values(
                     "Records",
-                    ascending=True,
+                    ascending=False,
+                    kind="stable",
                 )
+                .reset_index(drop=True)
             )
 
             render_bar_chart(
-                chart_table
-                .set_index(
-                    "Facility Name"
-                )["Records"],
-                use_container_width=True,
+                facility_table,
+                x_col="Facility Name",
+                y_col="Records",
+                title=(
+                    "Laboratory Records by Facility"
+                ),
             )
 
             st.dataframe(
@@ -1385,44 +1453,88 @@ def render_lab_pathogen(filtered_df):
         else:
 
             st.info(
-                "Facility-wise laboratory data "
-                "is not available."
+                "No facility-wise laboratory records available."
             )
 
     else:
 
         st.info(
-            "Facility information is not available "
-            "in the selected dataset."
+            "Facility and Test Performed information "
+            "are required for facility-wise analysis."
         )
 
     st.divider()
 
     # ========================================================
-    # 9. WARD-WISE LABORATORY ANALYSIS
+    # SECTION 9
+    # WARD-WISE LABORATORY ANALYSIS
     # ========================================================
 
-    st.markdown(
-        "### 8. Ward-wise Laboratory Analysis"
+    st.subheader(
+        "Ward-wise Laboratory Analysis"
     )
 
-    if ward_col is not None:
+    if has_ward and has_test:
 
-        ward_table = _count_table(
-            laboratory_records,
-            ward_col,
-            "Ward Name",
-            order_type="ward",
-        )
+        ward_test_df = work_df[
+            _valid_value_mask(
+                work_df["_LAB_WARD"]
+            )
+            &
+            _valid_value_mask(
+                work_df["_LAB_TEST"]
+            )
+        ].copy()
 
-        if not ward_table.empty:
+        if not ward_test_df.empty:
+
+            ward_table = (
+                ward_test_df
+                .groupby(
+                    "_LAB_WARD"
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+                .rename(
+                    columns={
+                        "_LAB_WARD":
+                        "Ward"
+                    }
+                )
+            )
+
+            ward_table["_WARD_ORDER"] = (
+                ward_table["Ward"]
+                .apply(
+                    _ward_order_value
+                )
+            )
+
+            ward_table = (
+                ward_table
+                .sort_values(
+                    [
+                        "_WARD_ORDER"
+                    ],
+                    kind="stable",
+                )
+                .drop(
+                    columns=[
+                        "_WARD_ORDER"
+                    ]
+                )
+                .reset_index(drop=True)
+            )
 
             render_bar_chart(
-                ward_table
-                .set_index(
-                    "Ward Name"
-                )["Records"],
-                use_container_width=True,
+                ward_table,
+                x_col="Ward",
+                y_col="Records",
+                title=(
+                    "Laboratory Records by Ward"
+                ),
             )
 
             st.dataframe(
@@ -1434,68 +1546,68 @@ def render_lab_pathogen(filtered_df):
         else:
 
             st.info(
-                "Ward-wise laboratory data "
-                "is not available."
+                "No ward-wise laboratory records available."
             )
 
     else:
 
         st.info(
-            "Ward information is not available "
-            "in the selected dataset."
+            "Ward and Test Performed information "
+            "are required for ward-wise analysis."
         )
 
     st.divider()
 
     # ========================================================
-    # 10. DETAILED LABORATORY RECORDS
+    # SECTION 10
+    # DETAILED LABORATORY RECORDS
     # ========================================================
 
-    st.markdown(
-        "### 9. Detailed Laboratory Records"
+    st.subheader(
+        "Detailed Laboratory Records"
     )
 
     detail_columns = []
 
+    # Original user-facing columns
     preferred_columns = [
-        "Year",
-        "Month",
-        "Week",
-        "Reporting Date",
-        "Date Of Onset",
         "Facility Name",
-        "Facility Name Lform",
-        "Ward Name",
         "Ward",
-        "Gender",
-        "Age",
-        "Patient Address",
         "Test Performed",
         "Pathogen Name",
-        "Confirmed Diagnosis",
-        "OPD/IPD",
-        "Opd Ipd",
+        "Month",
+        "Date",
+        "Age",
+        "Gender",
     ]
 
-    for column in preferred_columns:
+    for col in preferred_columns:
+
+        actual_col = _find_column(
+            work_df,
+            [col],
+        )
 
         if (
-            column in laboratory_records.columns
-            and column not in detail_columns
+            actual_col is not None
+            and actual_col not in detail_columns
         ):
             detail_columns.append(
-                column
+                actual_col
             )
 
-    if detail_columns:
+    # Add internal fields only when needed
+    if not detail_columns:
 
-        detail_df = laboratory_records[
-            detail_columns
-        ].copy()
+        detail_columns = [
+            col
+            for col in work_df.columns
+            if not str(col).startswith("_")
+        ]
 
-    else:
-
-        detail_df = laboratory_records.copy()
+    detail_df = work_df[
+        detail_columns
+    ].copy()
 
     st.dataframe(
         detail_df,
