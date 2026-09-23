@@ -1478,7 +1478,7 @@ def render_lab_pathogen(filtered_df):
     st.divider()
 
     
-    # ========================================================
+        # ========================================================
     # 7. SELECTED LABORATORY ITEM TREND
     # ========================================================
 
@@ -1510,17 +1510,17 @@ def render_lab_pathogen(filtered_df):
 
         selected_item = st.selectbox(
             "Select Laboratory Item",
-            options=[""] + available_items,
-            format_func=lambda x: (
+            options=available_items,
+            index=None,
+            placeholder=(
                 "Select Test Performed / Pathogen Name"
-                if x == ""
-                else x
             ),
             key="lab_pathogen_selected_item",
         )
 
         # ----------------------------------------------------
-        # SHOW LEVEL 2 ONLY AFTER LEVEL 1 IS SELECTED
+        # LEVEL 2:
+        # SHOW ONLY AFTER LEVEL 1 IS SELECTED
         # ----------------------------------------------------
 
         if selected_item:
@@ -1574,9 +1574,7 @@ def render_lab_pathogen(filtered_df):
                 if available_indicator_list:
 
                     # ----------------------------------------
-                    # UNIQUE KEY BASED ON CURRENT INDICATORS
-                    # This makes the selector refresh when
-                    # Global Filters change the available list.
+                    # SESSION KEY
                     # ----------------------------------------
 
                     indicator_signature = "|".join(
@@ -1584,7 +1582,7 @@ def render_lab_pathogen(filtered_df):
                     )
 
                     selection_key = (
-                        "lab_selected_indicators_"
+                        "lab_selected_checkbox_"
                         + selected_item.lower().replace(
                             " ",
                             "_",
@@ -1605,46 +1603,187 @@ def render_lab_pathogen(filtered_df):
                     )
 
                     # ----------------------------------------
-                    # LEVEL 2:
-                    # USER SELECTS INDICATORS
+                    # INITIALISE SELECTION
                     #
                     # IMPORTANT:
-                    # No default selection.
-                    # User must manually select.
+                    # Nothing is selected initially.
                     # ----------------------------------------
 
-                    selected_indicators = st.multiselect(
-                        f"Select {selected_label} Indicators",
-                        options=available_indicator_list,
-                        default=[],
-                        key=selection_key,
-                        help=(
-                            "Select one or more indicators "
-                            "to display the monthly trend."
-                        ),
-                    )
-
-                    # ----------------------------------------
-                    # RESET SELECTION
-                    #
-                    # Reset = CLEAR selection
-                    # NOT Select All
-                    # ----------------------------------------
-
-                    def _reset_lab_indicator_selection():
+                    if selection_key not in st.session_state:
                         st.session_state[
                             selection_key
                         ] = []
 
-                    st.button(
-                        "Reset Selection",
-                        key=reset_key,
-                        on_click=(
-                            _reset_lab_indicator_selection
-                        ),
-                        help=(
-                            "Clear the selected indicators."
-                        ),
+                    # Keep only indicators which are still
+                    # available after Global Filters change.
+                    st.session_state[
+                        selection_key
+                    ] = [
+                        item
+                        for item in st.session_state[
+                            selection_key
+                        ]
+                        if item in available_indicator_list
+                    ]
+
+                    selected_indicators = st.session_state[
+                        selection_key
+                    ]
+
+                    # ----------------------------------------
+                    # COMPACT SECOND SELECTOR
+                    #
+                    # Selected values are NOT displayed
+                    # across the top bar.
+                    #
+                    # Clicking the selector opens checkboxes.
+                    # ----------------------------------------
+
+                    selected_count = len(
+                        selected_indicators
+                    )
+
+                    if selected_count == 0:
+
+                        selector_text = (
+                            f"Select {selected_label} "
+                            "Indicators"
+                        )
+
+                    elif selected_count == 1:
+
+                        selector_text = (
+                            f"1 {selected_label.lower()} "
+                            "selected"
+                        )
+
+                    else:
+
+                        selector_text = (
+                            f"{selected_count} "
+                            f"{selected_label.lower()} "
+                            "indicators selected"
+                        )
+
+                    with st.popover(
+                        selector_text,
+                        use_container_width=True,
+                    ):
+
+                        st.markdown(
+                            f"**Select {selected_label} "
+                            "Indicators**"
+                        )
+
+                        st.caption(
+                            "Tick the indicators you want "
+                            "to include in the monthly trend."
+                        )
+
+                        for indicator in (
+                            available_indicator_list
+                        ):
+
+                            checkbox_key = (
+                                selection_key
+                                + "_"
+                                + str(
+                                    abs(
+                                        hash(
+                                            indicator
+                                        )
+                                    )
+                                )
+                            )
+
+                            is_checked = (
+                                indicator
+                                in st.session_state[
+                                    selection_key
+                                ]
+                            )
+
+                            checked = st.checkbox(
+                                indicator,
+                                value=is_checked,
+                                key=checkbox_key,
+                            )
+
+                            if checked:
+                                if (
+                                    indicator
+                                    not in st.session_state[
+                                        selection_key
+                                    ]
+                                ):
+                                    st.session_state[
+                                        selection_key
+                                    ].append(
+                                        indicator
+                                    )
+
+                            else:
+                                if (
+                                    indicator
+                                    in st.session_state[
+                                        selection_key
+                                    ]
+                                ):
+                                    st.session_state[
+                                        selection_key
+                                    ].remove(
+                                        indicator
+                                    )
+
+                        st.divider()
+
+                        # ------------------------------------
+                        # RESET SELECTION
+                        #
+                        # RESET = CLEAR ALL TICKS
+                        # ------------------------------------
+
+                        if st.button(
+                            "Reset Selection",
+                            key=reset_key,
+                            use_container_width=True,
+                        ):
+
+                            st.session_state[
+                                selection_key
+                            ] = []
+
+                            for indicator in (
+                                available_indicator_list
+                            ):
+
+                                checkbox_key = (
+                                    selection_key
+                                    + "_"
+                                    + str(
+                                        abs(
+                                            hash(
+                                                indicator
+                                            )
+                                        )
+                                    )
+                                )
+
+                                if checkbox_key in st.session_state:
+                                    st.session_state[
+                                        checkbox_key
+                                    ] = False
+
+                            st.rerun()
+
+                    # ----------------------------------------
+                    # REFRESH SELECTED INDICATORS
+                    # ----------------------------------------
+
+                    selected_indicators = (
+                        st.session_state[
+                            selection_key
+                        ]
                     )
 
                     # ----------------------------------------
@@ -1840,7 +1979,6 @@ def render_lab_pathogen(filtered_df):
         )
 
     st.divider()
-
     # ========================================================
     # 8. FACILITY-WISE LABORATORY ANALYSIS
     # ========================================================
