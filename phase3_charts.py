@@ -442,7 +442,6 @@ def render_charts(df):
                                 chart_data,
                                 use_container_width=True,
                                 height=450,
-                                legend="bottom",
                             )
 
                             st.caption(
@@ -475,7 +474,6 @@ def render_charts(df):
                         chart_data,
                         use_container_width=True,
                         height=450,
-                        legend="bottom",
                     )
 
                     st.caption(
