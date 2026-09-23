@@ -6,12 +6,6 @@ render_bar_chart,
 render_line_chart,
 )
 
-# ============================================================
-
-# HELPER FUNCTIONS
-
-# ============================================================
-
 def _clean_series(df, column):
 if df is None or df.empty or column not in df.columns:
 return pd.Series(dtype="object")
@@ -107,16 +101,10 @@ return sorted(
 )
 ```
 
-# ============================================================
-
-# MAIN FUNCTION
-
-# ============================================================
-
 def render_charts(df):
 
 ```
-st.subheader("📈 Charts & Trends")
+st.subheader("Charts & Trends")
 
 if df is None or df.empty:
     st.warning(
@@ -134,7 +122,7 @@ st.caption(
 # 1. MONTH-WISE PROGRAMME TREND
 # ========================================================
 
-st.markdown("### 🗓️ Month-wise Programme Trend")
+st.markdown("### Month-wise Programme Trend")
 
 if "Month" in df.columns:
 
@@ -206,7 +194,7 @@ if "Month" in df.columns:
 
 st.divider()
 
-st.markdown("### 🦠 Monthly Disease Comparison")
+st.markdown("### Monthly Disease Comparison")
 
 if "Month" in df.columns and "Disease" in df.columns:
 
@@ -297,7 +285,7 @@ if "Month" in df.columns and "Disease" in df.columns:
 
 st.divider()
 
-st.markdown("### 🦠 Disease-wise Burden")
+st.markdown("### Disease-wise Burden")
 
 if "Disease" in df.columns:
 
@@ -342,7 +330,7 @@ if "Disease" in df.columns:
 
 st.divider()
 
-st.markdown("### 🏥 Facility-wise Burden")
+st.markdown("### Facility-wise Burden")
 
 if "Facility Name" in df.columns:
 
@@ -387,7 +375,7 @@ if "Facility Name" in df.columns:
 
 st.divider()
 
-st.markdown("### 📍 Ward-wise Burden")
+st.markdown("### Ward-wise Burden")
 
 if "Ward Name" in df.columns:
 
@@ -432,7 +420,7 @@ if "Ward Name" in df.columns:
 
 st.divider()
 
-st.markdown("### 🏨 OPD / IPD Distribution")
+st.markdown("### OPD / IPD Distribution")
 
 if "OPD/IPD" in df.columns:
 
@@ -476,7 +464,7 @@ if "OPD/IPD" in df.columns:
 
 st.divider()
 
-st.markdown("### 📅 Reporting Date Trend")
+st.markdown("### Reporting Date Trend")
 
 if "Reporting Date" in df.columns:
 
@@ -522,7 +510,7 @@ if "Reporting Date" in df.columns:
 
 st.divider()
 
-st.markdown("### 📌 Trend Summary")
+st.markdown("### Trend Summary")
 
 summary_columns = st.columns(4)
 
@@ -615,7 +603,7 @@ with summary_columns[3]:
 st.divider()
 
 st.markdown(
-    "### 🧫 Test Performed Pathogen-wise Analysis"
+    "### Test Performed Pathogen-wise Analysis"
 )
 
 pathogen_column = "Test Performed Pathogen Name"
@@ -647,10 +635,6 @@ else:
         )
 
     else:
-
-        # ------------------------------------------------
-        # 9A. OVERALL PATHOGEN BURDEN
-        # ------------------------------------------------
 
         st.markdown(
             "#### Overall Pathogen Burden"
@@ -704,10 +688,6 @@ else:
                 f"{coverage:.2f}%",
             )
 
-        # ------------------------------------------------
-        # 9B. TOP PATHOGENS
-        # ------------------------------------------------
-
         st.markdown(
             "#### Top Pathogens"
         )
@@ -730,10 +710,6 @@ else:
             use_container_width=True,
             hide_index=True,
         )
-
-        # ------------------------------------------------
-        # 9C. PATHOGEN-WISE MONTHLY TREND
-        # ------------------------------------------------
 
         st.markdown(
             "#### Pathogen-wise Monthly Trend"
@@ -848,10 +824,6 @@ else:
                 "for pathogen monthly analysis."
             )
 
-        # ------------------------------------------------
-        # 9D. PATHOGEN-WISE WARD DISTRIBUTION
-        # ------------------------------------------------
-
         st.markdown(
             "#### Pathogen-wise Ward Distribution"
         )
@@ -942,10 +914,6 @@ else:
                 "'Ward Name' column is not available "
                 "for pathogen analysis."
             )
-
-        # ------------------------------------------------
-        # 9E. PATHOGEN-WISE FACILITY DISTRIBUTION
-        # ------------------------------------------------
 
         st.markdown(
             "#### Pathogen-wise Facility Distribution"
@@ -1043,10 +1011,6 @@ else:
                 "'Facility Name' column is not available "
                 "for pathogen analysis."
             )
-
-        # ------------------------------------------------
-        # 9F. COMPLETE PATHOGEN SUMMARY
-        # ------------------------------------------------
 
         st.markdown(
             "#### Complete Pathogen Summary"
