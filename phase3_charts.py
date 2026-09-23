@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 
 from chart_helpers import (
     render_bar_chart,
@@ -286,10 +287,8 @@ def render_charts(df):
                 if not year_month_data.empty:
                     use_year_month = True
 
-                    # Sort chronologically
                     year_month_data = year_month_data.sort_values("Sort Date", kind="stable").reset_index(drop=True)
                     
-                    # Apply explicit ZWSP and Categorical logic to chart index
                     chart_labels = _apply_chronological_zwsp(year_month_data["Month-Year"])
                     
                     chart_series = pd.Series(
@@ -300,7 +299,6 @@ def render_charts(df):
 
                     render_bar_chart(chart_series, use_container_width=True)
 
-                    # Keep table clean without ZWSP
                     display_month_counts = year_month_data[["Month-Year", "Records"]].copy()
                     st.dataframe(display_month_counts, use_container_width=True, hide_index=True)
 
@@ -313,7 +311,6 @@ def render_charts(df):
                 
                 month_counts = month_counts.sort_values("_Month_Order").drop(columns="_Month_Order").reset_index(drop=True)
 
-                # Fix for chart ordering
                 chart_labels = [("\u200b" * MONTH_NUMBER_MAP[m]) + m for m in month_counts["Month"]]
                 
                 chart_series = pd.Series(
@@ -324,7 +321,6 @@ def render_charts(df):
 
                 render_bar_chart(chart_series, use_container_width=True)
 
-                # Keep table clean
                 display_month_counts = month_counts.copy()
                 display_month_counts["Month"] = display_month_counts["Month"].astype(str)
                 st.dataframe(display_month_counts, use_container_width=True, hide_index=True)
@@ -333,7 +329,7 @@ def render_charts(df):
             st.info("Month information is not available for the selected records.")
 
     # ========================================================
-    # 2. MONTHLY DISEASE COMPARISON
+    # 2. MONTHLY DISEASE COMPARISON (WITH BOTTOM LEGEND & LABELS)
     # ========================================================
 
     st.divider()
@@ -420,13 +416,6 @@ def render_charts(df):
                                 .reset_index(drop=True)
                             )
 
-                            chart_data = (
-                                disease_month
-                                .pivot(index="Month-Year", columns="Disease", values="Records")
-                                .fillna(0)
-                            )
-
-                            # Chronological Reindex & Chart Ordering Fix
                             timeline_order = (
                                 disease_month[["Sort Date", "Month-Year"]]
                                 .drop_duplicates(subset=["Month-Year"])
@@ -434,21 +423,31 @@ def render_charts(df):
                                 .tolist()
                             )
 
-                            chart_data = chart_data.reindex(timeline_order, fill_value=0)
-
                             chart_labels = _apply_chronological_zwsp(timeline_order)
-                            chart_data.index = pd.CategoricalIndex(
-                                chart_labels, 
-                                categories=chart_labels, 
-                                ordered=True, 
-                                name="Month-Year"
-                            )
+                            label_map = dict(zip(timeline_order, chart_labels))
+                            disease_month["Month-Year-Label"] = disease_month["Month-Year"].map(label_map)
 
-                            render_line_chart(
-                                chart_data,
-                                use_container_width=True,
-                                height=450,
+                            # --- EXPLICIT ALTAIR CHART TO GUARANTEE LABELS + BOTTOM LEGEND ---
+                            base_chart = alt.Chart(disease_month).encode(
+                                x=alt.X("Month-Year-Label:O", sort=chart_labels, title="Timeline", axis=alt.Axis(labelAngle=-45)),
+                                y=alt.Y("Records:Q", title="Records"),
+                                color=alt.Color("Disease:N", legend=alt.Legend(orient="bottom", title="Disease"))
                             )
+                            
+                            lines = base_chart.mark_line(point=True)
+                            
+                            text_labels = base_chart.mark_text(
+                                align='center',
+                                baseline='bottom',
+                                dy=-8,
+                                fontSize=11
+                            ).encode(
+                                text=alt.Text("Records:Q")
+                            )
+                            
+                            final_chart = (lines + text_labels).properties(height=450)
+                            st.altair_chart(final_chart, use_container_width=True)
+                            # ------------------------------------------------------------------
 
                             st.caption(
                                 "Chart displays the top 10 diseases by total "
@@ -466,22 +465,35 @@ def render_charts(df):
                     disease_totals = cross_tab.sum().sort_values(ascending=False)
                     selected_diseases = disease_totals.head(10).index.tolist()
 
-                    chart_data = cross_tab[selected_diseases].copy()
-
-                    # Chart Ordering Fix
-                    chart_labels = [("\u200b" * MONTH_NUMBER_MAP[m]) + m for m in chart_data.index]
-                    chart_data.index = pd.CategoricalIndex(
-                        chart_labels, 
-                        categories=chart_labels, 
-                        ordered=True, 
-                        name="Month"
+                    long_df = cross_tab[selected_diseases].reset_index().melt(
+                        id_vars="Month", var_name="Disease", value_name="Records"
                     )
 
-                    render_line_chart(
-                        chart_data,
-                        use_container_width=True,
-                        height=450,
+                    chart_labels = [("\u200b" * MONTH_NUMBER_MAP[m]) + m for m in CALENDAR_MONTHS]
+                    label_map = {m: (("\u200b" * MONTH_NUMBER_MAP[m]) + m) for m in CALENDAR_MONTHS}
+                    long_df["Month-Label"] = long_df["Month"].map(label_map)
+
+                    # --- EXPLICIT ALTAIR CHART FOR FALLBACK (LABELS + BOTTOM LEGEND) ---
+                    base_chart = alt.Chart(long_df).encode(
+                        x=alt.X("Month-Label:O", sort=chart_labels, title="Month", axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y("Records:Q", title="Records"),
+                        color=alt.Color("Disease:N", legend=alt.Legend(orient="bottom", title="Disease"))
                     )
+                    
+                    lines = base_chart.mark_line(point=True)
+                    
+                    text_labels = base_chart.mark_text(
+                        align='center',
+                        baseline='bottom',
+                        dy=-8,
+                        fontSize=11
+                    ).encode(
+                        text=alt.Text("Records:Q")
+                    )
+                    
+                    final_chart = (lines + text_labels).properties(height=450)
+                    st.altair_chart(final_chart, use_container_width=True)
+                    # ------------------------------------------------------------------
 
                     st.caption(
                         "Chart displays the top 10 diseases by total records. "
