@@ -445,12 +445,9 @@ def _render_month_line_chart(
     height=400,
 ):
     """
-    Render a monthly line chart with a strict
-    Jan-Dec categorical order.
-
-    This follows the same approach used in
-    phase3_charts.py:
-    pd.Categorical + sort_values + Plotly.
+    Render a monthly line chart with strict
+    Jan-Dec categorical order and visible
+    data labels on the chart.
     """
 
     if (
@@ -502,15 +499,21 @@ def _render_month_line_chart(
         ),
     )
 
+    # ========================================================
+    # DATA LABELS - ACTIVE ON CHART
+    # ========================================================
+
     fig.update_traces(
-    text=plot_df["Records"].apply(lambda x: f"{int(x):,}"),
-    textposition="top center",
-    hovertemplate=(
-        "Month: %{x}<br>"
-        "Records: %{y:,}"
-        "<extra></extra>"
+        text=plot_df["Records"].astype(int),
+        texttemplate="%{text:,}",
+        textposition="top center",
+        cliponaxis=False,
+        hovertemplate=(
+            "Month: %{x}<br>"
+            "Records: %{y:,}"
+            "<extra></extra>"
+        ),
     )
-)
 
     st.plotly_chart(
         fig,
@@ -1296,7 +1299,15 @@ def render_lab_pathogen(filtered_df):
                 ),
             )
 
+            # =================================================
+            # DATA LABELS - ACTIVE ON CHART
+            # =================================================
+
             fig.update_traces(
+                text=plot_df["Records"].astype(int),
+                texttemplate="%{text:,}",
+                textposition="top center",
+                cliponaxis=False,
                 hovertemplate=(
                     "Month: %{x}<br>"
                     "Records: %{y:,}<br>"
