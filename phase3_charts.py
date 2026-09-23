@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 
@@ -5,6 +6,7 @@ from chart_helpers import (
     render_bar_chart,
     render_line_chart,
 )
+
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -22,27 +24,29 @@ def _clean_series(df, column):
     )
 
 
-def _month_order(df):
-    """
-    Always return months in calendar order:
-    January -> February -> March -> ... -> December
-    """
-    if df is None or df.empty or "Month" not in df.columns:
-        return []
+# ============================================================
+# MONTH ORDER
+# ============================================================
 
-    months = (
-        df["Month"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
+def _month_sort_value(value):
+    """
+    Convert month values into calendar month numbers.
 
-    months = [
-        value
-        for value in months.unique().tolist()
-        if value
-        and value.lower() not in {"nan", "nat"}
-    ]
+    Supports:
+    January, Jan, JAN
+    February, Feb, FEB
+    ...
+    December, Dec, DEC
+    1, 01 ... 12
+    """
+
+    if pd.isna(value):
+        return 999
+
+    text = str(value).strip().lower()
+
+    if text in {"", "nan", "nat", "none"}:
+        return 999
 
     month_map = {
         "january": 1,
@@ -71,63 +75,112 @@ def _month_order(df):
         "dec": 12,
     }
 
-    def month_sort(value):
-        text = str(value).strip().lower()
+    if text in month_map:
+        return month_map[text]
 
-        if text in month_map:
-            return (
-                0,
-                month_map[text],
-            )
+    # Numeric month
+    try:
+        number = int(float(text))
 
-        try:
-            return (
-                1,
-                int(float(text)),
-            )
-        except Exception:
-            return (
-                2,
-                999,
-            )
+        if 1 <= number <= 12:
+            return number
 
-    return sorted(
-        months,
-        key=month_sort,
+    except Exception:
+        pass
+
+    # Date-like month values
+    try:
+        parsed = pd.to_datetime(
+            text,
+            errors="coerce",
+        )
+
+        if not pd.isna(parsed):
+            return int(parsed.month)
+
+    except Exception:
+        pass
+
+    return 999
+
+
+def _sort_month_dataframe(df, column="Month"):
+    """
+    Sort a dataframe strictly in calendar month order.
+    """
+
+    if (
+        df is None
+        or df.empty
+        or column not in df.columns
+    ):
+        return df
+
+    result = df.copy()
+
+    result["_month_order"] = (
+        result[column]
+        .apply(_month_sort_value)
     )
 
+    result = (
+        result
+        .sort_values(
+            "_month_order",
+            kind="stable",
+        )
+        .drop(
+            columns="_month_order"
+        )
+        .reset_index(
+            drop=True
+        )
+    )
 
-def _ward_order(df):
-    """
-    Return wards in ascending alphabetical order.
-    Example:
-    Ward A
-    Ward B
-    Ward C
-    ...
-    Ward T
-    """
-    if df is None or df.empty or "Ward Name" not in df.columns:
-        return []
+    return result
 
-    wards = (
-        df["Ward Name"]
-        .fillna("")
+
+# ============================================================
+# WARD ORDER
+# ============================================================
+
+def _sort_ward_dataframe(df, column="Ward"):
+    """
+    Sort wards alphabetically:
+    Ward A -> Ward B -> Ward C -> ... -> Ward T
+    """
+
+    if (
+        df is None
+        or df.empty
+        or column not in df.columns
+    ):
+        return df
+
+    result = df.copy()
+
+    result["_ward_order"] = (
+        result[column]
         .astype(str)
         .str.strip()
+        .str.lower()
     )
 
-    wards = [
-        value
-        for value in wards.unique().tolist()
-        if value
-        and value.lower() not in {"nan", "nat"}
-    ]
-
-    return sorted(
-        wards,
-        key=lambda value: str(value).strip().lower(),
+    result = (
+        result
+        .sort_values(
+            "_ward_order",
+            kind="stable",
+        )
+        .drop(
+            columns="_ward_order"
+        )
+        .reset_index(
+            drop=True
+        )
     )
+
+    return result
 
 
 # ============================================================
@@ -139,9 +192,11 @@ def render_charts(df):
     st.subheader("📈 Charts & Trends")
 
     if df is None or df.empty:
+
         st.warning(
             "No records available for the selected filters."
         )
+
         return
 
     st.caption(
@@ -150,7 +205,7 @@ def render_charts(df):
     )
 
     # ========================================================
-    # 1. MONTH-WISE ANALYSIS
+    # 1. MONTH-WISE PROGRAMME TREND
     # ========================================================
 
     st.markdown(
@@ -166,8 +221,9 @@ def render_charts(df):
 
         month_series = month_series[
             month_series.ne("")
-            & month_series.ne("nan")
-            & month_series.ne("NaT")
+            & month_series.str.lower().ne("nan")
+            & month_series.str.lower().ne("nat")
+            & month_series.str.lower().ne("none")
         ]
 
         if not month_series.empty:
@@ -181,64 +237,76 @@ def render_charts(df):
                 )
             )
 
-            # ----------------------------------------------
-            # FORCE JANUARY -> DECEMBER ORDER
-            # ----------------------------------------------
+            # ------------------------------------------------
+            # FORCE JAN -> FEB -> MAR -> ... -> DEC
+            # ------------------------------------------------
 
-            ordered_months = _month_order(df)
+            month_counts = _sort_month_dataframe(
+                month_counts,
+                "Month",
+            )
 
-            if ordered_months:
+            # ------------------------------------------------
+            # Keep categorical order
+            # ------------------------------------------------
 
-                month_order_map = {
-                    month: index
-                    for index, month
-                    in enumerate(
-                        ordered_months
-                    )
-                }
+            ordered_month_labels = (
+                month_counts["Month"]
+                .astype(str)
+                .tolist()
+            )
 
-                month_counts["_sort_order"] = (
-                    month_counts["Month"]
-                    .map(
-                        month_order_map
-                    )
-                    .fillna(999)
+            month_counts["Month"] = pd.Categorical(
+                month_counts["Month"].astype(str),
+                categories=ordered_month_labels,
+                ordered=True,
+            )
+
+            month_counts = (
+                month_counts
+                .sort_values(
+                    "Month",
+                    kind="stable",
                 )
-
-                month_counts = (
-                    month_counts
-                    .sort_values(
-                        "_sort_order"
-                    )
-                    .drop(
-                        columns="_sort_order"
-                    )
-                    .reset_index(
-                        drop=True
-                    )
+                .reset_index(
+                    drop=True
                 )
+            )
+
+            chart_series = (
+                month_counts
+                .set_index("Month")["Records"]
+            )
 
             render_bar_chart(
-                month_counts.set_index(
-                    "Month"
-                )["Records"],
+                chart_series,
                 use_container_width=True,
             )
 
+            display_month_counts = (
+                month_counts.copy()
+            )
+
+            display_month_counts["Month"] = (
+                display_month_counts["Month"]
+                .astype(str)
+            )
+
             st.dataframe(
-                month_counts,
+                display_month_counts,
                 use_container_width=True,
                 hide_index=True,
             )
 
         else:
+
             st.info(
                 "Month information is not available "
                 "for the selected records."
             )
 
     # ========================================================
-    # 2. MONTHLY COMPARISON BY DISEASE
+    # 2. MONTHLY DISEASE COMPARISON
     # ========================================================
 
     st.divider()
@@ -278,6 +346,10 @@ def render_charts(df):
             & temp["Disease"].ne("")
             & temp["Month"].str.lower().ne("nan")
             & temp["Disease"].str.lower().ne("nan")
+            & temp["Month"].str.lower().ne("nat")
+            & temp["Disease"].str.lower().ne("nat")
+            & temp["Month"].str.lower().ne("none")
+            & temp["Disease"].str.lower().ne("none")
         ]
 
         if not temp.empty:
@@ -287,34 +359,38 @@ def render_charts(df):
                 temp["Disease"],
             )
 
-            # ----------------------------------------------
-            # FORCE JANUARY -> DECEMBER ORDER
-            # ----------------------------------------------
+            # ------------------------------------------------
+            # FORCE CALENDAR MONTH ORDER
+            # ------------------------------------------------
 
-            ordered_months = _month_order(
-                df
+            month_index = pd.DataFrame(
+                {
+                    "Month": cross_tab.index.astype(str)
+                }
             )
 
-            available_months = [
-                month
-                for month in ordered_months
-                if month in cross_tab.index
-            ]
+            month_index = _sort_month_dataframe(
+                month_index,
+                "Month",
+            )
 
-            remaining_months = [
-                month
-                for month in cross_tab.index
-                if month not in available_months
-            ]
+            ordered_months = (
+                month_index["Month"]
+                .tolist()
+            )
+
+            cross_tab.index = (
+                cross_tab.index
+                .astype(str)
+            )
 
             cross_tab = cross_tab.reindex(
-                available_months
-                + remaining_months
+                ordered_months
             )
 
-            # ----------------------------------------------
+            # ------------------------------------------------
             # TOP 10 DISEASES
-            # ----------------------------------------------
+            # ------------------------------------------------
 
             disease_totals = (
                 cross_tab
@@ -347,6 +423,7 @@ def render_charts(df):
             )
 
         else:
+
             st.info(
                 "Disease/month information is not available "
                 "for the selected records."
@@ -371,8 +448,9 @@ def render_charts(df):
 
         disease_series = disease_series[
             disease_series.ne("")
-            & disease_series.ne("nan")
-            & disease_series.ne("NaT")
+            & disease_series.str.lower().ne("nan")
+            & disease_series.str.lower().ne("nat")
+            & disease_series.str.lower().ne("none")
         ]
 
         if not disease_series.empty:
@@ -401,6 +479,7 @@ def render_charts(df):
             )
 
         else:
+
             st.info(
                 "Disease information is not available."
             )
@@ -424,8 +503,9 @@ def render_charts(df):
 
         facility_series = facility_series[
             facility_series.ne("")
-            & facility_series.ne("nan")
-            & facility_series.ne("NaT")
+            & facility_series.str.lower().ne("nan")
+            & facility_series.str.lower().ne("nat")
+            & facility_series.str.lower().ne("none")
         ]
 
         if not facility_series.empty:
@@ -454,6 +534,7 @@ def render_charts(df):
             )
 
         else:
+
             st.info(
                 "Facility information is not available."
             )
@@ -477,8 +558,9 @@ def render_charts(df):
 
         ward_series = ward_series[
             ward_series.ne("")
-            & ward_series.ne("nan")
-            & ward_series.ne("NaT")
+            & ward_series.str.lower().ne("nan")
+            & ward_series.str.lower().ne("nat")
+            & ward_series.str.lower().ne("none")
         ]
 
         if not ward_series.empty:
@@ -492,44 +574,14 @@ def render_charts(df):
                 )
             )
 
-            # ----------------------------------------------
-            # FORCE WARD A -> B -> C ... -> T ORDER
-            # ----------------------------------------------
+            # ------------------------------------------------
+            # FORCE WARD A -> B -> C -> ... -> T
+            # ------------------------------------------------
 
-            ordered_wards = _ward_order(
-                df
+            ward_counts = _sort_ward_dataframe(
+                ward_counts,
+                "Ward",
             )
-
-            if ordered_wards:
-
-                ward_order_map = {
-                    ward: index
-                    for index, ward
-                    in enumerate(
-                        ordered_wards
-                    )
-                }
-
-                ward_counts["_sort_order"] = (
-                    ward_counts["Ward"]
-                    .map(
-                        ward_order_map
-                    )
-                    .fillna(999)
-                )
-
-                ward_counts = (
-                    ward_counts
-                    .sort_values(
-                        "_sort_order"
-                    )
-                    .drop(
-                        columns="_sort_order"
-                    )
-                    .reset_index(
-                        drop=True
-                    )
-                )
 
             render_bar_chart(
                 ward_counts.set_index(
@@ -545,6 +597,7 @@ def render_charts(df):
             )
 
         else:
+
             st.info(
                 "Ward information is not available."
             )
@@ -568,8 +621,9 @@ def render_charts(df):
 
         opd_series = opd_series[
             opd_series.ne("")
-            & opd_series.ne("nan")
-            & opd_series.ne("NaT")
+            & opd_series.str.lower().ne("nan")
+            & opd_series.str.lower().ne("nat")
+            & opd_series.str.lower().ne("none")
         ]
 
         if not opd_series.empty:
@@ -597,6 +651,7 @@ def render_charts(df):
             )
 
         else:
+
             st.info(
                 "OPD/IPD information is not available."
             )
@@ -634,9 +689,7 @@ def render_charts(df):
                 date_df
                 .assign(
                     Date=lambda x:
-                    x[
-                        "Reporting Date"
-                    ].dt.normalize()
+                    x["Reporting Date"].dt.normalize()
                 )
                 .groupby("Date")
                 .size()
@@ -649,6 +702,7 @@ def render_charts(df):
             )
 
         else:
+
             st.info(
                 "Valid reporting dates are not available."
             )
@@ -665,14 +719,25 @@ def render_charts(df):
 
     summary_columns = st.columns(4)
 
+    # --------------------------------------------------------
+    # RECORDS
+    # --------------------------------------------------------
+
     with summary_columns[0]:
+
         st.metric(
             "Records Analysed",
             f"{len(df):,}",
         )
 
+    # --------------------------------------------------------
+    # DISEASES
+    # --------------------------------------------------------
+
     with summary_columns[1]:
+
         if "Disease" in df.columns:
+
             disease_count = (
                 df["Disease"]
                 .dropna()
@@ -682,20 +747,31 @@ def render_charts(df):
 
             disease_count = disease_count[
                 disease_count.ne("")
+                & disease_count.str.lower().ne("nan")
+                & disease_count.str.lower().ne("nat")
+                & disease_count.str.lower().ne("none")
             ]
 
             st.metric(
                 "Diseases",
                 f"{disease_count.nunique():,}",
             )
+
         else:
+
             st.metric(
                 "Diseases",
                 "0",
             )
 
+    # --------------------------------------------------------
+    # FACILITIES
+    # --------------------------------------------------------
+
     with summary_columns[2]:
+
         if "Facility Name" in df.columns:
+
             facility_count = (
                 df["Facility Name"]
                 .dropna()
@@ -705,20 +781,31 @@ def render_charts(df):
 
             facility_count = facility_count[
                 facility_count.ne("")
+                & facility_count.str.lower().ne("nan")
+                & facility_count.str.lower().ne("nat")
+                & facility_count.str.lower().ne("none")
             ]
 
             st.metric(
                 "Facilities",
                 f"{facility_count.nunique():,}",
             )
+
         else:
+
             st.metric(
                 "Facilities",
                 "0",
             )
 
+    # --------------------------------------------------------
+    # WARDS
+    # --------------------------------------------------------
+
     with summary_columns[3]:
+
         if "Ward Name" in df.columns:
+
             ward_count = (
                 df["Ward Name"]
                 .dropna()
@@ -728,14 +815,21 @@ def render_charts(df):
 
             ward_count = ward_count[
                 ward_count.ne("")
+                & ward_count.str.lower().ne("nan")
+                & ward_count.str.lower().ne("nat")
+                & ward_count.str.lower().ne("none")
             ]
 
             st.metric(
                 "Wards",
                 f"{ward_count.nunique():,}",
             )
+
         else:
+
             st.metric(
                 "Wards",
                 "0",
             )
+
+
