@@ -115,7 +115,7 @@ Return the first matching column from candidates.
 Matching is case-insensitive and whitespace-insensitive.
 """
 
-```
+
 if df is None or df.empty:
     return None
 
@@ -136,14 +136,14 @@ for candidate in candidates:
         return column_map[key]
 
 return None
-```
+
 
 def _clean_text_series(series):
 """
 Clean text values safely.
 """
 
-```
+
 if series is None:
     return pd.Series(
         dtype="object"
@@ -155,14 +155,14 @@ return (
     .astype(str)
     .str.strip()
 )
-```
+
 
 def _valid_value_mask(series):
 """
 Identify valid non-empty values.
 """
 
-```
+
 cleaned = _clean_text_series(
     series
 )
@@ -173,7 +173,7 @@ return (
     & cleaned.str.lower().ne("none")
     & cleaned.str.lower().ne("nat")
 )
-```
+
 
 def _prepare_working_data(df):
 """
@@ -181,7 +181,7 @@ Prepare a safe working copy without changing
 the original dataframe.
 """
 
-```
+
 if df is None or df.empty:
     return pd.DataFrame()
 
@@ -207,7 +207,7 @@ for col in columns_to_clean:
         )
 
 return working
-```
+
 
 # ============================================================
 
@@ -220,7 +220,7 @@ def _normalise_month(value):
 Convert different month formats into standard Jan-Dec labels.
 """
 
-```
+
 # Important:
 # Safely handle a pandas Series.
 if isinstance(value, pd.Series):
@@ -299,14 +299,14 @@ if short_key in MONTH_LOOKUP:
     ]
 
 return text
-```
+
 
 def _month_order_value(value):
 """
 Return chronological order value for a month.
 """
 
-```
+
 month = _normalise_month(
     value
 )
@@ -323,14 +323,14 @@ try:
 except ValueError:
 
     return 999
-```
+
 
 def _ordered_month_chart_data(month_df):
 """
 Prepare explicitly ordered Jan-Dec data.
 """
 
-```
+
 if (
     month_df is None
     or month_df.empty
@@ -406,7 +406,7 @@ chart_data = temp[
 ].copy()
 
 return chart_data
-```
+
 
 # ============================================================
 
@@ -420,7 +420,7 @@ Standardise ward labels while preserving
 the existing A-T ordering.
 """
 
-```
+
 if isinstance(value, pd.Series):
 
     return value.apply(
@@ -470,14 +470,14 @@ if text in WARD_ORDER:
     return text
 
 return text
-```
+
 
 def _ward_order_value(value):
 """
 Return ward order value for A-T.
 """
 
-```
+
 ward = _normalise_ward(
     value
 )
@@ -494,7 +494,7 @@ try:
 except ValueError:
 
     return 999
-```
+
 
 # ============================================================
 
@@ -513,7 +513,7 @@ Create a frequency table with optional
 month or ward ordering.
 """
 
-```
+
 if (
     df is None
     or df.empty
@@ -609,7 +609,7 @@ elif order_type == "ward":
     )
 
 return result
-```
+
 
 # ============================================================
 
@@ -628,7 +628,7 @@ Jan-Dec categorical order and visible
 data labels on the chart.
 """
 
-```
+
 if (
     chart_data is None
     or chart_data.empty
@@ -714,7 +714,7 @@ st.plotly_chart(
     fig,
     use_container_width=True,
 )
-```
+
 
 # ============================================================
 
@@ -724,7 +724,7 @@ st.plotly_chart(
 
 def render_lab_pathogen(filtered_df):
 
-```
+
 st.subheader(
     "Laboratory & Pathogen Analysis"
 )
@@ -1760,4 +1760,4 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
 )
-```
+
