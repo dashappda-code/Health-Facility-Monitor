@@ -33,7 +33,7 @@ CALENDAR_MONTHS = [
 
 def _normalize_month(value):
     """
-    सगळ्या प्रकारच्या महिन्यांच्या नावांना स्टँडर्ड (उदा. 'Jan', 'Feb') मध्ये बदलते.
+    सगळ्या प्रकारच्या महिन्यांच्या नावांना स्टँडर्ड 'Jan', 'Feb' मध्ये बदलते.
     """
     if pd.isna(value):
         return ""
@@ -61,36 +61,12 @@ def _normalize_month(value):
 # ============================================================
 
 def _sort_ward_dataframe(df, column="Ward"):
-    """
-    Sort wards alphabetically:
-    Ward A -> Ward B -> Ward C -> ... -> Ward T
-    """
     if df is None or df.empty or column not in df.columns:
         return df
 
     result = df.copy()
-
-    result["_ward_order"] = (
-        result[column]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-    result = (
-        result
-        .sort_values(
-            "_ward_order",
-            kind="stable",
-        )
-        .drop(
-            columns="_ward_order"
-        )
-        .reset_index(
-            drop=True
-        )
-    )
-
+    result["_ward_order"] = result[column].astype(str).str.strip().str.lower()
+    result = result.sort_values("_ward_order", kind="stable").drop(columns="_ward_order").reset_index(drop=True)
     return result
 
 
@@ -103,9 +79,7 @@ def render_charts(df):
     st.subheader("📈 Charts & Trends")
 
     if df is None or df.empty:
-        st.warning(
-            "No records available for the selected filters."
-        )
+        st.warning("No records available for the selected filters.")
         return
 
     st.caption(
@@ -117,14 +91,10 @@ def render_charts(df):
     # 1. MONTH-WISE PROGRAMME TREND
     # ========================================================
 
-    st.markdown(
-        "### 🗓️ Month-wise Programme Trend"
-    )
+    st.markdown("### 🗓️ Month-wise Programme Trend")
 
     if "Month" in df.columns:
-
         month_series = _clean_series(df, "Month")
-
         month_series = month_series[
             month_series.ne("")
             & month_series.str.lower().ne("nan")
@@ -134,18 +104,11 @@ def render_charts(df):
 
         if not month_series.empty:
             
-            # स्टँडर्ड महिन्यांची नावे लागू करा
             normalized_months = month_series.apply(_normalize_month)
-
-            month_counts = (
-                normalized_months
-                .value_counts()
-                .rename_axis("Month")
-                .reset_index(name="Records")
-            )
+            month_counts = normalized_months.value_counts().rename_axis("Month").reset_index(name="Records")
 
             # ------------------------------------------------
-            # FORCE JAN -> FEB -> MAR -> ... -> DEC
+            # FORCE CATEGORICAL INDEX FOR CHART (JAN -> DEC)
             # ------------------------------------------------
             month_counts["Month"] = pd.Categorical(
                 month_counts["Month"], 
@@ -153,13 +116,10 @@ def render_charts(df):
                 ordered=True
             )
             
-            month_counts = (
-                month_counts
-                .sort_values("Month")
-                .dropna(subset=["Month"])
-                .reset_index(drop=True)
-            )
+            # क्रमवारी लावून रिकामे महिने वगळणे
+            month_counts = month_counts.dropna(subset=["Month"]).sort_values("Month").reset_index(drop=True)
 
+            # इथे set_index केल्यावर CategoricalIndex तयार होतो ज्यामुळे चार्ट बरोबर दिसतो
             chart_series = month_counts.set_index("Month")["Records"]
 
             render_bar_chart(
@@ -167,67 +127,50 @@ def render_charts(df):
                 use_container_width=True,
             )
 
+            # टेबलमध्ये दाखवण्यासाठी परत string मध्ये बदलणे
             display_month_counts = month_counts.copy()
             display_month_counts["Month"] = display_month_counts["Month"].astype(str)
-
-            st.dataframe(
-                display_month_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.dataframe(display_month_counts, use_container_width=True, hide_index=True)
 
         else:
-            st.info(
-                "Month information is not available "
-                "for the selected records."
-            )
+            st.info("Month information is not available for the selected records.")
 
     # ========================================================
     # 2. MONTHLY DISEASE COMPARISON
     # ========================================================
 
     st.divider()
-
-    st.markdown(
-        "### 🦠 Monthly Disease Comparison"
-    )
+    st.markdown("### 🦠 Monthly Disease Comparison")
 
     if "Month" in df.columns and "Disease" in df.columns:
-
         temp = df[["Month", "Disease"]].copy()
-
         temp["Month"] = _clean_series(temp, "Month")
         temp["Disease"] = _clean_series(temp, "Disease")
 
         temp = temp[
-            temp["Month"].ne("")
-            & temp["Disease"].ne("")
-            & temp["Month"].str.lower().ne("nan")
-            & temp["Disease"].str.lower().ne("nan")
+            temp["Month"].ne("") & temp["Disease"].ne("")
+            & temp["Month"].str.lower().ne("nan") & temp["Disease"].str.lower().ne("nan")
         ]
 
         if not temp.empty:
-            
-            # स्टँडर्ड महिन्यांची नावे लागू करा
             temp["Month"] = temp["Month"].apply(_normalize_month)
-
             cross_tab = pd.crosstab(temp["Month"], temp["Disease"])
 
             # ------------------------------------------------
-            # FORCE CALENDAR MONTH ORDER
+            # FORCE CATEGORICAL INDEX FOR CROSS_TAB (JAN -> DEC)
             # ------------------------------------------------
-            available_months = [m for m in CALENDAR_MONTHS if m in cross_tab.index]
-            other_months = [m for m in cross_tab.index if m not in CALENDAR_MONTHS]
+            cross_tab.index = pd.CategoricalIndex(
+                cross_tab.index,
+                categories=CALENDAR_MONTHS,
+                ordered=True
+            )
             
-            # Reindex करून बरोबर क्रमवारी लावणे
-            cross_tab = cross_tab.reindex(available_months + other_months)
+            # Sort the index based on calendar order
+            cross_tab = cross_tab.sort_index().dropna(how='all')
 
-            # ------------------------------------------------
             # TOP 10 DISEASES
-            # ------------------------------------------------
             disease_totals = cross_tab.sum().sort_values(ascending=False)
             selected_diseases = disease_totals.head(10).index.tolist()
-            
             chart_data = cross_tab[selected_diseases]
 
             render_line_chart(
@@ -242,50 +185,25 @@ def render_charts(df):
             )
 
         else:
-            st.info(
-                "Disease/month information is not available "
-                "for the selected records."
-            )
+            st.info("Disease/month information is not available for the selected records.")
 
     # ========================================================
     # 3. DISEASE-WISE BURDEN
     # ========================================================
 
     st.divider()
-
     st.markdown("### 🦠 Disease-wise Burden")
 
     if "Disease" in df.columns:
-
         disease_series = _clean_series(df, "Disease")
-
         disease_series = disease_series[
-            disease_series.ne("")
-            & disease_series.str.lower().ne("nan")
-            & disease_series.str.lower().ne("none")
+            disease_series.ne("") & disease_series.str.lower().ne("nan") & disease_series.str.lower().ne("none")
         ]
 
         if not disease_series.empty:
-
-            disease_counts = (
-                disease_series
-                .value_counts()
-                .head(15)
-                .rename_axis("Disease")
-                .reset_index(name="Records")
-            )
-
-            render_bar_chart(
-                disease_counts.set_index("Disease")["Records"],
-                use_container_width=True,
-            )
-
-            st.dataframe(
-                disease_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
-
+            disease_counts = disease_series.value_counts().head(15).rename_axis("Disease").reset_index(name="Records")
+            render_bar_chart(disease_counts.set_index("Disease")["Records"], use_container_width=True)
+            st.dataframe(disease_counts, use_container_width=True, hide_index=True)
         else:
             st.info("Disease information is not available.")
 
@@ -294,40 +212,18 @@ def render_charts(df):
     # ========================================================
 
     st.divider()
-
     st.markdown("### 🏥 Facility-wise Burden")
 
     if "Facility Name" in df.columns:
-
         facility_series = _clean_series(df, "Facility Name")
-
         facility_series = facility_series[
-            facility_series.ne("")
-            & facility_series.str.lower().ne("nan")
-            & facility_series.str.lower().ne("none")
+            facility_series.ne("") & facility_series.str.lower().ne("nan") & facility_series.str.lower().ne("none")
         ]
 
         if not facility_series.empty:
-
-            facility_counts = (
-                facility_series
-                .value_counts()
-                .head(20)
-                .rename_axis("Facility")
-                .reset_index(name="Records")
-            )
-
-            render_bar_chart(
-                facility_counts.set_index("Facility")["Records"],
-                use_container_width=True,
-            )
-
-            st.dataframe(
-                facility_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
-
+            facility_counts = facility_series.value_counts().head(20).rename_axis("Facility").reset_index(name="Records")
+            render_bar_chart(facility_counts.set_index("Facility")["Records"], use_container_width=True)
+            st.dataframe(facility_counts, use_container_width=True, hide_index=True)
         else:
             st.info("Facility information is not available.")
 
@@ -336,41 +232,19 @@ def render_charts(df):
     # ========================================================
 
     st.divider()
-
     st.markdown("### 📍 Ward-wise Burden")
 
     if "Ward Name" in df.columns:
-
         ward_series = _clean_series(df, "Ward Name")
-
         ward_series = ward_series[
-            ward_series.ne("")
-            & ward_series.str.lower().ne("nan")
-            & ward_series.str.lower().ne("none")
+            ward_series.ne("") & ward_series.str.lower().ne("nan") & ward_series.str.lower().ne("none")
         ]
 
         if not ward_series.empty:
-
-            ward_counts = (
-                ward_series
-                .value_counts()
-                .rename_axis("Ward")
-                .reset_index(name="Records")
-            )
-
+            ward_counts = ward_series.value_counts().rename_axis("Ward").reset_index(name="Records")
             ward_counts = _sort_ward_dataframe(ward_counts, "Ward")
-
-            render_bar_chart(
-                ward_counts.set_index("Ward")["Records"],
-                use_container_width=True,
-            )
-
-            st.dataframe(
-                ward_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
-
+            render_bar_chart(ward_counts.set_index("Ward")["Records"], use_container_width=True)
+            st.dataframe(ward_counts, use_container_width=True, hide_index=True)
         else:
             st.info("Ward information is not available.")
 
@@ -379,39 +253,18 @@ def render_charts(df):
     # ========================================================
 
     st.divider()
-
     st.markdown("### 🏨 OPD / IPD Distribution")
 
     if "OPD/IPD" in df.columns:
-
         opd_series = _clean_series(df, "OPD/IPD")
-
         opd_series = opd_series[
-            opd_series.ne("")
-            & opd_series.str.lower().ne("nan")
-            & opd_series.str.lower().ne("none")
+            opd_series.ne("") & opd_series.str.lower().ne("nan") & opd_series.str.lower().ne("none")
         ]
 
         if not opd_series.empty:
-
-            opd_counts = (
-                opd_series
-                .value_counts()
-                .rename_axis("OPD/IPD")
-                .reset_index(name="Records")
-            )
-
-            render_bar_chart(
-                opd_counts.set_index("OPD/IPD")["Records"],
-                use_container_width=True,
-            )
-
-            st.dataframe(
-                opd_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
-
+            opd_counts = opd_series.value_counts().rename_axis("OPD/IPD").reset_index(name="Records")
+            render_bar_chart(opd_counts.set_index("OPD/IPD")["Records"], use_container_width=True)
+            st.dataframe(opd_counts, use_container_width=True, hide_index=True)
         else:
             st.info("OPD/IPD information is not available.")
 
@@ -420,22 +273,14 @@ def render_charts(df):
     # ========================================================
 
     st.divider()
-
     st.markdown("### 📅 Reporting Date Trend")
 
     if "Reporting Date" in df.columns:
-
         date_df = df[["Reporting Date"]].copy()
-
-        date_df["Reporting Date"] = pd.to_datetime(
-            date_df["Reporting Date"],
-            errors="coerce",
-        )
-
+        date_df["Reporting Date"] = pd.to_datetime(date_df["Reporting Date"], errors="coerce")
         date_df = date_df.dropna(subset=["Reporting Date"])
 
         if not date_df.empty:
-
             daily_counts = (
                 date_df
                 .assign(Date=lambda x: x["Reporting Date"].dt.normalize())
@@ -443,12 +288,7 @@ def render_charts(df):
                 .size()
                 .rename("Records")
             )
-
-            render_line_chart(
-                daily_counts,
-                use_container_width=True,
-            )
-
+            render_line_chart(daily_counts, use_container_width=True)
         else:
             st.info("Valid reporting dates are not available.")
 
@@ -457,25 +297,17 @@ def render_charts(df):
     # ========================================================
 
     st.divider()
-
     st.markdown("### 📌 Trend Summary")
 
     summary_columns = st.columns(4)
 
     with summary_columns[0]:
-        st.metric(
-            "Records Analysed",
-            f"{len(df):,}",
-        )
+        st.metric("Records Analysed", f"{len(df):,}")
 
     with summary_columns[1]:
         if "Disease" in df.columns:
             disease_count = _clean_series(df, "Disease")
-            disease_count = disease_count[
-                disease_count.ne("")
-                & disease_count.str.lower().ne("nan")
-                & disease_count.str.lower().ne("none")
-            ]
+            disease_count = disease_count[disease_count.ne("") & disease_count.str.lower().ne("nan") & disease_count.str.lower().ne("none")]
             st.metric("Diseases", f"{disease_count.nunique():,}")
         else:
             st.metric("Diseases", "0")
@@ -483,11 +315,7 @@ def render_charts(df):
     with summary_columns[2]:
         if "Facility Name" in df.columns:
             facility_count = _clean_series(df, "Facility Name")
-            facility_count = facility_count[
-                facility_count.ne("")
-                & facility_count.str.lower().ne("nan")
-                & facility_count.str.lower().ne("none")
-            ]
+            facility_count = facility_count[facility_count.ne("") & facility_count.str.lower().ne("nan") & facility_count.str.lower().ne("none")]
             st.metric("Facilities", f"{facility_count.nunique():,}")
         else:
             st.metric("Facilities", "0")
@@ -495,11 +323,7 @@ def render_charts(df):
     with summary_columns[3]:
         if "Ward Name" in df.columns:
             ward_count = _clean_series(df, "Ward Name")
-            ward_count = ward_count[
-                ward_count.ne("")
-                & ward_count.str.lower().ne("nan")
-                & ward_count.str.lower().ne("none")
-            ]
+            ward_count = ward_count[ward_count.ne("") & ward_count.str.lower().ne("nan") & ward_count.str.lower().ne("none")]
             st.metric("Wards", f"{ward_count.nunique():,}")
         else:
             st.metric("Wards", "0")
