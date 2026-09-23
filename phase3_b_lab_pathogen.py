@@ -1,6 +1,5 @@
 import pandas as pd
 import streamlit as st
-import plotly.express as px
 
 from chart_helpers import (
     render_bar_chart,
@@ -44,7 +43,6 @@ MONTH_LOOKUP = {
     "december": "Dec",
 }
 
-# IMPORTANT:
 # Keep the original A-T ward order.
 WARD_ORDER = [
     "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
@@ -61,6 +59,7 @@ def _find_column(df, candidates):
     Find a dataframe column using case-insensitive,
     whitespace-normalised matching.
     """
+
     if df is None or df.empty:
         return None
 
@@ -83,6 +82,7 @@ def _clean_text_series(series):
     Convert values to clean strings while preserving
     missing values as empty strings.
     """
+
     return (
         series
         .fillna("")
@@ -95,6 +95,7 @@ def _valid_value_mask(series):
     """
     Identify meaningful non-empty values.
     """
+
     cleaned = _clean_text_series(series)
 
     invalid_values = {
@@ -107,7 +108,9 @@ def _valid_value_mask(series):
         "-",
     }
 
-    return ~cleaned.str.lower().isin(invalid_values)
+    return ~cleaned.str.lower().isin(
+        invalid_values
+    )
 
 
 # ============================================================
@@ -128,6 +131,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Test Performed
     # --------------------------------------------------------
+
     test_col = _find_column(
         work_df,
         [
@@ -147,6 +151,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Pathogen Name
     # --------------------------------------------------------
+
     pathogen_col = _find_column(
         work_df,
         [
@@ -166,6 +171,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Month
     # --------------------------------------------------------
+
     month_col = _find_column(
         work_df,
         [
@@ -182,6 +188,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Year
     # --------------------------------------------------------
+
     year_col = _find_column(
         work_df,
         [
@@ -198,6 +205,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Facility Name
     # --------------------------------------------------------
+
     facility_col = _find_column(
         work_df,
         [
@@ -216,6 +224,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Facility Name Lform
     # --------------------------------------------------------
+
     facility_lform_col = _find_column(
         work_df,
         [
@@ -235,6 +244,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Ward Name
     # --------------------------------------------------------
+
     ward_name_col = _find_column(
         work_df,
         [
@@ -253,6 +263,7 @@ def _prepare_working_data(df):
     # --------------------------------------------------------
     # Ward
     # --------------------------------------------------------
+
     ward_col = _find_column(
         work_df,
         [
@@ -296,7 +307,9 @@ def _normalise_month(value):
             month_number = int(numeric_value)
 
             if 1 <= month_number <= 12:
-                return MONTH_ORDER[month_number - 1]
+                return MONTH_ORDER[
+                    month_number - 1
+                ]
 
     except Exception:
         pass
@@ -308,8 +321,10 @@ def _month_order_value(value):
     """
     Return month order for sorting.
     """
+
     try:
         return MONTH_ORDER.index(value)
+
     except ValueError:
         return 999
 
@@ -324,8 +339,9 @@ def _ordered_month_chart_data(month_df):
 
     result = month_df.copy()
 
-    result["_month_order"] = result["Month"].apply(
-        _month_order_value
+    result["_month_order"] = (
+        result["Month"]
+        .apply(_month_order_value)
     )
 
     result = (
@@ -361,7 +377,12 @@ def _normalise_ward(value):
 
     # Values such as "Ward A"
     if text.startswith("WARD "):
-        candidate = text.replace("WARD ", "", 1).strip()
+
+        candidate = (
+            text
+            .replace("WARD ", "", 1)
+            .strip()
+        )
 
         if candidate in WARD_ORDER:
             return candidate
@@ -373,8 +394,10 @@ def _ward_order_value(value):
     """
     Return ward order for A-T sorting.
     """
+
     try:
         return WARD_ORDER.index(value)
+
     except ValueError:
         return 999
 
@@ -395,28 +418,41 @@ def _count_table(
 
     if df is None or df.empty:
         return pd.DataFrame(
-            columns=[column, output_name]
+            columns=[
+                column,
+                output_name,
+            ]
         )
 
     if column not in df.columns:
         return pd.DataFrame(
-            columns=[column, output_name]
+            columns=[
+                column,
+                output_name,
+            ]
         )
 
     work = df.copy()
 
     work = work[
-        _valid_value_mask(work[column])
+        _valid_value_mask(
+            work[column]
+        )
     ].copy()
 
     if work.empty:
         return pd.DataFrame(
-            columns=[column, output_name]
+            columns=[
+                column,
+                output_name,
+            ]
         )
 
     if order_type == "ward":
-        work[column] = work[column].apply(
-            _normalise_ward
+
+        work[column] = (
+            work[column]
+            .apply(_normalise_ward)
         )
 
         work = work[
@@ -425,158 +461,128 @@ def _count_table(
 
     result = (
         work
-        .groupby(column, dropna=False)
+        .groupby(
+            column,
+            dropna=False,
+        )
         .size()
-        .reset_index(name=output_name)
+        .reset_index(
+            name=output_name
+        )
     )
 
     if result.empty:
         return result
 
     if order_type == "ward":
-        result["_order"] = result[column].apply(
-            _ward_order_value
+
+        result["_order"] = (
+            result[column]
+            .apply(_ward_order_value)
         )
 
         result = (
             result
             .sort_values(
-                ["_order", output_name],
-                ascending=[True, False],
+                [
+                    "_order",
+                    output_name,
+                ],
+                ascending=[
+                    True,
+                    False,
+                ],
             )
-            .drop(columns="_order")
-            .reset_index(drop=True)
+            .drop(
+                columns="_order"
+            )
+            .reset_index(
+                drop=True
+            )
         )
 
     else:
+
         result = (
             result
             .sort_values(
                 output_name,
                 ascending=False,
             )
-            .reset_index(drop=True)
+            .reset_index(
+                drop=True
+            )
         )
 
     return result
 
 
 # ============================================================
-# DATA LABEL CONTROL
+# MONTH LINE DATA PREPARATION
 # ============================================================
 
-def _show_data_labels_control(key):
-    """
-    Standard Show Data Labels control.
-
-    Labels are hidden by default and appear only when
-    the user enables the checkbox.
-    """
-
-    return st.checkbox(
-        "Show Data Labels",
-        value=False,
-        key=key,
-        help="Turn on to display values directly on the chart.",
-    )
-
-
-# ============================================================
-# MONTH LINE CHART
-# ============================================================
-
-def _render_month_line_chart(
-    chart_data,
-    title,
-    height=400,
-    show_labels=False,
+def _prepare_month_single_series(
+    df,
+    value_column,
 ):
     """
-    Render monthly line chart.
-
-    Data labels:
-    - OFF by default
-    - visible only when Show Data Labels is enabled
-    - use the same colour as the line
-    - light-bold font
+    Prepare a single-series monthly dataset in the format
+    expected by the global render_line_chart helper.
     """
 
-    if chart_data is None or chart_data.empty:
-        st.info("No data available for this chart.")
-        return
-
-    plot_df = chart_data.copy()
-
-    if "Month" not in plot_df.columns:
-        st.info("Month data is not available.")
-        return
-
-    if "Records" not in plot_df.columns:
-        st.info("Record count is not available.")
-        return
-
-    plot_df["Records"] = pd.to_numeric(
-        plot_df["Records"],
-        errors="coerce",
-    ).fillna(0)
-
-    fig = px.line(
-        plot_df,
-        x="Month",
-        y="Records",
-        markers=True,
-        title=title,
-    )
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # Labels are controlled by Show Data Labels.
-    # Same colour as line + light bold.
-    # --------------------------------------------------------
-    if show_labels:
-        fig.update_traces(
-            mode="lines+markers+text",
-            text=plot_df["Records"],
-            texttemplate="%{text:,}",
-            textposition="top center",
-            cliponaxis=False,
-            textfont=dict(
-                size=12,
-                family="Arial",
-            ),
-            hovertemplate=(
-                "Month: %{x}<br>"
-                "Records: %{y:,}"
-                "<extra></extra>"
-            ),
-        )
-    else:
-        fig.update_traces(
-            mode="lines+markers",
-            text=None,
-            hovertemplate=(
-                "Month: %{x}<br>"
-                "Records: %{y:,}"
-                "<extra></extra>"
-            ),
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Month",
+                "Records",
+            ]
         )
 
-    fig.update_layout(
-        height=height,
-        margin=dict(
-            l=20,
-            r=20,
-            t=60,
-            b=20,
-        ),
-        xaxis_title="Month",
-        yaxis_title="Records",
+    work = df[
+        _valid_value_mask(
+            df[value_column]
+        )
+    ].copy()
+
+    if work.empty:
+        return pd.DataFrame(
+            columns=[
+                "Month",
+                "Records",
+            ]
+        )
+
+    work["Month"] = (
+        work["Month"]
+        .apply(_normalise_month)
     )
 
-    st.plotly_chart(
-        fig,
-        width="stretch",
+    work = work[
+        work["Month"].notna()
+    ].copy()
+
+    if work.empty:
+        return pd.DataFrame(
+            columns=[
+                "Month",
+                "Records",
+            ]
+        )
+
+    result = (
+        work
+        .groupby("Month")
+        .size()
+        .reset_index(
+            name="Records"
+        )
     )
+
+    result = _ordered_month_chart_data(
+        result
+    )
+
+    return result
 
 
 # ============================================================
@@ -594,10 +600,12 @@ def render_lab_pathogen(filtered_df):
     )
 
     if df.empty:
+
         st.info(
             "No laboratory or pathogen data is available "
             "for the selected filters."
         )
+
         return
 
     # ========================================================
@@ -647,13 +655,17 @@ def render_lab_pathogen(filtered_df):
     )
 
     top_test = (
-        test_counts.iloc[0]["Test Performed"]
+        test_counts.iloc[0][
+            "Test Performed"
+        ]
         if not test_counts.empty
         else "N/A"
     )
 
     top_pathogen = (
-        pathogen_counts.iloc[0]["Pathogen Name"]
+        pathogen_counts.iloc[0][
+            "Pathogen Name"
+        ]
         if not pathogen_counts.empty
         else "N/A"
     )
@@ -661,36 +673,42 @@ def render_lab_pathogen(filtered_df):
     k1, k2, k3, k4, k5, k6 = st.columns(6)
 
     with k1:
+
         st.metric(
             "Total Records",
             f"{total_records:,}",
         )
 
     with k2:
+
         st.metric(
             "Pathogen Records",
             f"{pathogen_records:,}",
         )
 
     with k3:
+
         st.metric(
             "Test Types",
             f"{test_types:,}",
         )
 
     with k4:
+
         st.metric(
             "Pathogen Types",
             f"{pathogen_types:,}",
         )
 
     with k5:
+
         st.metric(
             "Top Test",
             str(top_test),
         )
 
     with k6:
+
         st.metric(
             "Top Pathogen",
             str(top_pathogen),
@@ -713,16 +731,21 @@ def render_lab_pathogen(filtered_df):
     )
 
     if test_chart_data.empty:
+
         st.info(
             "No Test Performed data available."
         )
+
     else:
+
+        # IMPORTANT:
+        # render_bar_chart accepts only:
+        # data, use_container_width, height
 
         render_bar_chart(
             test_chart_data,
-            x="Test Performed",
-            y="Records",
-            title="Test Performed-wise Records",
+            use_container_width=True,
+            height=400,
         )
 
         st.dataframe(
@@ -748,16 +771,17 @@ def render_lab_pathogen(filtered_df):
     )
 
     if pathogen_chart_data.empty:
+
         st.info(
             "No Pathogen Name data available."
         )
+
     else:
 
         render_bar_chart(
             pathogen_chart_data,
-            x="Pathogen Name",
-            y="Records",
-            title="Pathogen Name-wise Records",
+            use_container_width=True,
+            height=400,
         )
 
         st.dataframe(
@@ -787,9 +811,11 @@ def render_lab_pathogen(filtered_df):
     ].copy()
 
     if cross_df.empty:
+
         st.info(
             "No Test × Pathogen data available."
         )
+
     else:
 
         matrix = pd.crosstab(
@@ -798,13 +824,16 @@ def render_lab_pathogen(filtered_df):
         )
 
         if matrix.empty:
+
             st.info(
                 "No Test × Pathogen combinations available."
             )
+
         else:
 
             top_tests = (
-                matrix.sum(axis=1)
+                matrix
+                .sum(axis=1)
                 .sort_values(
                     ascending=False
                 )
@@ -813,7 +842,8 @@ def render_lab_pathogen(filtered_df):
             )
 
             top_pathogens = (
-                matrix.sum(axis=0)
+                matrix
+                .sum(axis=0)
                 .sort_values(
                     ascending=False
                 )
@@ -841,64 +871,33 @@ def render_lab_pathogen(filtered_df):
         "### 4. Month-wise Laboratory Test Trend"
     )
 
-    month_test_df = df[
-        _valid_value_mask(
-            df["Test Performed"]
+    month_test_data = (
+        _prepare_month_single_series(
+            df,
+            "Test Performed",
         )
-    ].copy()
+    )
 
-    if month_test_df.empty:
+    if month_test_data.empty:
+
         st.info(
             "No monthly laboratory test data available."
         )
+
     else:
 
-        month_test_df["Month"] = (
-            month_test_df["Month"]
-            .apply(_normalise_month)
+        # Global Show Data Labels switch from chart_helpers.py
+        render_line_chart(
+            month_test_data,
+            use_container_width=True,
+            height=400,
         )
 
-        month_test_df = month_test_df[
-            month_test_df["Month"].notna()
-        ].copy()
-
-        if month_test_df.empty:
-            st.info(
-                "No valid month information available."
-            )
-        else:
-
-            month_test_data = (
-                month_test_df
-                .groupby("Month")
-                .size()
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            month_test_data = (
-                _ordered_month_chart_data(
-                    month_test_data
-                )
-            )
-
-            show_labels = _show_data_labels_control(
-                "lab_test_month_labels"
-            )
-
-            _render_month_line_chart(
-                month_test_data,
-                "Month-wise Laboratory Test Trend",
-                height=400,
-                show_labels=show_labels,
-            )
-
-            st.dataframe(
-                month_test_data,
-                width="stretch",
-                hide_index=True,
-            )
+        st.dataframe(
+            month_test_data,
+            width="stretch",
+            hide_index=True,
+        )
 
     st.divider()
 
@@ -910,64 +909,33 @@ def render_lab_pathogen(filtered_df):
         "### 5. Month-wise Pathogen Trend"
     )
 
-    month_pathogen_df = df[
-        _valid_value_mask(
-            df["Pathogen Name"]
+    month_pathogen_data = (
+        _prepare_month_single_series(
+            df,
+            "Pathogen Name",
         )
-    ].copy()
+    )
 
-    if month_pathogen_df.empty:
+    if month_pathogen_data.empty:
+
         st.info(
             "No monthly pathogen data available."
         )
+
     else:
 
-        month_pathogen_df["Month"] = (
-            month_pathogen_df["Month"]
-            .apply(_normalise_month)
+        # Global Show Data Labels switch from chart_helpers.py
+        render_line_chart(
+            month_pathogen_data,
+            use_container_width=True,
+            height=400,
         )
 
-        month_pathogen_df = month_pathogen_df[
-            month_pathogen_df["Month"].notna()
-        ].copy()
-
-        if month_pathogen_df.empty:
-            st.info(
-                "No valid month information available."
-            )
-        else:
-
-            month_pathogen_data = (
-                month_pathogen_df
-                .groupby("Month")
-                .size()
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            month_pathogen_data = (
-                _ordered_month_chart_data(
-                    month_pathogen_data
-                )
-            )
-
-            show_labels = _show_data_labels_control(
-                "pathogen_month_labels"
-            )
-
-            _render_month_line_chart(
-                month_pathogen_data,
-                "Month-wise Pathogen Trend",
-                height=400,
-                show_labels=show_labels,
-            )
-
-            st.dataframe(
-                month_pathogen_data,
-                width="stretch",
-                hide_index=True,
-            )
+        st.dataframe(
+            month_pathogen_data,
+            width="stretch",
+            hide_index=True,
+        )
 
     st.divider()
 
@@ -997,9 +965,11 @@ def render_lab_pathogen(filtered_df):
     ].copy()
 
     if selected_df.empty:
+
         st.info(
             f"No {item_type} data available."
         )
+
     else:
 
         selected_df["Month"] = (
@@ -1012,9 +982,11 @@ def render_lab_pathogen(filtered_df):
         ].copy()
 
         if selected_df.empty:
+
             st.info(
                 "No valid monthly data available."
             )
+
         else:
 
             # ------------------------------------------------
@@ -1022,7 +994,9 @@ def render_lab_pathogen(filtered_df):
             # ------------------------------------------------
 
             top_items = (
-                selected_df[selected_column]
+                selected_df[
+                    selected_column
+                ]
                 .value_counts()
                 .head(10)
                 .index
@@ -1030,9 +1004,9 @@ def render_lab_pathogen(filtered_df):
             )
 
             selected_df = selected_df[
-                selected_df[selected_column].isin(
-                    top_items
-                )
+                selected_df[
+                    selected_column
+                ].isin(top_items)
             ].copy()
 
             selected_item_data = (
@@ -1057,13 +1031,17 @@ def render_lab_pathogen(filtered_df):
                 month
                 for month in MONTH_ORDER
                 if month
-                in selected_item_data["Month"].unique()
+                in selected_item_data[
+                    "Month"
+                ].unique()
             ]
 
             if not valid_months:
+
                 st.info(
                     "No valid monthly records available."
                 )
+
             else:
 
                 pivot_data = (
@@ -1075,116 +1053,46 @@ def render_lab_pathogen(filtered_df):
                         aggfunc="sum",
                         fill_value=0,
                     )
-                    .reindex(valid_months)
+                    .reindex(
+                        valid_months
+                    )
                     .fillna(0)
                 )
+
+                # ------------------------------------------------
+                # Convert pivot table to helper-compatible format
+                # ------------------------------------------------
 
                 plot_df = (
                     pivot_data
                     .reset_index()
-                    .melt(
-                        id_vars="Month",
-                        var_name="Selected Item",
-                        value_name="Records",
-                    )
                 )
 
-                plot_df["Records"] = pd.to_numeric(
-                    plot_df["Records"],
-                    errors="coerce",
-                ).fillna(0)
+                plot_df.columns = [
+                    str(col)
+                    for col in plot_df.columns
+                ]
 
-                show_labels = _show_data_labels_control(
-                    "selected_lab_item_labels"
-                )
+                # ------------------------------------------------
+                # Global line-chart renderer
+                #
+                # The helper:
+                # - uses one colour per item
+                # - displays labels only when
+                #   show_data_labels is enabled
+                # - uses the same colour for labels
+                # - uses bold labels
+                # ------------------------------------------------
 
-                fig = px.line(
+                render_line_chart(
                     plot_df,
-                    x="Month",
-                    y="Records",
-                    color="Selected Item",
-                    markers=True,
-                    title=(
-                        f"Month-wise Trend - "
-                        f"{item_type}"
-                    ),
-                )
-
-                # ------------------------------------------------
-                # IMPORTANT:
-                # Apply labels trace-by-trace.
-                # This ensures every coloured line gets
-                # its own correctly coloured labels.
-                # ------------------------------------------------
-
-                if show_labels:
-
-                    for trace in fig.data:
-
-                        trace.mode = (
-                            "lines+markers+text"
-                        )
-
-                        trace.text = trace.y
-
-                        trace.texttemplate = (
-                            "%{text:,}"
-                        )
-
-                        trace.textposition = (
-                            "top center"
-                        )
-
-                        trace.cliponaxis = False
-
-                        trace.textfont = dict(
-                            size=11,
-                            family="Arial",
-                        )
-
-                        trace.hovertemplate = (
-                            "Month: %{x}<br>"
-                            "Records: %{y:,}<br>"
-                            "Item: %{fullData.name}"
-                            "<extra></extra>"
-                        )
-
-                else:
-
-                    for trace in fig.data:
-
-                        trace.mode = (
-                            "lines+markers"
-                        )
-
-                        trace.text = None
-
-                        trace.hovertemplate = (
-                            "Month: %{x}<br>"
-                            "Records: %{y:,}<br>"
-                            "Item: %{fullData.name}"
-                            "<extra></extra>"
-                        )
-
-                fig.update_layout(
+                    use_container_width=True,
                     height=500,
-                    margin=dict(
-                        l=20,
-                        r=20,
-                        t=60,
-                        b=20,
-                    ),
-                    xaxis_title="Month",
-                    yaxis_title="Records",
-                    legend_title=(
-                        "Selected Item"
-                    ),
                 )
 
-                st.plotly_chart(
-                    fig,
-                    width="stretch",
-                )
+                # ------------------------------------------------
+                # Detailed table
+                # ------------------------------------------------
 
                 st.dataframe(
                     plot_df,
@@ -1209,16 +1117,17 @@ def render_lab_pathogen(filtered_df):
     )
 
     if facility_chart_data.empty:
+
         st.info(
             "No facility-wise laboratory data available."
         )
+
     else:
 
         render_bar_chart(
             facility_chart_data,
-            x="Facility Name",
-            y="Records",
-            title="Facility-wise Laboratory Records",
+            use_container_width=True,
+            height=400,
         )
 
         st.dataframe(
@@ -1245,16 +1154,17 @@ def render_lab_pathogen(filtered_df):
     )
 
     if ward_chart_data.empty:
+
         st.info(
             "No ward-wise laboratory data available."
         )
+
     else:
 
         render_bar_chart(
             ward_chart_data,
-            x="Ward",
-            y="Records",
-            title="Ward-wise Laboratory Records",
+            use_container_width=True,
+            height=400,
         )
 
         st.dataframe(
