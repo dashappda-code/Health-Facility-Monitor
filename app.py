@@ -181,6 +181,7 @@ page = st.sidebar.radio(
     [
         "Overview",
         "Charts & Trends",
+        "Laboratory & Pathogen Analysis",
         "Demographics",
         "Ward Analysis",
         "Map",
@@ -1117,6 +1118,25 @@ try:
         )
 
 
+    # ========================================================
+    # LABORATORY & PATHOGEN ANALYSIS
+    # ========================================================
+
+    elif page == "Laboratory & Pathogen Analysis":
+
+        render_lab_pathogen(
+            filtered_df
+        )
+
+        st.divider()
+
+        render_page_pdf_button(
+            "Laboratory & Pathogen Analysis",
+            filtered_df,
+        )
+
+
+    
     # ========================================================
     # DEMOGRAPHICS
     # ========================================================
