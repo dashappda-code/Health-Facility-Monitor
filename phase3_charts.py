@@ -566,3 +566,233 @@ def render_charts(df):
                 "Wards",
                 "0",
             )
+
+    # ========================================================
+    # TAB 4 — PATHOGEN ANALYSIS
+    # ========================================================
+
+    with tab_pathogen:
+
+        pathogen_column = "Pathogen Name"
+
+        if pathogen_column not in filtered_df.columns:
+            st.warning(
+                "Pathogen analysis is not available because the "
+                "'Pathogen Name' column is not present in the dataset."
+            )
+        else:
+
+            pathogen_df = filtered_df.copy()
+
+            # Treat blank pathogen values as missing for this analysis.
+            pathogen_df[pathogen_column] = (
+                pathogen_df[pathogen_column]
+                .astype("string")
+                .str.strip()
+            )
+            pathogen_df = pathogen_df[
+                pathogen_df[pathogen_column].notna()
+                & (pathogen_df[pathogen_column] != "")
+            ].copy()
+
+            if pathogen_df.empty:
+                st.info(
+                    "No pathogen records are available for the selected filters."
+                )
+            else:
+
+                st.subheader("Overall Pathogen Burden")
+
+                pathogen_summary = (
+                    pathogen_df[pathogen_column]
+                    .value_counts()
+                    .rename_axis("Pathogen")
+                    .reset_index(name="Cases")
+                )
+
+                pathogen_summary["Share %"] = (
+                    pathogen_summary["Cases"]
+                    / pathogen_summary["Cases"].sum()
+                    * 100
+                ).round(2)
+
+                left, right = st.columns([2, 1])
+
+                with left:
+                    chart_data = (
+                        pathogen_summary
+                        .head(15)
+                        .sort_values("Cases")
+                    )
+
+                    fig = px.bar(
+                        chart_data,
+                        x="Cases",
+                        y="Pathogen",
+                        orientation="h",
+                        text="Cases",
+                        title="Top 15 Pathogens by Reported Records",
+                    )
+
+                    fig.update_traces(textposition="outside")
+
+                    st.plotly_chart(
+                        _chart_layout(fig, 600),
+                        use_container_width=True,
+                    )
+
+                with right:
+                    st.metric(
+                        "Unique Pathogens",
+                        f"{pathogen_summary['Pathogen'].nunique():,}",
+                    )
+                    st.metric(
+                        "Records with Pathogen",
+                        f"{len(pathogen_df):,}",
+                    )
+                    st.metric(
+                        "Pathogen Data Coverage",
+                        f"{len(pathogen_df) / len(filtered_df) * 100:.2f}%",
+                    )
+
+                st.divider()
+
+                st.subheader("Pathogen-wise Monthly Trend")
+
+                if "Year" in pathogen_df.columns and "Month" in pathogen_df.columns:
+
+                    pathogen_monthly = _case_count(
+                        pathogen_df,
+                        ["Year", "Month", pathogen_column],
+                    )
+
+                    if not pathogen_monthly.empty:
+
+                        month_order = [
+                            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+                        ]
+
+                        pathogen_monthly["Month"] = pd.Categorical(
+                            pathogen_monthly["Month"],
+                            categories=month_order,
+                            ordered=True,
+                        )
+
+                        # Keep the trend readable by plotting the top 10
+                        # pathogens in the selected data scope.
+                        top_pathogens = pathogen_summary.head(10)["Pathogen"].tolist()
+                        trend_df = pathogen_monthly[
+                            pathogen_monthly[pathogen_column].isin(top_pathogens)
+                        ].copy()
+
+                        trend_df = trend_df.sort_values(
+                            ["Year", "Month"]
+                        )
+                        trend_df["Year"] = trend_df["Year"].astype(str)
+                        trend_df["Year-Month"] = (
+                            trend_df["Year"]
+                            + " - "
+                            + trend_df["Month"].astype(str)
+                        )
+
+                        fig = px.line(
+                            trend_df,
+                            x="Year-Month",
+                            y="Cases",
+                            color=pathogen_column,
+                            markers=True,
+                            title="Monthly Pathogen Trend — Top 10 Pathogens",
+                        )
+
+                        st.plotly_chart(
+                            _chart_layout(fig, 500),
+                            use_container_width=True,
+                        )
+
+                st.divider()
+
+                st.subheader("Pathogen-wise Ward Distribution")
+
+                if "Ward" in pathogen_df.columns:
+
+                    ward_pathogen = _case_count(
+                        pathogen_df,
+                        ["Ward", pathogen_column],
+                    )
+
+                    if not ward_pathogen.empty:
+                        top_wards = (
+                            ward_pathogen.groupby("Ward")["Cases"]
+                            .sum()
+                            .nlargest(15)
+                            .index
+                        )
+
+                        ward_pathogen = ward_pathogen[
+                            ward_pathogen["Ward"].isin(top_wards)
+                        ].copy()
+
+                        fig = px.bar(
+                            ward_pathogen,
+                            x="Cases",
+                            y="Ward",
+                            color=pathogen_column,
+                            orientation="h",
+                            title="Pathogen Distribution across Top 15 Wards",
+                        )
+
+                        st.plotly_chart(
+                            _chart_layout(fig, 650),
+                            use_container_width=True,
+                        )
+
+                st.divider()
+
+                st.subheader("Pathogen-wise Facility Distribution")
+
+                facility_column = "Facility Name Lform"
+
+                if facility_column in pathogen_df.columns:
+
+                    facility_pathogen = _case_count(
+                        pathogen_df,
+                        [facility_column, pathogen_column],
+                    )
+
+                    if not facility_pathogen.empty:
+                        top_facilities = (
+                            facility_pathogen
+                            .groupby(facility_column)["Cases"]
+                            .sum()
+                            .nlargest(15)
+                            .index
+                        )
+
+                        facility_pathogen = facility_pathogen[
+                            facility_pathogen[facility_column].isin(top_facilities)
+                        ].copy()
+
+                        fig = px.bar(
+                            facility_pathogen,
+                            x="Cases",
+                            y=facility_column,
+                            color=pathogen_column,
+                            orientation="h",
+                            title="Pathogen Distribution across Top 15 Facilities",
+                        )
+
+                        st.plotly_chart(
+                            _chart_layout(fig, 700),
+                            use_container_width=True,
+                        )
+
+                st.divider()
+
+                st.subheader("Pathogen Summary Table")
+
+                st.dataframe(
+                    pathogen_summary,
+                    use_container_width=True,
+                    hide_index=True,
+                )
