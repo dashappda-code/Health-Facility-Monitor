@@ -167,42 +167,24 @@ def _normalize_month(value):
 
 def _extract_ward_letter(value):
 
-    """
-    Extract ward letter from common formats:
-
-    A
-    B
-    Ward A
-    WARD B
-    Ward-A
-    Ward_B
-    A Ward
-    B WARD
-    """
-
     if pd.isna(value):
         return None
 
     text = str(value).strip().upper()
 
-    # Replace separators
     text = re.sub(
         r"[-_/]+",
         " ",
         text,
     )
 
-    # Normalize spaces
     text = re.sub(
         r"\s+",
         " ",
         text,
     ).strip()
 
-    # --------------------------------------------------------
-    # Ward A
-    # --------------------------------------------------------
-
+    # Ward A / WARD A
     match = re.search(
         r"\bWARD\s*([A-Z])\b",
         text,
@@ -215,10 +197,7 @@ def _extract_ward_letter(value):
         if letter in FIXED_WARD_ORDER:
             return letter
 
-    # --------------------------------------------------------
-    # A Ward
-    # --------------------------------------------------------
-
+    # A Ward / B Ward
     match = re.search(
         r"\b([A-Z])\s*WARD\b",
         text,
@@ -231,10 +210,7 @@ def _extract_ward_letter(value):
         if letter in FIXED_WARD_ORDER:
             return letter
 
-    # --------------------------------------------------------
     # Exact A / B / C
-    # --------------------------------------------------------
-
     match = re.fullmatch(
         r"([A-Z])",
         text,
@@ -261,7 +237,6 @@ def _ward_sort_key(value):
             FIXED_WARD_ORDER.index(letter),
         )
 
-    # Unknown ward names after A-T
     return (
         1,
         str(value).upper(),
@@ -355,6 +330,15 @@ def render_charts(df):
                 month_counts = (
                     normalized_months
                     .value_counts()
+                )
+
+                # ------------------------------------------------
+                # FORCE MONTH ORDER:
+                # Jan -> Feb -> Mar -> ... -> Dec
+                # ------------------------------------------------
+
+                month_counts = (
+                    month_counts
                     .reindex(
                         CALENDAR_MONTHS,
                         fill_value=0,
@@ -362,29 +346,27 @@ def render_charts(df):
                     .astype(int)
                 )
 
-                # ------------------------------------------------
                 # IMPORTANT:
-                # Index is already Jan-Dec before sending
-                # to chart_helpers.py.
-                # Therefore chart_helpers preserves the order.
-                # ------------------------------------------------
+                # Ordered categorical index is retained.
+                # chart_helpers.py remains responsible for
+                # rendering and data labels.
+                month_counts.index = pd.CategoricalIndex(
+                    month_counts.index,
+                    categories=CALENDAR_MONTHS,
+                    ordered=True,
+                    name="Month",
+                )
 
                 render_bar_chart(
-                    month_counts.rename(
-                        "Records"
-                    ),
+                    month_counts.rename("Records"),
                     use_container_width=True,
                 )
 
-                month_display_df = (
-                    month_counts
-                    .rename("Records")
-                    .reset_index()
-                    .rename(
-                        columns={
-                            "index": "Month"
-                        }
-                    )
+                month_display_df = pd.DataFrame(
+                    {
+                        "Month": CALENDAR_MONTHS,
+                        "Records": month_counts.astype(int).tolist(),
+                    }
                 )
 
                 st.dataframe(
@@ -484,6 +466,11 @@ def render_charts(df):
                     temp["Disease"],
                 )
 
+                # ------------------------------------------------
+                # FORCE MONTH ORDER:
+                # Jan -> Feb -> Mar -> ... -> Dec
+                # ------------------------------------------------
+
                 ordered_disease_df = (
                     pd.DataFrame(
                         index=CALENDAR_MONTHS
@@ -517,9 +504,19 @@ def render_charts(df):
                 )
 
                 # ------------------------------------------------
-                # chart_helpers handles line chart + labels.
-                # The DataFrame index is already Jan-Dec.
+                # IMPORTANT:
+                # Use ordered categorical index so the data
+                # reaching chart_helpers.py is Jan-Dec.
                 # ------------------------------------------------
+
+                ordered_disease_df.index = (
+                    pd.CategoricalIndex(
+                        ordered_disease_df.index,
+                        categories=CALENDAR_MONTHS,
+                        ordered=True,
+                        name="Month",
+                    )
+                )
 
                 render_line_chart(
                     ordered_disease_df,
@@ -537,13 +534,15 @@ def render_charts(df):
 
                 display_disease_df = (
                     ordered_disease_df
+                    .astype(int)
                     .reset_index()
-                    .rename(
-                        columns={
-                            "index": "Month"
-                        }
-                    )
                 )
+
+                display_disease_df[
+                    "Month"
+                ] = display_disease_df[
+                    "Month"
+                ].astype(str)
 
                 st.dataframe(
                     display_disease_df,
@@ -643,8 +642,7 @@ def render_charts(df):
             break
 
     # --------------------------------------------------------
-    # CASE 1:
-    # Combined pathogen field already available
+    # CASE 1: Combined field
     # --------------------------------------------------------
 
     if pathogen_column is not None:
@@ -697,8 +695,7 @@ def render_charts(df):
             )
 
     # --------------------------------------------------------
-    # CASE 2:
-    # Separate Test Performed + Pathogen Name fields
+    # CASE 2: Separate fields
     # --------------------------------------------------------
 
     elif (
@@ -888,12 +885,6 @@ def render_charts(df):
                 ward_display_df,
                 "Ward",
             )
-
-            # ------------------------------------------------
-            # IMPORTANT:
-            # Send already-sorted Series to chart_helpers.
-            # Helper preserves the index order.
-            # ------------------------------------------------
 
             ward_chart_series = (
                 ward_display_df
