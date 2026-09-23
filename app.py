@@ -11,6 +11,7 @@ from phase2_overview import (
 )
 
 from phase3_charts import render_charts
+from phase3_b_lab_pathogen import render_lab_pathogen
 from phase4_demographics import render_demographics
 from phase5_ward import render_ward
 
