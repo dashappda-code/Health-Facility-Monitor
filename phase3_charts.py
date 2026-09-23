@@ -10,7 +10,7 @@ from chart_helpers import (
 
 
 # ============================================================
-# CONSTANTS
+# CONFIGURATION
 # ============================================================
 
 CALENDAR_MONTHS = [
@@ -27,6 +27,11 @@ CALENDAR_MONTHS = [
     "Nov",
     "Dec",
 ]
+
+# Common chart colour.
+# The data labels use the same colour so that they remain visible
+# against the chart background.
+CHART_LABEL_COLOR = "#1f77b4"
 
 
 # ============================================================
@@ -58,12 +63,7 @@ def _valid_text_series(series):
     ]
 
 
-# ============================================================
-# MONTH NORMALIZATION
-# ============================================================
-
 def _normalize_month(value):
-
     if pd.isna(value):
         return None
 
@@ -131,12 +131,7 @@ def _normalize_month(value):
     return month_map.get(text)
 
 
-# ============================================================
-# WARD SORTING
-# ============================================================
-
 def _ward_sort_key(value):
-
     text = str(value).strip().upper()
 
     if text.startswith("WARD "):
@@ -145,11 +140,11 @@ def _ward_sort_key(value):
     if text.startswith("W"):
         text = text[1:].strip()
 
-    # Ward A, Ward B, Ward C...
+    # Alphabetical wards: A, B, C ... T
     if len(text) == 1 and text.isalpha():
         return (0, ord(text))
 
-    # Ward 1, Ward 2, Ward 3...
+    # Numeric wards: 1, 2, 3 ...
     try:
         return (1, int(text))
     except ValueError:
@@ -157,7 +152,6 @@ def _ward_sort_key(value):
 
 
 def _sort_wards(df, column="Ward"):
-
     if (
         df is None
         or df.empty
@@ -167,9 +161,8 @@ def _sort_wards(df, column="Ward"):
 
     result = df.copy()
 
-    result["_sort_key"] = (
-        result[column]
-        .apply(_ward_sort_key)
+    result["_sort_key"] = result[column].apply(
+        _ward_sort_key
     )
 
     result = (
@@ -181,21 +174,33 @@ def _sort_wards(df, column="Ward"):
         .drop(
             columns="_sort_key"
         )
-        .reset_index(drop=True)
+        .reset_index(
+            drop=True
+        )
     )
 
     return result
 
 
 # ============================================================
-# MONTH BAR CHART WITH DATA LABELS
+# MONTH-WISE CHART
 # ============================================================
 
 def _render_month_chart(month_df):
+    """
+    Month-wise programme trend.
+
+    Data labels:
+    - Bold
+    - Same colour as chart
+    - Positioned above bars
+    """
 
     bars = (
         alt.Chart(month_df)
-        .mark_bar()
+        .mark_bar(
+            color=CHART_LABEL_COLOR
+        )
         .encode(
             x=alt.X(
                 "Month:N",
@@ -226,7 +231,10 @@ def _render_month_chart(month_df):
     labels = (
         alt.Chart(month_df)
         .mark_text(
-            dy=-8
+            dy=-10,
+            fontSize=13,
+            fontWeight="bold",
+            color=CHART_LABEL_COLOR,
         )
         .encode(
             x=alt.X(
@@ -234,7 +242,7 @@ def _render_month_chart(month_df):
                 sort=CALENDAR_MONTHS,
             ),
             y=alt.Y(
-                "Records:Q",
+                "Records:Q"
             ),
             text=alt.Text(
                 "Records:Q",
@@ -244,10 +252,9 @@ def _render_month_chart(month_df):
     )
 
     chart = (
-        (bars + labels)
-        .properties(
-            height=400
-        )
+        bars + labels
+    ).properties(
+        height=400
     )
 
     st.altair_chart(
@@ -257,14 +264,13 @@ def _render_month_chart(month_df):
 
 
 # ============================================================
-# MONTHLY DISEASE LINE CHART
+# MONTHLY DISEASE COMPARISON
 # ============================================================
 
 def _render_month_disease_chart(
     chart_df,
     disease_columns,
 ):
-
     long_df = (
         chart_df
         .reset_index()
@@ -332,18 +338,29 @@ def _render_month_disease_chart(
 
 
 # ============================================================
-# WARD BAR CHART WITH DATA LABELS
+# WARD-WISE CHART
 # ============================================================
 
 def _render_ward_chart(ward_df):
+    """
+    Ward-wise burden chart.
 
-    ward_order = ward_df[
-        "Ward"
-    ].tolist()
+    Data labels:
+    - Bold
+    - Same colour as bars
+    - Positioned above bars
+    """
+
+    ward_order = (
+        ward_df["Ward"]
+        .tolist()
+    )
 
     bars = (
         alt.Chart(ward_df)
-        .mark_bar()
+        .mark_bar(
+            color=CHART_LABEL_COLOR
+        )
         .encode(
             x=alt.X(
                 "Ward:N",
@@ -374,7 +391,10 @@ def _render_ward_chart(ward_df):
     labels = (
         alt.Chart(ward_df)
         .mark_text(
-            dy=-8
+            dy=-10,
+            fontSize=13,
+            fontWeight="bold",
+            color=CHART_LABEL_COLOR,
         )
         .encode(
             x=alt.X(
@@ -382,7 +402,7 @@ def _render_ward_chart(ward_df):
                 sort=ward_order,
             ),
             y=alt.Y(
-                "Records:Q",
+                "Records:Q"
             ),
             text=alt.Text(
                 "Records:Q",
@@ -392,10 +412,9 @@ def _render_ward_chart(ward_df):
     )
 
     chart = (
-        (bars + labels)
-        .properties(
-            height=450
-        )
+        bars + labels
+    ).properties(
+        height=450
     )
 
     st.altair_chart(
@@ -405,7 +424,7 @@ def _render_ward_chart(ward_df):
 
 
 # ============================================================
-# MAIN CHART RENDERER
+# MAIN CHART RENDER FUNCTION
 # ============================================================
 
 def render_charts(df):
@@ -415,21 +434,19 @@ def render_charts(df):
     )
 
     if df is None or df.empty:
-
         st.warning(
             "No records available for the selected filters."
         )
-
         return
 
     st.caption(
         "Month-wise, disease-wise, pathogen-wise, "
-        "facility-wise and ward-wise analysis based on "
-        "the currently selected Global Dashboard Filters."
+        "facility-wise and ward-wise analysis based "
+        "on the currently selected Global Dashboard Filters."
     )
 
     # ========================================================
-    # 1. MONTH-WISE PROGRAMME TREND
+    # MONTH-WISE PROGRAMME TREND
     # ========================================================
 
     st.markdown(
@@ -438,13 +455,11 @@ def render_charts(df):
 
     if "Month" in df.columns:
 
-        month_series = _clean_series(
-            df,
-            "Month",
-        )
-
         month_series = _valid_text_series(
-            month_series
+            _clean_series(
+                df,
+                "Month",
+            )
         )
 
         if not month_series.empty:
@@ -466,7 +481,6 @@ def render_charts(df):
                     )
                 )
 
-                # Create all 12 months.
                 ordered_month_df = pd.DataFrame(
                     {
                         "Month": CALENDAR_MONTHS
@@ -482,13 +496,16 @@ def render_charts(df):
                     )
                 )
 
-                ordered_month_df["Records"] = (
-                    ordered_month_df["Records"]
+                ordered_month_df[
+                    "Records"
+                ] = (
+                    ordered_month_df[
+                        "Records"
+                    ]
                     .fillna(0)
                     .astype(int)
                 )
 
-                # Exact Jan-Dec order with labels.
                 _render_month_chart(
                     ordered_month_df
                 )
@@ -514,7 +531,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # 2. MONTHLY DISEASE COMPARISON
+    # MONTHLY DISEASE COMPARISON
     # ========================================================
 
     st.divider()
@@ -588,7 +605,8 @@ def render_charts(df):
                 )
 
                 temp = temp[
-                    temp["Disease"].isin(
+                    temp["Disease"]
+                    .isin(
                         selected_diseases
                     )
                 ]
@@ -637,8 +655,8 @@ def render_charts(df):
 
                 st.caption(
                     "The chart displays the top 10 diseases "
-                    "by total records within the selected "
-                    "filters. Months are shown in calendar order."
+                    "by total records within the selected filters. "
+                    "Months are shown in calendar order."
                 )
 
                 display_disease_df = (
@@ -660,19 +678,19 @@ def render_charts(df):
             else:
 
                 st.info(
-                    "Disease/month information is not "
-                    "available for the selected records."
+                    "Disease/month information is not available "
+                    "for the selected records."
                 )
 
         else:
 
             st.info(
-                "Disease/month information is not "
-                "available for the selected records."
+                "Disease/month information is not available "
+                "for the selected records."
             )
 
     # ========================================================
-    # 3. DISEASE-WISE BURDEN
+    # DISEASE-WISE BURDEN
     # ========================================================
 
     st.divider()
@@ -683,13 +701,11 @@ def render_charts(df):
 
     if "Disease" in df.columns:
 
-        disease_series = _clean_series(
-            df,
-            "Disease",
-        )
-
         disease_series = _valid_text_series(
-            disease_series
+            _clean_series(
+                df,
+                "Disease",
+            )
         )
 
         if not disease_series.empty:
@@ -705,7 +721,8 @@ def render_charts(df):
             )
 
             render_bar_chart(
-                disease_counts.set_index(
+                disease_counts
+                .set_index(
                     "Disease"
                 )["Records"],
                 use_container_width=True,
@@ -724,7 +741,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # 4. TEST PERFORMED / PATHOGEN NAME-WISE ANALYSIS
+    # TEST PERFORMED / PATHOGEN NAME
     # ========================================================
 
     st.divider()
@@ -750,18 +767,16 @@ def render_charts(df):
             break
 
     # --------------------------------------------------------
-    # Combined pathogen column
+    # CASE 1: Combined pathogen field already exists
     # --------------------------------------------------------
 
     if pathogen_column is not None:
 
-        pathogen_series = _clean_series(
-            df,
-            pathogen_column,
-        )
-
         pathogen_series = _valid_text_series(
-            pathogen_series
+            _clean_series(
+                df,
+                pathogen_column,
+            )
         )
 
         if not pathogen_series.empty:
@@ -779,7 +794,8 @@ def render_charts(df):
             )
 
             render_bar_chart(
-                pathogen_counts.set_index(
+                pathogen_counts
+                .set_index(
                     "Test Performed Pathogen Name"
                 )["Records"],
                 use_container_width=True,
@@ -804,7 +820,7 @@ def render_charts(df):
             )
 
     # --------------------------------------------------------
-    # Separate Test Performed + Pathogen Name
+    # CASE 2: Separate Test Performed + Pathogen Name
     # --------------------------------------------------------
 
     elif (
@@ -819,18 +835,18 @@ def render_charts(df):
             ]
         ].copy()
 
-        pathogen_temp["Test Performed"] = (
-            _clean_series(
-                pathogen_temp,
-                "Test Performed",
-            )
+        pathogen_temp[
+            "Test Performed"
+        ] = _clean_series(
+            pathogen_temp,
+            "Test Performed",
         )
 
-        pathogen_temp["Pathogen Name"] = (
-            _clean_series(
-                pathogen_temp,
-                "Pathogen Name",
-            )
+        pathogen_temp[
+            "Pathogen Name"
+        ] = _clean_series(
+            pathogen_temp,
+            "Pathogen Name",
         )
 
         pathogen_temp = pathogen_temp[
@@ -842,16 +858,24 @@ def render_charts(df):
             ].ne("")
             & pathogen_temp[
                 "Test Performed"
-            ].str.lower().ne("nan")
+            ]
+            .str.lower()
+            .ne("nan")
             & pathogen_temp[
                 "Pathogen Name"
-            ].str.lower().ne("nan")
+            ]
+            .str.lower()
+            .ne("nan")
             & pathogen_temp[
                 "Test Performed"
-            ].str.lower().ne("none")
+            ]
+            .str.lower()
+            .ne("none")
             & pathogen_temp[
                 "Pathogen Name"
-            ].str.lower().ne("none")
+            ]
+            .str.lower()
+            .ne("none")
         ]
 
         if not pathogen_temp.empty:
@@ -883,7 +907,8 @@ def render_charts(df):
             )
 
             render_bar_chart(
-                pathogen_counts.set_index(
+                pathogen_counts
+                .set_index(
                     "Test Performed Pathogen Name"
                 )["Records"],
                 use_container_width=True,
@@ -905,12 +930,12 @@ def render_charts(df):
     else:
 
         st.info(
-            "Test Performed / Pathogen Name fields are "
-            "not available in the current dataset."
+            "Test Performed / Pathogen Name fields are not "
+            "available in the current dataset."
         )
 
     # ========================================================
-    # 5. FACILITY-WISE BURDEN
+    # FACILITY-WISE BURDEN
     # ========================================================
 
     st.divider()
@@ -921,13 +946,11 @@ def render_charts(df):
 
     if "Facility Name" in df.columns:
 
-        facility_series = _clean_series(
-            df,
-            "Facility Name",
-        )
-
         facility_series = _valid_text_series(
-            facility_series
+            _clean_series(
+                df,
+                "Facility Name",
+            )
         )
 
         if not facility_series.empty:
@@ -943,7 +966,8 @@ def render_charts(df):
             )
 
             render_bar_chart(
-                facility_counts.set_index(
+                facility_counts
+                .set_index(
                     "Facility"
                 )["Records"],
                 use_container_width=True,
@@ -962,7 +986,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # 6. WARD-WISE BURDEN
+    # WARD-WISE BURDEN
     # ========================================================
 
     st.divider()
@@ -973,13 +997,11 @@ def render_charts(df):
 
     if "Ward Name" in df.columns:
 
-        ward_series = _clean_series(
-            df,
-            "Ward Name",
-        )
-
         ward_series = _valid_text_series(
-            ward_series
+            _clean_series(
+                df,
+                "Ward Name",
+            )
         )
 
         if not ward_series.empty:
@@ -998,7 +1020,6 @@ def render_charts(df):
                 "Ward",
             )
 
-            # Exact Ward order with data labels.
             _render_ward_chart(
                 ward_counts
             )
@@ -1016,7 +1037,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # 7. OPD / IPD DISTRIBUTION
+    # OPD / IPD DISTRIBUTION
     # ========================================================
 
     st.divider()
@@ -1027,13 +1048,11 @@ def render_charts(df):
 
     if "OPD/IPD" in df.columns:
 
-        opd_series = _clean_series(
-            df,
-            "OPD/IPD",
-        )
-
         opd_series = _valid_text_series(
-            opd_series
+            _clean_series(
+                df,
+                "OPD/IPD",
+            )
         )
 
         if not opd_series.empty:
@@ -1041,14 +1060,17 @@ def render_charts(df):
             opd_counts = (
                 opd_series
                 .value_counts()
-                .rename_axis("OPD/IPD")
+                .rename_axis(
+                    "OPD/IPD"
+                )
                 .reset_index(
                     name="Records"
                 )
             )
 
             render_bar_chart(
-                opd_counts.set_index(
+                opd_counts
+                .set_index(
                     "OPD/IPD"
                 )["Records"],
                 use_container_width=True,
@@ -1067,7 +1089,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # 8. REPORTING DATE TREND
+    # REPORTING DATE TREND
     # ========================================================
 
     st.divider()
@@ -1082,15 +1104,19 @@ def render_charts(df):
             ["Reporting Date"]
         ].copy()
 
-        date_df["Reporting Date"] = (
-            pd.to_datetime(
-                date_df["Reporting Date"],
-                errors="coerce",
-            )
+        date_df[
+            "Reporting Date"
+        ] = pd.to_datetime(
+            date_df[
+                "Reporting Date"
+            ],
+            errors="coerce",
         )
 
         date_df = date_df.dropna(
-            subset=["Reporting Date"]
+            subset=[
+                "Reporting Date"
+            ]
         )
 
         if not date_df.empty:
@@ -1103,9 +1129,13 @@ def render_charts(df):
                         "Reporting Date"
                     ].dt.normalize()
                 )
-                .groupby("Date")
+                .groupby(
+                    "Date"
+                )
                 .size()
-                .rename("Records")
+                .rename(
+                    "Records"
+                )
             )
 
             render_line_chart(
@@ -1120,7 +1150,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # 9. TREND SUMMARY
+    # TREND SUMMARY
     # ========================================================
 
     st.divider()
@@ -1131,7 +1161,10 @@ def render_charts(df):
 
     summary_columns = st.columns(4)
 
+    # --------------------------------------------------------
     # Records
+    # --------------------------------------------------------
+
     with summary_columns[0]:
 
         st.metric(
@@ -1139,18 +1172,19 @@ def render_charts(df):
             f"{len(df):,}",
         )
 
+    # --------------------------------------------------------
     # Diseases
+    # --------------------------------------------------------
+
     with summary_columns[1]:
 
         if "Disease" in df.columns:
 
-            disease_count = _clean_series(
-                df,
-                "Disease",
-            )
-
             disease_count = _valid_text_series(
-                disease_count
+                _clean_series(
+                    df,
+                    "Disease",
+                )
             )
 
             st.metric(
@@ -1165,18 +1199,19 @@ def render_charts(df):
                 "0",
             )
 
+    # --------------------------------------------------------
     # Facilities
+    # --------------------------------------------------------
+
     with summary_columns[2]:
 
         if "Facility Name" in df.columns:
 
-            facility_count = _clean_series(
-                df,
-                "Facility Name",
-            )
-
             facility_count = _valid_text_series(
-                facility_count
+                _clean_series(
+                    df,
+                    "Facility Name",
+                )
             )
 
             st.metric(
@@ -1191,18 +1226,19 @@ def render_charts(df):
                 "0",
             )
 
+    # --------------------------------------------------------
     # Wards
+    # --------------------------------------------------------
+
     with summary_columns[3]:
 
         if "Ward Name" in df.columns:
 
-            ward_count = _clean_series(
-                df,
-                "Ward Name",
-            )
-
             ward_count = _valid_text_series(
-                ward_count
+                _clean_series(
+                    df,
+                    "Ward Name",
+                )
             )
 
             st.metric(
