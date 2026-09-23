@@ -1,11 +1,45 @@
 import streamlit as st
 import pandas as pd
 
+try:
 from chart_helpers import (
 render_bar_chart,
 render_line_chart,
 render_pie_chart,
 )
+except ImportError:
+import plotly.express as px
+
+```
+def render_bar_chart(df, x, y, title, color=None):
+    fig = px.bar(
+        df,
+        x=x,
+        y=y,
+        color=color,
+        title=title,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+def render_line_chart(df, x, y, title, color=None):
+    fig = px.line(
+        df,
+        x=x,
+        y=y,
+        color=color,
+        title=title,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+def render_pie_chart(df, names, values, title):
+    fig = px.pie(
+        df,
+        names=names,
+        values=values,
+        title=title,
+    )
+    st.plotly_chart(fig, width="stretch")
+```
 
 # ============================================================
 
@@ -14,7 +48,6 @@ render_pie_chart,
 # ============================================================
 
 def _clean_series(series):
-"""Convert a pandas series to clean displayable text."""
 if series is None:
 return pd.Series(dtype="object")
 
@@ -23,22 +56,27 @@ return (
     series.astype("string")
     .fillna("")
     .str.strip()
-    .replace({"nan": "", "None": "", "<NA>": ""})
+    .replace(
+        {
+            "nan": "",
+            "None": "",
+            "<NA>": "",
+        }
+    )
 )
 ```
 
 def _valid_series(series):
-"""Return non-empty values only."""
 if series is None:
 return pd.Series(dtype="object")
 
 ```
 cleaned = _clean_series(series)
+
 return cleaned[cleaned != ""]
 ```
 
 def _find_column(df, candidates):
-"""Return the first matching column from a list of candidates."""
 if df is None or df.empty:
 return None
 
@@ -51,20 +89,24 @@ return None
 ```
 
 def _month_order(df):
-"""Create chronological month ordering where possible."""
-if df is None or df.empty:
-return []
-
-```
 month_col = _find_column(
-    df,
-    ["Month", "month", "Reporting Month"]
+df,
+[
+"Month",
+"month",
+"Reporting Month",
+],
 )
 
+```
 if month_col is None:
     return []
 
-month_values = _valid_series(df[month_col]).unique().tolist()
+month_values = (
+    _valid_series(df[month_col])
+    .unique()
+    .tolist()
+)
 
 month_map = {
     "january": 1,
@@ -104,10 +146,15 @@ def sort_key(value):
     except Exception:
         return 999
 
-return sorted(month_values, key=sort_key)
+return sorted(
+    month_values,
+    key=sort_key,
+)
 ```
 
-def _show_no_data(message="No data available for this analysis."):
+def _show_no_data(
+message="No data available for this analysis."
+):
 st.info(message)
 
 # ============================================================
@@ -117,31 +164,8 @@ st.info(message)
 # ============================================================
 
 def render_charts(df):
-"""
-Render programme-level analytical charts.
 
 ```
-Expected normalized columns may include:
-Reporting Date
-Year
-Month
-Week
-Week range
-Disease
-Facility Name
-Ward Name
-Gender
-Age
-Age Group
-OPD/IPD
-Patient Address
-Confirmed Diagnosis
-
-Pathogen analysis supports:
-Test Performed Pathogen Name
-Pathogen Name
-"""
-
 if df is None or df.empty:
     _show_no_data()
     return
@@ -149,131 +173,41 @@ if df is None or df.empty:
 data = df.copy()
 
 # --------------------------------------------------------
-# CLEAN COMMON COLUMNS
+# CLEAN TEXT COLUMNS
 # --------------------------------------------------------
 
 for col in data.columns:
-    if data[col].dtype == "object" or str(data[col].dtype).startswith("string"):
-        data[col] = _clean_series(data[col])
+
+    if (
+        data[col].dtype == "object"
+        or str(data[col].dtype).startswith("string")
+    ):
+        data[col] = _clean_series(
+            data[col]
+        )
 
 st.markdown("## Programme Analytics")
 
 # ========================================================
-# 1. MONTH-WISE PROGRAMME TREND
+# IDENTIFY COMMON COLUMNS
 # ========================================================
-
-st.markdown("### Month-wise Programme Trend")
 
 month_col = _find_column(
     data,
-    ["Month", "month", "Reporting Month"]
+    [
+        "Month",
+        "month",
+        "Reporting Month",
+    ],
 )
-
-if month_col:
-    month_df = (
-        data.loc[_valid_series(data[month_col]).index]
-        .groupby(month_col)
-        .size()
-        .reset_index(name="Cases")
-    )
-
-    ordered_months = _month_order(data)
-
-    if ordered_months:
-        month_df["_order"] = month_df[month_col].map(
-            {month: i for i, month in enumerate(ordered_months)}
-        )
-        month_df = (
-            month_df
-            .sort_values("_order")
-            .drop(columns="_order")
-        )
-
-    if not month_df.empty:
-        render_line_chart(
-            month_df,
-            x=month_col,
-            y="Cases",
-            title="Monthly Programme Trend",
-        )
-    else:
-        _show_no_data()
-else:
-    _show_no_data("Month column is not available.")
-
-# ========================================================
-# 2. MONTHLY DISEASE COMPARISON
-# ========================================================
-
-st.markdown("### Monthly Disease Comparison")
 
 disease_col = _find_column(
     data,
-    ["Disease", "Confirmed Diagnosis"]
+    [
+        "Disease",
+        "Confirmed Diagnosis",
+    ],
 )
-
-if month_col and disease_col:
-
-    temp = data[
-        (_clean_series(data[month_col]) != "")
-        & (_clean_series(data[disease_col]) != "")
-    ].copy()
-
-    if not temp.empty:
-        monthly_disease = (
-            temp.groupby([month_col, disease_col])
-            .size()
-            .reset_index(name="Cases")
-        )
-
-        if not monthly_disease.empty:
-            render_bar_chart(
-                monthly_disease,
-                x=month_col,
-                y="Cases",
-                color=disease_col,
-                title="Monthly Disease Comparison",
-            )
-    else:
-        _show_no_data()
-else:
-    _show_no_data(
-        "Month or disease information is not available."
-    )
-
-# ========================================================
-# 3. DISEASE-WISE BURDEN
-# ========================================================
-
-st.markdown("### Disease-wise Burden")
-
-if disease_col:
-
-    disease_df = (
-        _valid_series(data[disease_col])
-        .value_counts()
-        .reset_index()
-    )
-
-    disease_df.columns = [disease_col, "Cases"]
-
-    if not disease_df.empty:
-        render_bar_chart(
-            disease_df,
-            x=disease_col,
-            y="Cases",
-            title="Disease-wise Burden",
-        )
-    else:
-        _show_no_data()
-else:
-    _show_no_data("Disease information is not available.")
-
-# ========================================================
-# 4. FACILITY-WISE BURDEN
-# ========================================================
-
-st.markdown("### Facility-wise Burden")
 
 facility_col = _find_column(
     data,
@@ -281,74 +215,16 @@ facility_col = _find_column(
         "Facility Name",
         "Facility Name Lform",
         "MSU Unique Code",
-    ]
+    ],
 )
-
-if facility_col:
-
-    facility_df = (
-        _valid_series(data[facility_col])
-        .value_counts()
-        .head(20)
-        .reset_index()
-    )
-
-    facility_df.columns = [facility_col, "Cases"]
-
-    if not facility_df.empty:
-        render_bar_chart(
-            facility_df,
-            x=facility_col,
-            y="Cases",
-            title="Top Facilities by Reported Cases",
-        )
-    else:
-        _show_no_data()
-else:
-    _show_no_data("Facility information is not available.")
-
-# ========================================================
-# 5. WARD-WISE BURDEN
-# ========================================================
-
-st.markdown("### Ward-wise Burden")
 
 ward_col = _find_column(
     data,
     [
         "Ward Name",
         "Ward",
-    ]
+    ],
 )
-
-if ward_col:
-
-    ward_df = (
-        _valid_series(data[ward_col])
-        .value_counts()
-        .head(20)
-        .reset_index()
-    )
-
-    ward_df.columns = [ward_col, "Cases"]
-
-    if not ward_df.empty:
-        render_bar_chart(
-            ward_df,
-            x=ward_col,
-            y="Cases",
-            title="Top Wards by Reported Cases",
-        )
-    else:
-        _show_no_data()
-else:
-    _show_no_data("Ward information is not available.")
-
-# ========================================================
-# 6. OPD / IPD DISTRIBUTION
-# ========================================================
-
-st.markdown("### OPD / IPD Distribution")
 
 opd_col = _find_column(
     data,
@@ -356,63 +232,367 @@ opd_col = _find_column(
         "OPD/IPD",
         "Opd Ipd",
         "OPD IPD",
-    ]
+    ],
 )
 
-if opd_col:
-
-    opd_df = (
-        _valid_series(data[opd_col])
-        .value_counts()
-        .reset_index()
-    )
-
-    opd_df.columns = [opd_col, "Cases"]
-
-    if not opd_df.empty:
-        render_pie_chart(
-            opd_df,
-            names=opd_col,
-            values="Cases",
-            title="OPD / IPD Distribution",
-        )
-    else:
-        _show_no_data()
-else:
-    _show_no_data("OPD/IPD information is not available.")
-
-# ========================================================
-# 7. PATHOGEN-WISE ANALYSIS
-# ========================================================
-
-st.markdown("## Test Performed Pathogen-wise Analysis")
+reporting_date_col = _find_column(
+    data,
+    [
+        "Reporting Date",
+        "Date",
+    ],
+)
 
 pathogen_col = _find_column(
     data,
     [
         "Test Performed Pathogen Name",
         "Pathogen Name",
+    ],
+)
+
+# ========================================================
+# 1. MONTH-WISE PROGRAMME TREND
+# ========================================================
+
+st.markdown(
+    "### Month-wise Programme Trend"
+)
+
+if month_col:
+
+    valid_month = data[
+        _clean_series(
+            data[month_col]
+        ) != ""
+    ].copy()
+
+    month_df = (
+        valid_month
+        .groupby(month_col)
+        .size()
+        .reset_index(
+            name="Cases"
+        )
+    )
+
+    ordered_months = _month_order(
+        data
+    )
+
+    if ordered_months:
+
+        order_map = {
+            month: index
+            for index, month
+            in enumerate(
+                ordered_months
+            )
+        }
+
+        month_df["_order"] = (
+            month_df[month_col]
+            .map(order_map)
+        )
+
+        month_df = (
+            month_df
+            .sort_values("_order")
+            .drop(
+                columns="_order"
+            )
+        )
+
+    if not month_df.empty:
+
+        render_line_chart(
+            month_df,
+            x=month_col,
+            y="Cases",
+            title=(
+                "Monthly Programme Trend"
+            ),
+        )
+
+    else:
+        _show_no_data()
+
+else:
+
+    _show_no_data(
+        "Month column is not available."
+    )
+
+# ========================================================
+# 2. MONTHLY DISEASE COMPARISON
+# ========================================================
+
+st.markdown(
+    "### Monthly Disease Comparison"
+)
+
+if month_col and disease_col:
+
+    temp = data[
+        (
+            _clean_series(
+                data[month_col]
+            ) != ""
+        )
+        &
+        (
+            _clean_series(
+                data[disease_col]
+            ) != ""
+        )
+    ].copy()
+
+    if not temp.empty:
+
+        monthly_disease = (
+            temp
+            .groupby(
+                [
+                    month_col,
+                    disease_col,
+                ]
+            )
+            .size()
+            .reset_index(
+                name="Cases"
+            )
+        )
+
+        render_bar_chart(
+            monthly_disease,
+            x=month_col,
+            y="Cases",
+            color=disease_col,
+            title=(
+                "Monthly Disease Comparison"
+            ),
+        )
+
+    else:
+
+        _show_no_data()
+
+else:
+
+    _show_no_data(
+        "Month or disease information "
+        "is not available."
+    )
+
+# ========================================================
+# 3. DISEASE-WISE BURDEN
+# ========================================================
+
+st.markdown(
+    "### Disease-wise Burden"
+)
+
+if disease_col:
+
+    disease_df = (
+        _valid_series(
+            data[disease_col]
+        )
+        .value_counts()
+        .reset_index()
+    )
+
+    disease_df.columns = [
+        disease_col,
+        "Cases",
     ]
+
+    if not disease_df.empty:
+
+        render_bar_chart(
+            disease_df,
+            x=disease_col,
+            y="Cases",
+            title=(
+                "Disease-wise Burden"
+            ),
+        )
+
+    else:
+
+        _show_no_data()
+
+else:
+
+    _show_no_data(
+        "Disease information is not available."
+    )
+
+# ========================================================
+# 4. FACILITY-WISE BURDEN
+# ========================================================
+
+st.markdown(
+    "### Facility-wise Burden"
+)
+
+if facility_col:
+
+    facility_df = (
+        _valid_series(
+            data[facility_col]
+        )
+        .value_counts()
+        .head(20)
+        .reset_index()
+    )
+
+    facility_df.columns = [
+        facility_col,
+        "Cases",
+    ]
+
+    if not facility_df.empty:
+
+        render_bar_chart(
+            facility_df,
+            x=facility_col,
+            y="Cases",
+            title=(
+                "Top Facilities by "
+                "Reported Cases"
+            ),
+        )
+
+    else:
+
+        _show_no_data()
+
+else:
+
+    _show_no_data(
+        "Facility information is not available."
+    )
+
+# ========================================================
+# 5. WARD-WISE BURDEN
+# ========================================================
+
+st.markdown(
+    "### Ward-wise Burden"
+)
+
+if ward_col:
+
+    ward_df = (
+        _valid_series(
+            data[ward_col]
+        )
+        .value_counts()
+        .head(20)
+        .reset_index()
+    )
+
+    ward_df.columns = [
+        ward_col,
+        "Cases",
+    ]
+
+    if not ward_df.empty:
+
+        render_bar_chart(
+            ward_df,
+            x=ward_col,
+            y="Cases",
+            title=(
+                "Top Wards by Reported Cases"
+            ),
+        )
+
+    else:
+
+        _show_no_data()
+
+else:
+
+    _show_no_data(
+        "Ward information is not available."
+    )
+
+# ========================================================
+# 6. OPD / IPD DISTRIBUTION
+# ========================================================
+
+st.markdown(
+    "### OPD / IPD Distribution"
+)
+
+if opd_col:
+
+    opd_df = (
+        _valid_series(
+            data[opd_col]
+        )
+        .value_counts()
+        .reset_index()
+    )
+
+    opd_df.columns = [
+        opd_col,
+        "Cases",
+    ]
+
+    if not opd_df.empty:
+
+        render_pie_chart(
+            opd_df,
+            names=opd_col,
+            values="Cases",
+            title=(
+                "OPD / IPD Distribution"
+            ),
+        )
+
+    else:
+
+        _show_no_data()
+
+else:
+
+    _show_no_data(
+        "OPD/IPD information is not available."
+    )
+
+# ========================================================
+# 7. TEST PERFORMED PATHOGEN NAME ANALYSIS
+# ========================================================
+
+st.markdown(
+    "## Test Performed Pathogen-wise Analysis"
 )
 
 if pathogen_col:
 
-    pathogen_values = _valid_series(data[pathogen_col])
+    pathogen_values = _valid_series(
+        data[pathogen_col]
+    )
 
     if not pathogen_values.empty:
 
-        # ------------------------------------------------
-        # PATHOGEN SUMMARY METRICS
-        # ------------------------------------------------
-
         total_records = len(data)
 
-        pathogen_records = len(pathogen_values)
+        pathogen_records = len(
+            pathogen_values
+        )
 
-        unique_pathogens = pathogen_values.nunique()
+        unique_pathogens = (
+            pathogen_values.nunique()
+        )
 
         coverage = (
-            pathogen_records / total_records * 100
+            pathogen_records
+            / total_records
+            * 100
             if total_records > 0
             else 0
         )
@@ -420,18 +600,21 @@ if pathogen_col:
         c1, c2, c3 = st.columns(3)
 
         with c1:
+
             st.metric(
                 "Records with Pathogen",
                 f"{pathogen_records:,}",
             )
 
         with c2:
+
             st.metric(
                 "Unique Pathogens",
                 f"{unique_pathogens:,}",
             )
 
         with c3:
+
             st.metric(
                 "Pathogen Data Coverage",
                 f"{coverage:.1f}%",
@@ -441,7 +624,9 @@ if pathogen_col:
         # TOP PATHOGENS
         # ------------------------------------------------
 
-        st.markdown("### Top Pathogens by Recorded Cases")
+        st.markdown(
+            "### Top Pathogens by Recorded Cases"
+        )
 
         pathogen_df = (
             pathogen_values
@@ -460,20 +645,34 @@ if pathogen_col:
                 pathogen_df.head(20),
                 x=pathogen_col,
                 y="Cases",
-                title="Top Pathogens by Recorded Cases",
+                title=(
+                    "Top Pathogens by "
+                    "Recorded Cases"
+                ),
             )
 
         # ------------------------------------------------
         # PATHOGEN MONTHLY TREND
         # ------------------------------------------------
 
-        st.markdown("### Pathogen-wise Monthly Trend")
+        st.markdown(
+            "### Pathogen-wise Monthly Trend"
+        )
 
         if month_col:
 
             pathogen_month_df = data[
-                (_clean_series(data[pathogen_col]) != "")
-                & (_clean_series(data[month_col]) != "")
+                (
+                    _clean_series(
+                        data[pathogen_col]
+                    ) != ""
+                )
+                &
+                (
+                    _clean_series(
+                        data[month_col]
+                    ) != ""
+                )
             ].copy()
 
             if not pathogen_month_df.empty:
@@ -481,10 +680,15 @@ if pathogen_col:
                 pathogen_month_df = (
                     pathogen_month_df
                     .groupby(
-                        [month_col, pathogen_col]
+                        [
+                            month_col,
+                            pathogen_col,
+                        ]
                     )
                     .size()
-                    .reset_index(name="Cases")
+                    .reset_index(
+                        name="Cases"
+                    )
                 )
 
                 render_bar_chart(
@@ -492,23 +696,44 @@ if pathogen_col:
                     x=month_col,
                     y="Cases",
                     color=pathogen_col,
-                    title="Pathogen-wise Monthly Trend",
+                    title=(
+                        "Pathogen-wise "
+                        "Monthly Trend"
+                    ),
                 )
 
             else:
+
                 _show_no_data()
+
+        else:
+
+            _show_no_data(
+                "Month information is not available."
+            )
 
         # ------------------------------------------------
         # PATHOGEN FACILITY DISTRIBUTION
         # ------------------------------------------------
 
-        st.markdown("### Pathogen-wise Facility Distribution")
+        st.markdown(
+            "### Pathogen-wise Facility Distribution"
+        )
 
         if facility_col:
 
             pathogen_facility_df = data[
-                (_clean_series(data[pathogen_col]) != "")
-                & (_clean_series(data[facility_col]) != "")
+                (
+                    _clean_series(
+                        data[pathogen_col]
+                    ) != ""
+                )
+                &
+                (
+                    _clean_series(
+                        data[facility_col]
+                    ) != ""
+                )
             ].copy()
 
             if not pathogen_facility_df.empty:
@@ -516,10 +741,15 @@ if pathogen_col:
                 pathogen_facility_df = (
                     pathogen_facility_df
                     .groupby(
-                        [facility_col, pathogen_col]
+                        [
+                            facility_col,
+                            pathogen_col,
+                        ]
                     )
                     .size()
-                    .reset_index(name="Cases")
+                    .reset_index(
+                        name="Cases"
+                    )
                 )
 
                 render_bar_chart(
@@ -527,23 +757,44 @@ if pathogen_col:
                     x=facility_col,
                     y="Cases",
                     color=pathogen_col,
-                    title="Pathogen-wise Facility Distribution",
+                    title=(
+                        "Pathogen-wise "
+                        "Facility Distribution"
+                    ),
                 )
 
             else:
+
                 _show_no_data()
+
+        else:
+
+            _show_no_data(
+                "Facility information is not available."
+            )
 
         # ------------------------------------------------
         # PATHOGEN WARD DISTRIBUTION
         # ------------------------------------------------
 
-        st.markdown("### Pathogen-wise Ward Distribution")
+        st.markdown(
+            "### Pathogen-wise Ward Distribution"
+        )
 
         if ward_col:
 
             pathogen_ward_df = data[
-                (_clean_series(data[pathogen_col]) != "")
-                & (_clean_series(data[ward_col]) != "")
+                (
+                    _clean_series(
+                        data[pathogen_col]
+                    ) != ""
+                )
+                &
+                (
+                    _clean_series(
+                        data[ward_col]
+                    ) != ""
+                )
             ].copy()
 
             if not pathogen_ward_df.empty:
@@ -551,10 +802,15 @@ if pathogen_col:
                 pathogen_ward_df = (
                     pathogen_ward_df
                     .groupby(
-                        [ward_col, pathogen_col]
+                        [
+                            ward_col,
+                            pathogen_col,
+                        ]
                     )
                     .size()
-                    .reset_index(name="Cases")
+                    .reset_index(
+                        name="Cases"
+                    )
                 )
 
                 render_bar_chart(
@@ -562,17 +818,29 @@ if pathogen_col:
                     x=ward_col,
                     y="Cases",
                     color=pathogen_col,
-                    title="Pathogen-wise Ward Distribution",
+                    title=(
+                        "Pathogen-wise "
+                        "Ward Distribution"
+                    ),
                 )
 
             else:
+
                 _show_no_data()
 
+        else:
+
+            _show_no_data(
+                "Ward information is not available."
+            )
+
         # ------------------------------------------------
-        # COMPLETE PATHOGEN SUMMARY TABLE
+        # COMPLETE PATHOGEN SUMMARY
         # ------------------------------------------------
 
-        st.markdown("### Complete Pathogen Summary")
+        st.markdown(
+            "### Complete Pathogen Summary"
+        )
 
         summary_df = (
             pathogen_values
@@ -585,11 +853,21 @@ if pathogen_col:
             "Cases",
         ]
 
-        summary_df["Percentage"] = (
-            summary_df["Cases"]
-            / summary_df["Cases"].sum()
-            * 100
-        ).round(2)
+        total_pathogen_cases = (
+            summary_df["Cases"].sum()
+        )
+
+        if total_pathogen_cases > 0:
+
+            summary_df["Percentage"] = (
+                summary_df["Cases"]
+                / total_pathogen_cases
+                * 100
+            ).round(2)
+
+        else:
+
+            summary_df["Percentage"] = 0.0
 
         st.dataframe(
             summary_df,
@@ -598,30 +876,27 @@ if pathogen_col:
         )
 
     else:
+
         _show_no_data(
-            "Pathogen column is available, but no pathogen values are recorded."
+            "Pathogen column is available, "
+            "but no pathogen values are recorded."
         )
 
 else:
 
     st.warning(
         "Pathogen analysis is not available because "
-        "'Test Performed Pathogen Name' / 'Pathogen Name' "
-        "is not present in the current dataset."
+        "'Test Performed Pathogen Name' or "
+        "'Pathogen Name' is not present in the "
+        "current dataset."
     )
 
 # ========================================================
 # 8. REPORTING DATE TREND
 # ========================================================
 
-st.markdown("### Reporting Date Trend")
-
-reporting_date_col = _find_column(
-    data,
-    [
-        "Reporting Date",
-        "Date",
-    ]
+st.markdown(
+    "### Reporting Date Trend"
 )
 
 if reporting_date_col:
@@ -634,45 +909,60 @@ if reporting_date_col:
     )
 
     date_df = date_df.dropna(
-        subset=["_ReportingDate"]
+        subset=[
+            "_ReportingDate"
+        ]
     )
 
     if not date_df.empty:
 
         daily_df = (
             date_df
-            .groupby("_ReportingDate")
+            .groupby(
+                "_ReportingDate"
+            )
             .size()
-            .reset_index(name="Cases")
-            .sort_values("_ReportingDate")
+            .reset_index(
+                name="Cases"
+            )
+            .sort_values(
+                "_ReportingDate"
+            )
         )
 
         render_line_chart(
             daily_df,
             x="_ReportingDate",
             y="Cases",
-            title="Reporting Date-wise Trend",
+            title=(
+                "Reporting Date-wise Trend"
+            ),
         )
 
     else:
+
         _show_no_data(
             "Valid reporting dates are not available."
         )
 
 else:
+
     _show_no_data(
         "Reporting Date information is not available."
     )
 
 # ========================================================
-# 9. ANALYTICAL SUMMARY
+# 9. SUMMARY METRICS
 # ========================================================
 
-st.markdown("## Trend Summary")
+st.markdown(
+    "## Trend Summary"
+)
 
 summary_cols = st.columns(3)
 
 with summary_cols[0]:
+
     st.metric(
         "Total Records",
         f"{len(data):,}",
@@ -681,10 +971,15 @@ with summary_cols[0]:
 with summary_cols[1]:
 
     if disease_col:
-        disease_count = _valid_series(
-            data[disease_col]
-        ).nunique()
+
+        disease_count = (
+            _valid_series(
+                data[disease_col]
+            ).nunique()
+        )
+
     else:
+
         disease_count = 0
 
     st.metric(
@@ -695,10 +990,15 @@ with summary_cols[1]:
 with summary_cols[2]:
 
     if facility_col:
-        facility_count = _valid_series(
-            data[facility_col]
-        ).nunique()
+
+        facility_count = (
+            _valid_series(
+                data[facility_col]
+            ).nunique()
+        )
+
     else:
+
         facility_count = 0
 
     st.metric(
@@ -707,6 +1007,7 @@ with summary_cols[2]:
     )
 
 st.caption(
-    "Charts are generated from the currently loaded and filtered programme dataset."
+    "Charts are generated from the currently "
+    "loaded and filtered programme dataset."
 )
 ```
