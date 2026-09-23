@@ -1210,6 +1210,47 @@ def render_choropleth_disease_checkboxes(
         "geo_choropleth_available_diseases"
     ] = available_diseases
 
+    # --------------------------------------------------------
+    # HANDLE CLEAR SELECTION REQUEST
+    # BEFORE CHECKBOX WIDGETS ARE CREATED
+    # --------------------------------------------------------
+
+    if st.session_state.get(
+        "geo_choropleth_clear_requested",
+        False,
+    ):
+
+        st.session_state[
+            "geo_choropleth_selection"
+        ] = []
+
+        for disease in available_diseases:
+
+            checkbox_key = (
+                "geo_choro_checkbox_"
+                + re.sub(
+                    r"[^A-Za-z0-9]+",
+                    "_",
+                    disease,
+                )
+            )
+
+            st.session_state[
+                checkbox_key
+            ] = False
+
+        st.session_state[
+            "geo_choropleth_limit_message"
+        ] = ""
+
+        st.session_state[
+            "geo_choropleth_clear_requested"
+        ] = False
+
+    # --------------------------------------------------------
+    # CURRENT SELECTION
+    # --------------------------------------------------------
+
     if (
         "geo_choropleth_selection"
         not in st.session_state
@@ -1895,10 +1936,6 @@ def download_choropleth_data(
             and selected_choropleth_diseases
         ):
 
-            disease_col = get_disease_column(
-                map_df
-            )
-
             all_rows = []
 
             for disease in selected_choropleth_diseases:
@@ -2510,28 +2547,16 @@ def render_geographic_map(
                         key="geo_choropleth_clear",
                     ):
 
-                        for disease in comparison_diseases:
-
-                            checkbox_key = (
-                                "geo_choro_checkbox_"
-                                + re.sub(
-                                    r"[^A-Za-z0-9]+",
-                                    "_",
-                                    disease,
-                                )
-                            )
-
-                            st.session_state[
-                                checkbox_key
-                            ] = False
+                        # ------------------------------------------------
+                        # IMPORTANT:
+                        # Do not directly modify checkbox widget state
+                        # after the widgets have been instantiated.
+                        # Store a reset request and rerun instead.
+                        # ------------------------------------------------
 
                         st.session_state[
-                            "geo_choropleth_selection"
-                        ] = []
-
-                        st.session_state[
-                            "geo_choropleth_limit_message"
-                        ] = ""
+                            "geo_choropleth_clear_requested"
+                        ] = True
 
                         st.rerun()
 
