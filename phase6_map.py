@@ -7,22 +7,31 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import requests
 import streamlit as st
+import requests
 
-# Optional map libraries
+
+# ============================================================
+# OPTIONAL MAP LIBRARY
+# ============================================================
+
 try:
     import pydeck as pdk
+
     PYDECK_AVAILABLE = True
 except Exception:
     PYDECK_AVAILABLE = False
 
-# Optional PDF / static map libraries
+
+# ============================================================
+# OPTIONAL PDF / STATIC MAP LIBRARIES
+# ============================================================
+
 try:
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
-    from matplotlib.patches import PathPatch, Patch
-    from matplotlib.path import Path
+    from matplotlib.patches import Polygon as MplPolygon
+
     MATPLOTLIB_AVAILABLE = True
 except Exception:
     MATPLOTLIB_AVAILABLE = False
@@ -45,8 +54,7 @@ BMC_WARD_PARAMS = {
 }
 
 BMC_MAP_STYLE = (
-    "https://basemaps.cartocdn.com/gl/"
-    "dark-matter-gl-style/style.json"
+    "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
 )
 
 
@@ -55,41 +63,28 @@ BMC_MAP_STYLE = (
 # ============================================================
 
 def _norm_col(x):
-    return re.sub(
-        r"[^a-z0-9]+",
-        "",
-        str(x).strip().lower(),
-    )
+    return re.sub(r"[^a-z0-9]+", "", str(x).lower())
 
 
 def _find_column(df, candidates):
-
     if df is None or df.empty:
         return None
 
-    normalized = {
-        _norm_col(c): c
-        for c in df.columns
-    }
+    normalized = {_norm_col(c): c for c in df.columns}
 
     for candidate in candidates:
-
         key = _norm_col(candidate)
 
         if key in normalized:
             return normalized[key]
 
     # Partial matching
-    for c in df.columns:
+    for candidate in candidates:
+        key = _norm_col(candidate)
 
-        nc = _norm_col(c)
-
-        for candidate in candidates:
-
-            key = _norm_col(candidate)
-
-            if key in nc or nc in key:
-                return c
+        for norm_name, original_name in normalized.items():
+            if key and (key in norm_name or norm_name in key):
+                return original_name
 
     return None
 
@@ -212,49 +207,52 @@ def _get_show_labels():
     ]
 
     for key in possible_keys:
-
         if key in st.session_state:
-            return bool(
-                st.session_state[key]
-            )
+            try:
+                return bool(st.session_state[key])
+            except Exception:
+                pass
 
     return False
 
 
 # ============================================================
-# CLEAN COORDINATES
+# COORDINATE CLEANING
 # ============================================================
 
-def _clean_coordinates(
-    df,
-    lat_col,
-    lon_col,
-):
+def _clean_coordinates(df, lat_col, lon_col):
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    if not lat_col or not lon_col:
+        return pd.DataFrame()
 
     work = df.copy()
 
-    if lat_col is None or lon_col is None:
-        return pd.DataFrame()
-
-    work["_lat"] = pd.to_numeric(
+    work[lat_col] = pd.to_numeric(
         work[lat_col],
         errors="coerce",
     )
 
-    work["_lon"] = pd.to_numeric(
+    work[lon_col] = pd.to_numeric(
         work[lon_col],
         errors="coerce",
     )
 
+    work = work.dropna(
+        subset=[lat_col, lon_col]
+    ).copy()
+
     work = work[
-        work["_lat"].between(-90, 90)
-        & work["_lon"].between(-180, 180)
+        work[lat_col].between(-90, 90)
+        & work[lon_col].between(-180, 180)
     ].copy()
 
-    # Mumbai geographic sanity check
+    # Mumbai-region sanity check
     work = work[
-        work["_lat"].between(17.0, 20.5)
-        & work["_lon"].between(70.0, 74.5)
+        work[lat_col].between(17.0, 20.5)
+        & work[lon_col].between(70.0, 74.5)
     ].copy()
 
     return work
@@ -266,68 +264,194 @@ def _clean_coordinates(
 
 def _create_clusters(
     df,
+    lat_col,
+    lon_col,
     cluster_size_m=500,
+    columns=None,
 ):
 
-    if df.empty:
-        return df.copy()
+    if df is None or df.empty:
+        return pd.DataFrame()
 
     work = df.copy()
 
-    lat_deg = cluster_size_m / 111000.0
+    metres_per_degree_lat = 111_000
 
-    mean_lat = float(
-        work["_lat"].mean()
-    )
+    lat_reference = work[lat_col].mean()
 
-    lon_deg = cluster_size_m / (
-        111000.0
+    metres_per_degree_lon = (
+        111_000
         * max(
             math.cos(
-                math.radians(mean_lat)
+                math.radians(float(lat_reference))
             ),
             0.1,
         )
     )
 
-    work["_grid_lat"] = np.floor(
-        work["_lat"] / lat_deg
-    ).astype(int)
+    lat_step = cluster_size_m / metres_per_degree_lat
+    lon_step = cluster_size_m / metres_per_degree_lon
 
-    work["_grid_lon"] = np.floor(
-        work["_lon"] / lon_deg
-    ).astype(int)
-
-    work["Cluster ID"] = (
-        work["_grid_lat"].astype(str)
-        + "_"
-        + work["_grid_lon"].astype(str)
+    work["_grid_lat"] = (
+        np.floor(
+            work[lat_col] / lat_step
+        )
+        * lat_step
     )
 
-    cluster_summary = (
-        work.groupby("Cluster ID")
+    work["_grid_lon"] = (
+        np.floor(
+            work[lon_col] / lon_step
+        )
+        * lon_step
+    )
+
+    work["Cluster_ID"] = (
+        "C_"
+        + work["_grid_lat"]
+        .round(5)
+        .astype(str)
+        + "_"
+        + work["_grid_lon"]
+        .round(5)
+        .astype(str)
+    )
+
+    grouped = (
+        work.groupby("Cluster_ID", dropna=False)
         .agg(
-            Cluster_Cases=(
-                "Cluster ID",
-                "size",
-            ),
-            Cluster_Latitude=(
-                "_lat",
-                "mean",
-            ),
-            Cluster_Longitude=(
-                "_lon",
-                "mean",
-            ),
+            Cluster_Cases=(lat_col, "size"),
+            Cluster_Latitude=(lat_col, "mean"),
+            Cluster_Longitude=(lon_col, "mean"),
         )
         .reset_index()
     )
 
     work = work.merge(
-        cluster_summary,
-        on="Cluster ID",
+        grouped,
+        on="Cluster_ID",
         how="left",
     )
+
+    # --------------------------------------------------------
+    # Cluster-level ward
+    # --------------------------------------------------------
+
+    if columns and columns.get("ward"):
+
+        ward_col = columns["ward"]
+
+        def _primary_value(series):
+
+            values = (
+                series.dropna()
+                .astype(str)
+                .str.strip()
+            )
+
+            values = values[values != ""]
+
+            if values.empty:
+                return "Not Available"
+
+            return values.value_counts().index[0]
+
+        ward_summary = (
+            work.groupby("Cluster_ID")[ward_col]
+            .apply(_primary_value)
+            .rename("Cluster_Ward")
+            .reset_index()
+        )
+
+        work = work.merge(
+            ward_summary,
+            on="Cluster_ID",
+            how="left",
+        )
+
+    else:
+
+        work["Cluster_Ward"] = "Not Available"
+
+    # --------------------------------------------------------
+    # Cluster-level facility
+    # --------------------------------------------------------
+
+    if columns and columns.get("facility"):
+
+        facility_col = columns["facility"]
+
+        def _primary_facility(series):
+
+            values = (
+                series.dropna()
+                .astype(str)
+                .str.strip()
+            )
+
+            values = values[values != ""]
+
+            if values.empty:
+                return "Not Available"
+
+            return values.value_counts().index[0]
+
+        facility_summary = (
+            work.groupby("Cluster_ID")[facility_col]
+            .apply(_primary_facility)
+            .rename("Cluster_Facility")
+            .reset_index()
+        )
+
+        work = work.merge(
+            facility_summary,
+            on="Cluster_ID",
+            how="left",
+        )
+
+    else:
+
+        work["Cluster_Facility"] = "Not Available"
+
+    # --------------------------------------------------------
+    # Cluster-level disease
+    # --------------------------------------------------------
+
+    if columns and columns.get("disease"):
+
+        disease_col = columns["disease"]
+
+        def _primary_disease(series):
+
+            values = (
+                series.dropna()
+                .astype(str)
+                .str.strip()
+            )
+
+            values = values[values != ""]
+
+            if values.empty:
+                return "Not Available"
+
+            return values.value_counts().index[0]
+
+        disease_summary = (
+            work.groupby("Cluster_ID")[disease_col]
+            .apply(_primary_disease)
+            .rename("Cluster_Disease")
+            .reset_index()
+        )
+
+        work = work.merge(
+            disease_summary,
+            on="Cluster_ID",
+            how="left",
+        )
+
+    else:
+
+        work["Cluster_Disease"] = "All Diseases"
 
     return work
 
@@ -336,45 +460,55 @@ def _create_clusters(
 # HOTSPOT CLASSIFICATION
 # ============================================================
 
-def _classify_hotspots(
-    cluster_df,
-):
+def _classify_hotspots(cluster_df):
 
-    if cluster_df.empty:
+    if cluster_df is None or cluster_df.empty:
         return cluster_df
 
     work = cluster_df.copy()
 
-    values = work[
-        "Cluster_Cases"
-    ].astype(float)
+    if "Cluster_Cases" not in work.columns:
+        return work
+
+    values = pd.to_numeric(
+        work["Cluster_Cases"],
+        errors="coerce",
+    ).dropna()
+
+    if values.empty:
+        work["Hotspot_Classification"] = "Low"
+        return work
 
     if len(values) == 1:
 
-        work["Hotspot"] = "High"
+        work["Hotspot_Classification"] = "High"
 
-    else:
+        return work
 
-        q25 = values.quantile(0.25)
-        q50 = values.quantile(0.50)
-        q75 = values.quantile(0.75)
+    q25 = values.quantile(0.25)
+    q50 = values.quantile(0.50)
+    q75 = values.quantile(0.75)
 
-        def classify(x):
+    def classify(value):
 
-            if x >= q75:
-                return "Very High"
-
-            elif x >= q50:
-                return "High"
-
-            elif x >= q25:
-                return "Moderate"
-
+        if pd.isna(value):
             return "Low"
 
-        work["Hotspot"] = values.apply(
-            classify
-        )
+        if value >= q75:
+            return "Very High"
+
+        if value >= q50:
+            return "High"
+
+        if value >= q25:
+            return "Moderate"
+
+        return "Low"
+
+    work["Hotspot_Classification"] = (
+        work["Cluster_Cases"]
+        .apply(classify)
+    )
 
     return work
 
@@ -383,10 +517,7 @@ def _classify_hotspots(
 # BMC WARD GEOJSON
 # ============================================================
 
-@st.cache_data(
-    ttl=86400,
-    show_spinner=False,
-)
+@st.cache_data(ttl=86400, show_spinner=False)
 def _load_bmc_wards():
 
     try:
@@ -402,113 +533,87 @@ def _load_bmc_wards():
         data = response.json()
 
         if (
-            isinstance(data, dict)
-            and data.get("features")
+            not isinstance(data, dict)
+            or data.get("type") != "FeatureCollection"
         ):
-            return data
+            return None
+
+        return data
 
     except Exception:
-        pass
 
-    return None
-
-
-# ============================================================
-# GEOJSON GEOMETRY HELPERS
-# ============================================================
-
-def _iter_geojson_positions(
-    geometry,
-):
-
-    if not isinstance(
-        geometry,
-        dict,
-    ):
-        return
-
-    coordinates = geometry.get(
-        "coordinates"
-    )
-
-    if coordinates is None:
-        return
-
-    geometry_type = geometry.get(
-        "type",
-        "",
-    )
-
-    def walk(value):
-
-        if (
-            isinstance(value, list)
-            and len(value) >= 2
-            and isinstance(value[0], (int, float))
-            and isinstance(value[1], (int, float))
-        ):
-            yield (
-                float(value[0]),
-                float(value[1]),
-            )
-            return
-
-        if isinstance(value, list):
-
-            for item in value:
-
-                yield from walk(item)
-
-    if geometry_type in [
-        "Point",
-        "MultiPoint",
-        "LineString",
-        "MultiLineString",
-        "Polygon",
-        "MultiPolygon",
-    ]:
-
-        yield from walk(
-            coordinates
-        )
-
-
-def _geojson_bounds(
-    geojson,
-):
-
-    if not isinstance(
-        geojson,
-        dict,
-    ):
         return None
 
-    lons = []
+
+# ============================================================
+# GEOJSON HELPERS
+# ============================================================
+
+def _iter_geojson_positions(geometry):
+
+    if not geometry:
+        return
+
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+
+    if not coordinates:
+        return
+
+    if geometry_type == "Polygon":
+
+        for ring in coordinates:
+
+            yield ring
+
+    elif geometry_type == "MultiPolygon":
+
+        for polygon in coordinates:
+
+            for ring in polygon:
+
+                yield ring
+
+
+def _geojson_bounds(geojson):
+
+    if not geojson:
+        return None
+
     lats = []
+    lons = []
 
-    for feature in geojson.get(
-        "features",
-        [],
-    ):
+    for feature in geojson.get("features", []):
 
-        geometry = feature.get(
-            "geometry"
-        )
+        geometry = feature.get("geometry")
 
-        for lon, lat in _iter_geojson_positions(
+        if not geometry:
+            continue
+
+        for ring in _iter_geojson_positions(
             geometry
         ):
 
-            lons.append(lon)
-            lats.append(lat)
+            for point in ring:
 
-    if not lons or not lats:
+                if len(point) >= 2:
+
+                    lon = point[0]
+                    lat = point[1]
+
+                    try:
+                        lons.append(float(lon))
+                        lats.append(float(lat))
+                    except Exception:
+                        pass
+
+    if not lats or not lons:
         return None
 
     return (
         min(lons),
-        max(lons),
         min(lats),
+        max(lons),
         max(lats),
     )
 
@@ -521,134 +626,118 @@ def _build_map(
     cluster_df,
     show_labels=False,
     ward_geojson=None,
+    map_view="Overall",
 ):
 
     if not PYDECK_AVAILABLE:
+        return None
 
-        st.error(
-            "PyDeck is not installed. "
-            "Please add pydeck to requirements.txt."
+    if cluster_df is None or cluster_df.empty:
+        return None
+
+    plot_df = cluster_df.copy()
+
+    plot_df["Cases"] = pd.to_numeric(
+        plot_df["Cluster_Cases"],
+        errors="coerce",
+    ).fillna(0)
+
+    # --------------------------------------------------------
+    # Hotspot colours
+    # --------------------------------------------------------
+
+    hotspot_colors = {
+        "Very High": [255, 0, 0, 200],
+        "High": [255, 110, 0, 190],
+        "Moderate": [255, 200, 0, 175],
+        "Low": [80, 160, 255, 155],
+    }
+
+    plot_df["Color"] = (
+        plot_df["Hotspot_Classification"]
+        .map(hotspot_colors)
+        .apply(
+            lambda x: x
+            if isinstance(x, list)
+            else [80, 160, 255, 155]
         )
+    )
 
-        return
-
-    if cluster_df.empty:
-
-        st.info(
-            "No valid geographic records are available "
-            "for the selected filters."
-        )
-
-        return
-
-    map_df = cluster_df.copy()
-
-    point_columns = [
-        "Cluster_Latitude",
-        "Cluster_Longitude",
-        "Cluster_Cases",
-        "Hotspot",
-        "Cluster ID",
-    ]
-
-    point_data = map_df[
-        [
-            c
-            for c in point_columns
-            if c in map_df.columns
-        ]
-    ].drop_duplicates()
+    # --------------------------------------------------------
+    # Map layers
+    # --------------------------------------------------------
 
     layers = []
 
-    # --------------------------------------------------------
-    # BMC Ward Boundaries
-    # --------------------------------------------------------
-
-    if isinstance(
-        ward_geojson,
-        dict,
+    if (
+        ward_geojson
+        and map_view != "Top Hotspots"
     ):
 
-        try:
-
-            boundary_layer = pdk.Layer(
+        layers.append(
+            pdk.Layer(
                 "GeoJsonLayer",
                 data=ward_geojson,
+                pickable=False,
                 stroked=True,
                 filled=False,
-                pickable=True,
+                line_width_min_pixels=1,
                 get_line_color=[
                     220,
                     220,
                     220,
-                    210,
+                    190,
                 ],
-                get_line_width=2,
-                line_width_min_pixels=1,
             )
-
-            layers.append(
-                boundary_layer
-            )
-
-        except Exception:
-            pass
+        )
 
     # --------------------------------------------------------
-    # Hotspot colors
+    # Radius
     # --------------------------------------------------------
 
-    def hotspot_color(value):
+    plot_df["Map_Radius"] = (
+        np.sqrt(
+            np.maximum(
+                plot_df["Cases"],
+                1,
+            )
+        )
+        * 80
+    )
 
-        if value == "Very High":
-            return [255, 0, 0, 190]
-
-        if value == "High":
-            return [255, 110, 0, 180]
-
-        if value == "Moderate":
-            return [255, 200, 0, 170]
-
-        return [80, 160, 255, 150]
-
-    point_data = point_data.copy()
-
-    point_data["_fill_color"] = (
-        point_data["Hotspot"]
-        .apply(hotspot_color)
+    plot_df["Map_Radius"] = plot_df[
+        "Map_Radius"
+    ].clip(
+        lower=30,
+        upper=1400,
     )
 
     # --------------------------------------------------------
     # Hotspot layer
     # --------------------------------------------------------
 
-    hotspot_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=point_data,
-        get_position=[
-            "Cluster_Longitude",
-            "Cluster_Latitude",
-        ],
-        get_radius="Cluster_Cases * 35",
-        radius_min_pixels=8,
-        radius_max_pixels=45,
-        pickable=True,
-        stroked=True,
-        filled=True,
-        opacity=0.72,
-        get_fill_color="_fill_color",
-        get_line_color=[
-            255,
-            255,
-            255,
-            220,
-        ],
-        line_width_min_pixels=1,
-    )
-
     layers.append(
-        hotspot_layer
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=plot_df,
+            get_position=[
+                "Cluster_Longitude",
+                "Cluster_Latitude",
+            ],
+            get_radius="Map_Radius",
+            get_fill_color="Color",
+            get_line_color=[
+                255,
+                255,
+                255,
+                160,
+            ],
+            line_width_min_pixels=1,
+            stroked=True,
+            filled=True,
+            pickable=True,
+            auto_highlight=True,
+        )
     )
 
     # --------------------------------------------------------
@@ -657,159 +746,161 @@ def _build_map(
 
     if show_labels:
 
-        text_layer = pdk.Layer(
-            "TextLayer",
-            data=point_data,
-            get_position=[
-                "Cluster_Longitude",
-                "Cluster_Latitude",
-            ],
-            get_text="Cluster_Cases",
-            get_size=15,
-            get_color=[
-                255,
-                255,
-                255,
-                255,
-            ],
-            get_angle=0,
-            get_text_anchor="'middle'",
-            get_alignment_baseline="'center'",
-            billboard=True,
-            pickable=False,
+        label_df = plot_df.copy()
+
+        label_df["Label"] = (
+            label_df["Cases"]
+            .astype(int)
+            .astype(str)
+            + " cases"
         )
 
         layers.append(
-            text_layer
+            pdk.Layer(
+                "TextLayer",
+                data=label_df,
+                get_position=[
+                    "Cluster_Longitude",
+                    "Cluster_Latitude",
+                ],
+                get_text="Label",
+                get_size=14,
+                get_color=[
+                    255,
+                    255,
+                    255,
+                    255,
+                ],
+                get_alignment_baseline="bottom",
+                get_pixel_offset=[
+                    0,
+                    -10,
+                ],
+            )
         )
 
     # --------------------------------------------------------
-    # View
+    # View state
     # --------------------------------------------------------
 
-    center_lat = float(
-        map_df[
-            "Cluster_Latitude"
-        ].mean()
-    )
-
-    center_lon = float(
-        map_df[
-            "Cluster_Longitude"
-        ].mean()
-    )
-
-    view_zoom = 10.5
-
-    geo_bounds = _geojson_bounds(
+    bounds = _geojson_bounds(
         ward_geojson
     )
 
-    if geo_bounds:
+    if bounds:
 
-        min_lon, max_lon, min_lat, max_lat = (
-            geo_bounds
-        )
-
-        center_lat = (
-            min_lat + max_lat
-        ) / 2
+        min_lon, min_lat, max_lon, max_lat = bounds
 
         center_lon = (
             min_lon + max_lon
         ) / 2
 
-    deck = pdk.Deck(
-        layers=layers,
-        initial_view_state=pdk.ViewState(
-            latitude=center_lat,
+        center_lat = (
+            min_lat + max_lat
+        ) / 2
+
+        view_state = pdk.ViewState(
             longitude=center_lon,
-            zoom=view_zoom,
+            latitude=center_lat,
+            zoom=10.4,
             pitch=0,
             bearing=0,
-        ),
-        map_style=BMC_MAP_STYLE,
-        tooltip={
-            "html": """
-            <b>Hotspot:</b> {Hotspot}<br/>
-            <b>Cases:</b> {Cluster_Cases}<br/>
-            <b>Cluster ID:</b> {Cluster ID}
-            """,
-            "style": {
-                "backgroundColor": "white",
-                "color": "black",
-            },
+        )
+
+    else:
+
+        center_lat = plot_df[
+            "Cluster_Latitude"
+        ].mean()
+
+        center_lon = plot_df[
+            "Cluster_Longitude"
+        ].mean()
+
+        view_state = pdk.ViewState(
+            longitude=float(center_lon),
+            latitude=float(center_lat),
+            zoom=10.5,
+            pitch=0,
+            bearing=0,
+        )
+
+    tooltip = {
+        "html": """
+        <div style="font-size:13px;">
+            <b>Hotspot:</b> {Hotspot_Classification}<br/>
+            <b>Cases:</b> {Cases}<br/>
+            <b>Cluster ID:</b> {Cluster_ID}<br/>
+            <b>Ward:</b> {Cluster_Ward}<br/>
+            <b>Facility:</b> {Cluster_Facility}<br/>
+            <b>Disease:</b> {Cluster_Disease}<br/>
+            <b>Latitude:</b> {Cluster_Latitude}<br/>
+            <b>Longitude:</b> {Cluster_Longitude}
+        </div>
+        """,
+        "style": {
+            "backgroundColor": "rgba(0,0,0,0.85)",
+            "color": "white",
         },
+    }
+
+    deck = pdk.Deck(
+        map_style=BMC_MAP_STYLE,
+        initial_view_state=view_state,
+        layers=layers,
+        tooltip=tooltip,
     )
 
-    st.pydeck_chart(
-        deck,
-        use_container_width=True,
-    )
+    return deck
 
 
 # ============================================================
-# DOWNLOAD DATA
+# DOWNLOAD DATA PREPARATION
 # ============================================================
 
 def _prepare_download_dataframe(
     df,
-    cols,
+    columns,
 ):
 
-    output = pd.DataFrame(
-        index=df.index
-    )
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-    if cols["disease"]:
-        output["Disease"] = df[
-            cols["disease"]
-        ]
+    output = pd.DataFrame()
 
-    if cols["date"]:
-        output["Date"] = df[
-            cols["date"]
-        ]
-
-    if cols["ward"]:
-        output["Ward"] = df[
-            cols["ward"]
-        ]
-
-    if cols["facility"]:
-        output["Facility"] = df[
-            cols["facility"]
-        ]
-
-    if cols["area"]:
-        output["Area"] = df[
-            cols["area"]
-        ]
-
-    if cols["address"]:
-        output["Address"] = df[
-            cols["address"]
-        ]
-
-    output["Latitude"] = df[
-        "_lat"
+    mapping = [
+        ("Disease", columns.get("disease")),
+        ("Date", columns.get("date")),
+        ("Ward", columns.get("ward")),
+        ("Facility", columns.get("facility")),
+        ("Area", columns.get("area")),
+        ("Address", columns.get("address")),
+        ("Latitude", columns.get("lat")),
+        ("Longitude", columns.get("lon")),
     ]
 
-    output["Longitude"] = df[
-        "_lon"
+    for output_name, source_name in mapping:
+
+        if source_name and source_name in df.columns:
+
+            output[output_name] = df[
+                source_name
+            ]
+
+    additional_columns = [
+        "Cluster_ID",
+        "Cluster_Cases",
+        "Hotspot_Classification",
+        "Cluster_Ward",
+        "Cluster_Facility",
+        "Cluster_Disease",
     ]
 
-    output["Cluster ID"] = df[
-        "Cluster ID"
-    ]
+    for col in additional_columns:
 
-    output["Cluster Cases"] = df[
-        "Cluster_Cases"
-    ]
+        if col in df.columns:
 
-    output["Hotspot Classification"] = df[
-        "Hotspot"
-    ]
+            output[col] = df[col]
 
     return output
 
@@ -818,110 +909,35 @@ def _prepare_download_dataframe(
 # STATIC MAP HELPERS
 # ============================================================
 
-def _geometry_to_path(
-    geometry,
-):
+def _geometry_to_path(geometry):
 
-    if not isinstance(
-        geometry,
-        dict,
-    ):
-        return None
+    paths = []
 
-    geometry_type = geometry.get(
-        "type"
-    )
+    if not geometry:
+        return paths
 
-    coordinates = geometry.get(
-        "coordinates"
-    )
-
-    if coordinates is None:
-        return None
-
-    vertices = []
-    codes = []
-
-    def add_ring(
-        ring,
+    for ring in _iter_geojson_positions(
+        geometry
     ):
 
-        if not ring:
-            return
-
-        first = True
+        path = []
 
         for point in ring:
 
-            if (
-                not isinstance(
-                    point,
-                    (list, tuple),
-                )
-                or len(point) < 2
-            ):
-                continue
+            if len(point) >= 2:
 
-            try:
-
-                x = float(point[0])
-                y = float(point[1])
-
-            except Exception:
-                continue
-
-            vertices.append(
-                (x, y)
-            )
-
-            if first:
-                codes.append(
-                    Path.MOVETO
-                )
-                first = False
-
-            else:
-                codes.append(
-                    Path.LINETO
+                path.append(
+                    (
+                        float(point[0]),
+                        float(point[1]),
+                    )
                 )
 
-        if not first:
+        if len(path) >= 2:
 
-            codes.append(
-                Path.CLOSEPOLY
-            )
+            paths.append(path)
 
-            vertices.append(
-                vertices[-1]
-            )
-
-    try:
-
-        if geometry_type == "Polygon":
-
-            for ring in coordinates:
-                add_ring(ring)
-
-        elif geometry_type == "MultiPolygon":
-
-            for polygon in coordinates:
-
-                for ring in polygon:
-                    add_ring(ring)
-
-        else:
-            return None
-
-        if not vertices:
-            return None
-
-        return Path(
-            vertices,
-            codes,
-        )
-
-    except Exception:
-        return None
+    return paths
 
 
 def _add_bmc_boundaries_to_axis(
@@ -929,13 +945,7 @@ def _add_bmc_boundaries_to_axis(
     ward_geojson,
 ):
 
-    if not isinstance(
-        ward_geojson,
-        dict,
-    ):
-        return
-
-    if not MATPLOTLIB_AVAILABLE:
+    if not ward_geojson:
         return
 
     for feature in ward_geojson.get(
@@ -943,55 +953,41 @@ def _add_bmc_boundaries_to_axis(
         [],
     ):
 
-        if not isinstance(
-            feature,
-            dict,
-        ):
-            continue
-
         geometry = feature.get(
             "geometry"
         )
 
-        path = _geometry_to_path(
+        if not geometry:
+            continue
+
+        paths = _geometry_to_path(
             geometry
         )
 
-        if path is None:
-            continue
+        for path in paths:
 
-        try:
+            xs = [
+                point[0]
+                for point in path
+            ]
 
-            patch = PathPatch(
-                path,
-                facecolor=(
-                    0.12,
-                    0.12,
-                    0.12,
-                    0.18,
-                ),
-                edgecolor=(
-                    0.75,
-                    0.75,
-                    0.75,
-                    1.0,
-                ),
-                linewidth=0.8,
-                zorder=2,
+            ys = [
+                point[1]
+                for point in path
+            ]
+
+            ax.plot(
+                xs,
+                ys,
+                linewidth=0.7,
+                alpha=0.8,
             )
-
-            ax.add_patch(
-                patch
-            )
-
-        except Exception:
-            continue
 
 
 def _set_static_extent(
     ax,
-    ward_geojson,
-    hotspot_df,
+    cluster_df,
+    ward_geojson=None,
 ):
 
     bounds = _geojson_bounds(
@@ -1000,316 +996,311 @@ def _set_static_extent(
 
     if bounds:
 
-        min_lon, max_lon, min_lat, max_lat = (
-            bounds
-        )
+        min_lon, min_lat, max_lon, max_lat = bounds
+
+    elif (
+        cluster_df is not None
+        and not cluster_df.empty
+    ):
+
+        min_lon = cluster_df[
+            "Cluster_Longitude"
+        ].min()
+
+        max_lon = cluster_df[
+            "Cluster_Longitude"
+        ].max()
+
+        min_lat = cluster_df[
+            "Cluster_Latitude"
+        ].min()
+
+        max_lat = cluster_df[
+            "Cluster_Latitude"
+        ].max()
 
     else:
 
-        if (
-            hotspot_df is None
-            or hotspot_df.empty
-        ):
-            return
+        return
 
-        lat = pd.to_numeric(
-            hotspot_df[
-                "Cluster_Latitude"
-            ],
-            errors="coerce",
-        )
-
-        lon = pd.to_numeric(
-            hotspot_df[
-                "Cluster_Longitude"
-            ],
-            errors="coerce",
-        )
-
-        valid = (
-            lat.notna()
-            & lon.notna()
-        )
-
-        if not valid.any():
-            return
-
-        min_lat = float(
-            lat[valid].min()
-        )
-
-        max_lat = float(
-            lat[valid].max()
-        )
-
-        min_lon = float(
-            lon[valid].min()
-        )
-
-        max_lon = float(
-            lon[valid].max()
-        )
-
-    lon_padding = max(
+    lon_pad = max(
         (max_lon - min_lon) * 0.05,
         0.01,
     )
 
-    lat_padding = max(
+    lat_pad = max(
         (max_lat - min_lat) * 0.05,
         0.01,
     )
 
     ax.set_xlim(
-        min_lon - lon_padding,
-        max_lon + lon_padding,
+        min_lon - lon_pad,
+        max_lon + lon_pad,
     )
 
     ax.set_ylim(
-        min_lat - lat_padding,
-        max_lat + lat_padding,
+        min_lat - lat_pad,
+        max_lat + lat_pad,
     )
 
 
+# ============================================================
+# STATIC HOTSPOT MAP
+# ============================================================
+
 def _create_static_hotspot_map(
     cluster_df,
-    ward_geojson,
-    selected_disease,
-    cluster_size,
+    disease_name,
+    cluster_size_m,
+    ward_geojson=None,
+    map_view="Overall",
+    show_labels=False,
 ):
 
     if not MATPLOTLIB_AVAILABLE:
         return None
 
-    try:
+    if cluster_df is None or cluster_df.empty:
+        return None
 
-        fig, ax = plt.subplots(
-            figsize=(12, 8),
-            dpi=160,
-        )
+    work = cluster_df.copy()
 
-        fig.patch.set_facecolor(
-            "#101010"
-        )
+    hotspot_colors = {
+        "Very High": "red",
+        "High": "orange",
+        "Moderate": "gold",
+        "Low": "cornflowerblue",
+    }
 
-        ax.set_facecolor(
-            "#101010"
-        )
+    fig, ax = plt.subplots(
+        figsize=(14, 10)
+    )
 
-        # BMC ward boundaries
+    fig.patch.set_facecolor(
+        "#101010"
+    )
+
+    ax.set_facecolor(
+        "#101010"
+    )
+
+    # --------------------------------------------------------
+    # BMC boundaries
+    # --------------------------------------------------------
+
+    if ward_geojson:
+
         _add_bmc_boundaries_to_axis(
             ax,
             ward_geojson,
         )
 
-        if (
-            cluster_df is not None
-            and not cluster_df.empty
-        ):
+    # --------------------------------------------------------
+    # Hotspots
+    # --------------------------------------------------------
 
-            plot_df = cluster_df.copy()
+    for _, row in work.iterrows():
 
-            lat = pd.to_numeric(
-                plot_df[
-                    "Cluster_Latitude"
-                ],
-                errors="coerce",
+        classification = row.get(
+            "Hotspot_Classification",
+            "Low",
+        )
+
+        color = hotspot_colors.get(
+            classification,
+            "cornflowerblue",
+        )
+
+        cases = float(
+            row.get(
+                "Cluster_Cases",
+                0,
+            )
+        )
+
+        size = (
+            math.sqrt(
+                max(cases, 1)
+            )
+            * 55
+        )
+
+        ax.scatter(
+            row["Cluster_Longitude"],
+            row["Cluster_Latitude"],
+            s=size,
+            c=color,
+            alpha=0.70,
+            edgecolors="white",
+            linewidths=0.5,
+        )
+
+        if show_labels:
+
+            label_text = (
+                f"{int(cases)} cases"
             )
 
-            lon = pd.to_numeric(
-                plot_df[
-                    "Cluster_Longitude"
-                ],
-                errors="coerce",
-            )
-
-            valid = (
-                lat.notna()
-                & lon.notna()
-            )
-
-            plot_df = plot_df.loc[
-                valid
-            ].copy()
-
-            plot_df["_lat"] = lat.loc[
-                valid
-            ].values
-
-            plot_df["_lon"] = lon.loc[
-                valid
-            ].values
-
-            color_map = {
-                "Very High": "#ff0000",
-                "High": "#ff6b00",
-                "Moderate": "#ffd000",
-                "Low": "#4fa3ff",
-            }
-
-            for classification, group in plot_df.groupby(
-                "Hotspot"
-            ):
-
-                cases = pd.to_numeric(
-                    group[
-                        "Cluster_Cases"
+            ax.annotate(
+                label_text,
+                (
+                    row[
+                        "Cluster_Longitude"
                     ],
-                    errors="coerce",
-                ).fillna(1)
-
-                sizes = (
-                    cases.clip(
-                        lower=1
-                    ).pow(0.5)
-                    * 55
-                )
-
-                ax.scatter(
-                    group["_lon"],
-                    group["_lat"],
-                    s=sizes,
-                    c=color_map.get(
-                        classification,
-                        "#4fa3ff",
-                    ),
-                    alpha=0.75,
-                    edgecolors="white",
-                    linewidths=0.7,
-                    zorder=5,
-                    label=classification,
-                )
-
-        _set_static_extent(
-            ax,
-            ward_geojson,
-            cluster_df,
-        )
-
-        ax.set_title(
-            "Geographic Hotspot Map",
-            fontsize=18,
-            fontweight="bold",
-            color="white",
-            pad=18,
-        )
-
-        subtitle = (
-            f"Disease: {selected_disease or 'All Diseases'}"
-            f"   |   Cluster size: {cluster_size} metres"
-        )
-
-        ax.text(
-            0.5,
-            1.01,
-            subtitle,
-            transform=ax.transAxes,
-            ha="center",
-            va="bottom",
-            fontsize=10,
-            color="#dddddd",
-        )
-
-        ax.set_xlabel(
-            "Longitude",
-            color="white",
-        )
-
-        ax.set_ylabel(
-            "Latitude",
-            color="white",
-        )
-
-        ax.tick_params(
-            colors="white"
-        )
-
-        for spine in ax.spines.values():
-
-            spine.set_color(
-                "#555555"
-            )
-
-        legend_handles = [
-            Patch(
-                facecolor=(
-                    0.12,
-                    0.12,
-                    0.12,
-                    0.18,
+                    row[
+                        "Cluster_Latitude"
+                    ],
                 ),
-                edgecolor=(
-                    0.75,
-                    0.75,
-                    0.75,
-                    1.0,
-                ),
-                label="BMC Ward Boundary",
-            ),
-        ]
-
-        for label, color in [
-            ("Very High", "#ff0000"),
-            ("High", "#ff6b00"),
-            ("Moderate", "#ffd000"),
-            ("Low", "#4fa3ff"),
-        ]:
-
-            legend_handles.append(
-                Patch(
-                    facecolor=color,
-                    edgecolor="white",
-                    label=label,
-                )
+                xytext=(0, 7),
+                textcoords="offset points",
+                ha="center",
+                fontsize=8,
+                color="white",
             )
 
-        legend = ax.legend(
-            handles=legend_handles,
-            loc="lower left",
-            frameon=True,
-            facecolor="#151515",
-            edgecolor="#555555",
+    # --------------------------------------------------------
+    # Title
+    # --------------------------------------------------------
+
+    disease_text = (
+        disease_name
+        if disease_name
+        else "All Diseases"
+    )
+
+    ax.set_title(
+        "GEOGRAPHIC HOTSPOT ANALYSIS",
+        fontsize=18,
+        fontweight="bold",
+        color="white",
+        pad=16,
+    )
+
+    ax.text(
+        0.5,
+        1.01,
+        (
+            f"View: {map_view} | "
+            f"Disease: {disease_text} | "
+            f"Cluster Radius: {cluster_size_m} m"
+        ),
+        transform=ax.transAxes,
+        ha="center",
+        fontsize=10,
+        color="white",
+    )
+
+    # --------------------------------------------------------
+    # Legend
+    # --------------------------------------------------------
+
+    legend_items = [
+        ("BMC Ward Boundary", "white"),
+        ("Very High", "red"),
+        ("High", "orange"),
+        ("Moderate", "gold"),
+        ("Low", "cornflowerblue"),
+    ]
+
+    for label, color in legend_items:
+
+        if label == "BMC Ward Boundary":
+
+            ax.plot(
+                [],
+                [],
+                color=color,
+                linewidth=1,
+                label=label,
+            )
+
+        else:
+
+            ax.scatter(
+                [],
+                [],
+                s=80,
+                c=color,
+                label=label,
+            )
+
+    legend = ax.legend(
+        loc="upper right",
+        framealpha=0.85,
+    )
+
+    for text_item in legend.get_texts():
+
+        text_item.set_color(
+            "white"
         )
 
-        for text_item in legend.get_texts():
+    # --------------------------------------------------------
+    # Axis
+    # --------------------------------------------------------
 
-            text_item.set_color(
-                "white"
-            )
+    ax.tick_params(
+        colors="white"
+    )
 
-        fig.tight_layout()
+    for spine in ax.spines.values():
 
-        return fig
+        spine.set_color(
+            "#777777"
+        )
 
-    except Exception:
+    ax.set_xlabel(
+        "Longitude",
+        color="white",
+    )
 
-        try:
-            plt.close(fig)
-        except Exception:
-            pass
+    ax.set_ylabel(
+        "Latitude",
+        color="white",
+    )
 
-        return None
+    _set_static_extent(
+        ax,
+        work,
+        ward_geojson,
+    )
 
+    fig.tight_layout()
+
+    return fig
+
+
+# ============================================================
+# DISPLAYED MAP FILE CREATION
+# ============================================================
 
 def _create_displayed_map_files(
     cluster_df,
+    disease_name,
+    cluster_size_m,
     ward_geojson,
-    selected_disease,
-    cluster_size,
+    map_view,
+    show_labels,
 ):
 
-    if not MATPLOTLIB_AVAILABLE:
-        return None, None
+    png_bytes = None
+    pdf_bytes = None
 
     fig = _create_static_hotspot_map(
         cluster_df=cluster_df,
+        disease_name=disease_name,
+        cluster_size_m=cluster_size_m,
         ward_geojson=ward_geojson,
-        selected_disease=selected_disease,
-        cluster_size=cluster_size,
+        map_view=map_view,
+        show_labels=show_labels,
     )
 
     if fig is None:
         return None, None
+
+    # --------------------------------------------------------
+    # PNG
+    # --------------------------------------------------------
 
     png_buffer = io.BytesIO()
 
@@ -1323,11 +1314,15 @@ def _create_displayed_map_files(
 
     png_buffer.seek(0)
 
+    png_bytes = png_buffer.getvalue()
+
+    # --------------------------------------------------------
+    # PDF
+    # --------------------------------------------------------
+
     pdf_buffer = io.BytesIO()
 
-    with PdfPages(
-        pdf_buffer
-    ) as pdf:
+    with PdfPages(pdf_buffer) as pdf:
 
         pdf.savefig(
             fig,
@@ -1337,111 +1332,149 @@ def _create_displayed_map_files(
 
     pdf_buffer.seek(0)
 
+    pdf_bytes = pdf_buffer.getvalue()
+
     plt.close(fig)
 
     return (
-        png_buffer.getvalue(),
-        pdf_buffer.getvalue(),
+        png_bytes,
+        pdf_bytes,
     )
 
 
 # ============================================================
-# REPORT PDF
+# PDF REPORT
 # ============================================================
 
 def _create_pdf(
     cluster_df,
-    selected_disease,
+    disease_name,
     filter_info,
+    map_view,
 ):
 
     if not MATPLOTLIB_AVAILABLE:
         return None
 
-    buffer = io.BytesIO()
+    if cluster_df is None or cluster_df.empty:
+        return None
 
-    with PdfPages(buffer) as pdf:
+    pdf_buffer = io.BytesIO()
+
+    with PdfPages(pdf_buffer) as pdf:
 
         # ----------------------------------------------------
-        # Cover / information page
+        # Cover / summary page
         # ----------------------------------------------------
 
-        fig = plt.figure(
+        fig, ax = plt.subplots(
             figsize=(11.69, 8.27)
         )
-
-        ax = fig.add_subplot(111)
 
         ax.axis("off")
 
         ax.text(
-            0.05,
-            0.92,
+            0.5,
+            0.78,
             "GEOGRAPHIC HOTSPOT ANALYSIS",
-            fontsize=18,
+            ha="center",
+            va="center",
+            fontsize=22,
             fontweight="bold",
         )
 
         ax.text(
-            0.05,
-            0.86,
-            f"Disease: {selected_disease}",
+            0.5,
+            0.68,
+            f"Map View: {map_view}",
+            ha="center",
+            fontsize=14,
+        )
+
+        ax.text(
+            0.5,
+            0.62,
+            f"Disease: {disease_name or 'All Diseases'}",
+            ha="center",
+            fontsize=13,
+        )
+
+        if filter_info:
+
+            ax.text(
+                0.5,
+                0.55,
+                str(filter_info),
+                ha="center",
+                fontsize=11,
+            )
+
+        total_clusters = len(
+            cluster_df
+        )
+
+        total_cases = int(
+            pd.to_numeric(
+                cluster_df[
+                    "Cluster_Cases"
+                ],
+                errors="coerce",
+            )
+            .fillna(0)
+            .sum()
+        )
+
+        ax.text(
+            0.5,
+            0.46,
+            f"Geographic Clusters: {total_clusters}",
+            ha="center",
             fontsize=12,
         )
 
-        y = 0.81
-
-        for key, value in filter_info.items():
-
-            ax.text(
-                0.05,
-                y,
-                f"{key}: {value}",
-                fontsize=10,
-            )
-
-            y -= 0.035
-
         ax.text(
-            0.05,
-            y - 0.02,
-            f"Total clusters: {len(cluster_df)}",
-            fontsize=11,
-            fontweight="bold",
+            0.5,
+            0.41,
+            f"Mapped Cases: {total_cases}",
+            ha="center",
+            fontsize=12,
         )
 
         ax.text(
-            0.05,
-            y - 0.07,
-            f"Generated: {datetime.now().strftime('%d-%m-%Y %H:%M')}",
-            fontsize=9,
+            0.5,
+            0.30,
+            (
+                "Hotspot classification is based on "
+                "relative geographic cluster distribution."
+            ),
+            ha="center",
+            fontsize=10,
         )
 
-        pdf.savefig(fig)
+        pdf.savefig(
+            fig,
+            bbox_inches="tight",
+        )
 
         plt.close(fig)
 
         # ----------------------------------------------------
-        # Cluster summary
+        # Top cluster table
         # ----------------------------------------------------
-
-        fig = plt.figure(
-            figsize=(11.69, 8.27)
-        )
-
-        ax = fig.add_subplot(111)
-
-        ax.axis("off")
 
         summary = (
             cluster_df[
                 [
-                    "Cluster ID",
+                    "Cluster_ID",
                     "Cluster_Cases",
-                    "Hotspot",
+                    "Hotspot_Classification",
+                    "Cluster_Ward",
+                    "Cluster_Facility",
+                    "Cluster_Latitude",
+                    "Cluster_Longitude",
                 ]
             ]
-            .drop_duplicates()
+            .copy()
             .sort_values(
                 "Cluster_Cases",
                 ascending=False,
@@ -1449,73 +1482,279 @@ def _create_pdf(
             .head(25)
         )
 
-        table_data = [
-            [
-                "Cluster",
-                "Cases",
-                "Classification",
-            ]
-        ]
-
-        for _, row in summary.iterrows():
-
-            table_data.append(
-                [
-                    str(
-                        row[
-                            "Cluster ID"
-                        ]
-                    ),
-                    str(
-                        int(
-                            row[
-                                "Cluster_Cases"
-                            ]
-                        )
-                    ),
-                    str(
-                        row[
-                            "Hotspot"
-                        ]
-                    ),
-                ]
-            )
-
-        table = ax.table(
-            cellText=table_data,
-            loc="center",
-            cellLoc="center",
+        summary = summary.rename(
+            columns={
+                "Cluster_ID": "Cluster ID",
+                "Cluster_Cases": "Cases",
+                "Hotspot_Classification": "Hotspot",
+                "Cluster_Ward": "Ward",
+                "Cluster_Facility": "Facility",
+                "Cluster_Latitude": "Latitude",
+                "Cluster_Longitude": "Longitude",
+            }
         )
 
-        table.auto_set_font_size(
-            False
+        fig, ax = plt.subplots(
+            figsize=(16, 10)
         )
 
-        table.set_fontsize(9)
-
-        table.scale(
-            1,
-            1.5,
-        )
+        ax.axis("off")
 
         ax.set_title(
             "Top Geographic Hotspots",
             fontsize=16,
             fontweight="bold",
-            pad=20,
+            pad=15,
         )
 
-        pdf.savefig(fig)
+        table = ax.table(
+            cellText=summary.values,
+            colLabels=summary.columns,
+            loc="center",
+            cellLoc="center",
+        )
+
+        table.auto_set_font_size(False)
+
+        table.set_fontsize(8)
+
+        table.scale(
+            1,
+            1.6,
+        )
+
+        pdf.savefig(
+            fig,
+            bbox_inches="tight",
+        )
 
         plt.close(fig)
 
-    buffer.seek(0)
+    pdf_buffer.seek(0)
 
-    return buffer.getvalue()
+    return pdf_buffer.getvalue()
 
 
 # ============================================================
-# MAIN RENDER
+# WARD SUMMARY
+# ============================================================
+
+def _create_ward_summary(
+    cluster_df,
+    columns,
+):
+
+    if cluster_df is None or cluster_df.empty:
+        return pd.DataFrame()
+
+    ward_col = (
+        columns.get("ward")
+        if columns
+        else None
+    )
+
+    if not ward_col or ward_col not in cluster_df.columns:
+
+        if "Cluster_Ward" in cluster_df.columns:
+
+            temp = cluster_df.copy()
+
+            summary = (
+                temp.groupby(
+                    "Cluster_Ward",
+                    dropna=False,
+                )
+                .agg(
+                    Cases=(
+                        "Cluster_Cases",
+                        "sum",
+                    ),
+                    Geographic_Clusters=(
+                        "Cluster_ID",
+                        "nunique",
+                    ),
+                    Very_High_Hotspots=(
+                        "Hotspot_Classification",
+                        lambda x: (
+                            x == "Very High"
+                        ).sum(),
+                    ),
+                    High_Hotspots=(
+                        "Hotspot_Classification",
+                        lambda x: (
+                            x == "High"
+                        ).sum(),
+                    ),
+                )
+                .reset_index()
+                .rename(
+                    columns={
+                        "Cluster_Ward": "Ward"
+                    }
+                )
+            )
+
+            return summary.sort_values(
+                "Cases",
+                ascending=False,
+            )
+
+        return pd.DataFrame()
+
+    temp = cluster_df.copy()
+
+    summary = (
+        temp.groupby(
+            ward_col,
+            dropna=False,
+        )
+        .agg(
+            Cases=(
+                "Cluster_Cases",
+                "sum",
+            ),
+            Geographic_Clusters=(
+                "Cluster_ID",
+                "nunique",
+            ),
+            Very_High_Hotspots=(
+                "Hotspot_Classification",
+                lambda x: (
+                    x == "Very High"
+                ).sum(),
+            ),
+            High_Hotspots=(
+                "Hotspot_Classification",
+                lambda x: (
+                    x == "High"
+                ).sum(),
+            ),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                ward_col: "Ward"
+            }
+        )
+    )
+
+    return summary.sort_values(
+        "Cases",
+        ascending=False,
+    )
+
+
+# ============================================================
+# FACILITY SUMMARY
+# ============================================================
+
+def _create_facility_summary(
+    cluster_df,
+    columns,
+):
+
+    if cluster_df is None or cluster_df.empty:
+        return pd.DataFrame()
+
+    facility_col = (
+        columns.get("facility")
+        if columns
+        else None
+    )
+
+    if not facility_col or facility_col not in cluster_df.columns:
+
+        if "Cluster_Facility" in cluster_df.columns:
+
+            temp = cluster_df.copy()
+
+            summary = (
+                temp.groupby(
+                    "Cluster_Facility",
+                    dropna=False,
+                )
+                .agg(
+                    Cases=(
+                        "Cluster_Cases",
+                        "sum",
+                    ),
+                    Geographic_Clusters=(
+                        "Cluster_ID",
+                        "nunique",
+                    ),
+                    Very_High_Hotspots=(
+                        "Hotspot_Classification",
+                        lambda x: (
+                            x == "Very High"
+                        ).sum(),
+                    ),
+                    High_Hotspots=(
+                        "Hotspot_Classification",
+                        lambda x: (
+                            x == "High"
+                        ).sum(),
+                    ),
+                )
+                .reset_index()
+                .rename(
+                    columns={
+                        "Cluster_Facility": "Facility"
+                    }
+                )
+            )
+
+            return summary.sort_values(
+                "Cases",
+                ascending=False,
+            )
+
+        return pd.DataFrame()
+
+    temp = cluster_df.copy()
+
+    summary = (
+        temp.groupby(
+            facility_col,
+            dropna=False,
+        )
+        .agg(
+            Cases=(
+                "Cluster_Cases",
+                "sum",
+            ),
+            Geographic_Clusters=(
+                "Cluster_ID",
+                "nunique",
+            ),
+            Very_High_Hotspots=(
+                "Hotspot_Classification",
+                lambda x: (
+                    x == "Very High"
+                ).sum(),
+            ),
+            High_Hotspots=(
+                "Hotspot_Classification",
+                lambda x: (
+                    x == "High"
+                ).sum(),
+            ),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                facility_col: "Facility"
+            }
+        )
+    )
+
+    return summary.sort_values(
+        "Cases",
+        ascending=False,
+    )
+
+
+# ============================================================
+# MAIN RENDER FUNCTION
 # ============================================================
 
 def render_map(
@@ -1532,245 +1771,569 @@ def render_map(
         "Patient/address geographic coordinates based hotspot analysis"
     )
 
+    # --------------------------------------------------------
+    # Validate data
+    # --------------------------------------------------------
+
     if df is None or df.empty:
 
-        st.info(
-            "No data available."
+        st.warning(
+            "No data available for geographic analysis."
         )
 
         return
 
-    cols = _detect_columns(
-        df
+    columns = _detect_columns(df)
+
+    lat_col = columns.get("lat")
+    lon_col = columns.get("lon")
+
+    if not lat_col or not lon_col:
+
+        st.error(
+            "Latitude and Longitude columns were not found in the data."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # Disease handling
+    # --------------------------------------------------------
+
+    working_df = df.copy()
+
+    disease_col = columns.get(
+        "disease"
     )
 
-    if (
-        cols["lat"] is None
-        or cols["lon"] is None
-    ):
+    disease_options = [
+        "All Diseases"
+    ]
 
-        st.warning(
-            "Address Latitude / Address Longitude columns were not found."
-        )
+    if disease_col:
 
-        st.info(
-            "Hotspot mapping requires valid patient/address geographic coordinates."
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # Disease selection
-    # --------------------------------------------------------
-
-    working = df.copy()
-
-    diseases = []
-
-    if cols["disease"]:
-
-        diseases = (
-            working[
-                cols["disease"]
-            ]
+        disease_values = (
+            working_df[disease_col]
             .dropna()
             .astype(str)
             .str.strip()
         )
 
-        diseases = sorted(
+        disease_values = sorted(
             [
                 x
-                for x in diseases.unique()
+                for x in disease_values.unique()
                 if x
             ]
         )
 
-        if selected_disease is not None:
+        disease_options.extend(
+            disease_values
+        )
 
-            selected_disease = str(
-                selected_disease
+    # Global disease
+    global_disease = (
+        selected_disease
+        if selected_disease
+        and str(selected_disease).strip()
+        else None
+    )
+
+    # --------------------------------------------------------
+    # Local disease selector
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### Map Filters"
+    )
+
+    col1, col2, col3 = st.columns(
+        [1.4, 1.2, 1.2]
+    )
+
+    with col1:
+
+        if global_disease:
+
+            st.info(
+                f"Global Disease Selection: {global_disease}"
+            )
+
+            local_disease = global_disease
+
+        else:
+
+            current_local = st.session_state.get(
+                "phase6_local_disease",
+                "All Diseases",
             )
 
             if (
-                selected_disease
-                in diseases
+                current_local
+                not in disease_options
             ):
+                current_local = "All Diseases"
 
-                working = working[
-                    working[
-                        cols["disease"]
-                    ]
-                    .astype(str)
-                    .str.strip()
-                    == selected_disease
-                ].copy()
+            local_disease = st.selectbox(
+                "Disease",
+                disease_options,
+                index=disease_options.index(
+                    current_local
+                ),
+                key="phase6_local_disease",
+            )
+
+    with col2:
+
+        cluster_size_m = st.select_slider(
+            "Cluster Radius",
+            options=[
+                200,
+                500,
+                1000,
+                1500,
+            ],
+            value=st.session_state.get(
+                "phase6_cluster_size",
+                500,
+            ),
+            format_func=lambda x: (
+                f"{x} m"
+                if x < 1000
+                else f"{x / 1000:g} km"
+            ),
+            key="phase6_cluster_size",
+        )
+
+    with col3:
+
+        default_labels = _get_show_labels()
+
+        show_labels = st.checkbox(
+            "🏷️ Show Data Labels",
+            value=default_labels,
+            key="phase6_map_show_labels",
+        )
 
     # --------------------------------------------------------
-    # Coordinates
+    # Map view selector
     # --------------------------------------------------------
 
-    working = _clean_coordinates(
-        working,
-        cols["lat"],
-        cols["lon"],
+    map_view = st.radio(
+        "Map View",
+        [
+            "Overall",
+            "Ward-wise",
+            "Top Hotspots",
+            "BMC Boundary",
+        ],
+        horizontal=True,
+        key="phase6_map_view",
     )
 
-    if working.empty:
+    # --------------------------------------------------------
+    # Top N selector
+    # --------------------------------------------------------
+
+    top_n = 10
+
+    if map_view == "Top Hotspots":
+
+        top_n = st.select_slider(
+            "Number of Top Hotspots",
+            options=[
+                5,
+                10,
+                15,
+                20,
+            ],
+            value=st.session_state.get(
+                "phase6_top_n",
+                10,
+            ),
+            key="phase6_top_n",
+        )
+
+    # --------------------------------------------------------
+    # Apply disease filter
+    # --------------------------------------------------------
+
+    if (
+        local_disease
+        and local_disease != "All Diseases"
+        and disease_col
+    ):
+
+        working_df = working_df[
+            working_df[
+                disease_col
+            ]
+            .astype(str)
+            .str.strip()
+            == str(local_disease).strip()
+        ].copy()
+
+    if working_df.empty:
 
         st.warning(
-            "No valid address coordinates are available "
-            "for the selected filters."
+            "No records available for the selected disease."
         )
 
         return
 
     # --------------------------------------------------------
-    # Cluster size
+    # Clean coordinates
     # --------------------------------------------------------
 
-    cluster_size = st.select_slider(
-        "Hotspot Cluster Size",
-        options=[
-            200,
-            500,
-            1000,
-            1500,
-        ],
-        value=500,
-        format_func=lambda x: (
-            f"{x} metres"
-        ),
-        key="phase6_cluster_size",
+    geo_df = _clean_coordinates(
+        working_df,
+        lat_col,
+        lon_col,
     )
+
+    if geo_df.empty:
+
+        st.warning(
+            "No valid geographic coordinates are available for the selected data."
+        )
+
+        return
 
     # --------------------------------------------------------
     # Create clusters
     # --------------------------------------------------------
 
-    working = _create_clusters(
-        working,
-        cluster_size_m=cluster_size,
+    clustered_df = _create_clusters(
+        geo_df,
+        lat_col=lat_col,
+        lon_col=lon_col,
+        cluster_size_m=cluster_size_m,
+        columns=columns,
     )
 
+    if clustered_df.empty:
+
+        st.warning(
+            "Geographic clustering could not be completed."
+        )
+
+        return
+
+    clustered_df = _classify_hotspots(
+        clustered_df
+    )
+
+    # --------------------------------------------------------
+    # Cluster-level data
+    # --------------------------------------------------------
+
     cluster_df = (
-        working[
+        clustered_df[
             [
-                "Cluster ID",
+                "Cluster_ID",
                 "Cluster_Cases",
                 "Cluster_Latitude",
                 "Cluster_Longitude",
+                "Cluster_Ward",
+                "Cluster_Facility",
+                "Cluster_Disease",
+                "Hotspot_Classification",
             ]
         ]
-        .drop_duplicates()
+        .drop_duplicates(
+            subset=["Cluster_ID"]
+        )
         .copy()
     )
 
-    cluster_df = _classify_hotspots(
+    # --------------------------------------------------------
+    # Load BMC boundaries
+    # --------------------------------------------------------
+
+    bmc_geojson = _load_bmc_wards()
+
+    # --------------------------------------------------------
+    # View-specific processing
+    # --------------------------------------------------------
+
+    display_cluster_df = cluster_df.copy()
+
+    if map_view == "Top Hotspots":
+
+        display_cluster_df = (
+            display_cluster_df
+            .sort_values(
+                "Cluster_Cases",
+                ascending=False,
+            )
+            .head(top_n)
+            .copy()
+        )
+
+    elif map_view == "BMC Boundary":
+
+        display_cluster_df = pd.DataFrame()
+
+    # --------------------------------------------------------
+    # KPI calculations
+    # --------------------------------------------------------
+
+    mapped_records = len(
+        geo_df
+    )
+
+    geographic_clusters = len(
         cluster_df
     )
 
-    working = working.drop(
-        columns=[
-            "Cluster_Cases",
-            "Cluster_Latitude",
-            "Cluster_Longitude",
-        ],
-        errors="ignore",
+    highest_cluster = 0
+
+    if not cluster_df.empty:
+
+        highest_cluster = int(
+            cluster_df[
+                "Cluster_Cases"
+            ].max()
+        )
+
+    very_high_count = int(
+        (
+            cluster_df[
+                "Hotspot_Classification"
+            ]
+            == "Very High"
+        ).sum()
     )
 
-    working = working.merge(
-        cluster_df,
-        on="Cluster ID",
-        how="left",
-    )
+    wards_covered = 0
 
-    # --------------------------------------------------------
-    # BMC Ward Boundaries
-    # --------------------------------------------------------
+    if "Cluster_Ward" in cluster_df.columns:
 
-    with st.spinner(
-        "Loading BMC ward boundaries..."
-    ):
-
-        bmc_geojson = _load_bmc_wards()
-
-    if bmc_geojson is None:
-
-        st.caption(
-            "BMC ward boundary layer could not be loaded. "
-            "Hotspot map will still be available."
+        wards_covered = (
+            cluster_df[
+                "Cluster_Ward"
+            ]
+            .replace(
+                "Not Available",
+                np.nan,
+            )
+            .dropna()
+            .nunique()
         )
 
     # --------------------------------------------------------
-    # KPIs
-    # --------------------------------------------------------
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Mapped Records",
-        f"{len(working):,}",
-    )
-
-    c2.metric(
-        "Geographic Clusters",
-        f"{len(cluster_df):,}",
-    )
-
-    c3.metric(
-        "Highest Cluster",
-        (
-            f"{int(cluster_df['Cluster_Cases'].max()):,}"
-            if not cluster_df.empty
-            else "0"
-        ),
-    )
-
-    c4.metric(
-        "Very High Hotspots",
-        f"{(cluster_df['Hotspot'] == 'Very High').sum():,}",
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # MAP
-    # --------------------------------------------------------
-
-    show_labels = _get_show_labels()
-
-    _build_map(
-        cluster_df,
-        show_labels=show_labels,
-        ward_geojson=bmc_geojson,
-    )
-
-    st.caption(
-        "Each hotspot represents a geographic cluster of "
-        "patient/address records. Cluster size is controlled above. "
-        "BMC ward boundaries are shown where available."
-    )
-
-    # --------------------------------------------------------
-    # DISPLAYED MAP DOWNLOAD
+    # KPI display
     # --------------------------------------------------------
 
     st.markdown(
-        "### 🖼️ Download Displayed Map"
+        "### Geographic Summary"
     )
 
-    if MATPLOTLIB_AVAILABLE:
+    k1, k2, k3, k4, k5 = st.columns(
+        5
+    )
 
-        png_data, displayed_pdf_data = (
-            _create_displayed_map_files(
-                cluster_df=cluster_df,
+    with k1:
+
+        st.metric(
+            "Mapped Records",
+            f"{mapped_records:,}",
+        )
+
+    with k2:
+
+        st.metric(
+            "Geographic Clusters",
+            f"{geographic_clusters:,}",
+        )
+
+    with k3:
+
+        st.metric(
+            "Highest Cluster",
+            f"{highest_cluster:,}",
+        )
+
+    with k4:
+
+        st.metric(
+            "Very High Hotspots",
+            f"{very_high_count:,}",
+        )
+
+    with k5:
+
+        st.metric(
+            "Wards Covered",
+            f"{wards_covered:,}",
+        )
+
+    # --------------------------------------------------------
+    # Map
+    # --------------------------------------------------------
+
+    if map_view == "BMC Boundary":
+
+        if bmc_geojson:
+
+            # Create an empty layer just to display boundary.
+            if PYDECK_AVAILABLE:
+
+                bounds = _geojson_bounds(
+                    bmc_geojson
+                )
+
+                if bounds:
+
+                    min_lon, min_lat, max_lon, max_lat = bounds
+
+                    view_state = pdk.ViewState(
+                        longitude=(
+                            min_lon + max_lon
+                        )
+                        / 2,
+                        latitude=(
+                            min_lat + max_lat
+                        )
+                        / 2,
+                        zoom=10.4,
+                    )
+
+                else:
+
+                    view_state = pdk.ViewState(
+                        longitude=72.8777,
+                        latitude=19.0760,
+                        zoom=10.5,
+                    )
+
+                boundary_layer = pdk.Layer(
+                    "GeoJsonLayer",
+                    data=bmc_geojson,
+                    pickable=True,
+                    stroked=True,
+                    filled=False,
+                    line_width_min_pixels=2,
+                    get_line_color=[
+                        255,
+                        255,
+                        255,
+                        230,
+                    ],
+                )
+
+                boundary_deck = pdk.Deck(
+                    map_style=BMC_MAP_STYLE,
+                    initial_view_state=view_state,
+                    layers=[
+                        boundary_layer
+                    ],
+                    tooltip={
+                        "html": """
+                        <b>BMC Ward Boundary</b>
+                        """
+                    },
+                )
+
+                st.pydeck_chart(
+                    boundary_deck,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.warning(
+                    "PyDeck is not installed. BMC boundary map cannot be displayed."
+                )
+
+        else:
+
+            st.warning(
+                "BMC ward boundary data could not be loaded."
+            )
+
+    else:
+
+        if PYDECK_AVAILABLE:
+
+            deck = _build_map(
+                display_cluster_df,
+                show_labels=show_labels,
                 ward_geojson=bmc_geojson,
-                selected_disease=(
-                    selected_disease
-                    or "All Diseases"
-                ),
-                cluster_size=cluster_size,
+                map_view=map_view,
+            )
+
+            if deck:
+
+                st.pydeck_chart(
+                    deck,
+                    use_container_width=True,
+                )
+
+            else:
+
+                st.warning(
+                    "Map could not be generated."
+                )
+
+        else:
+
+            st.error(
+                "PyDeck is not installed. Please install pydeck."
+            )
+
+    # --------------------------------------------------------
+    # Map interpretation
+    # --------------------------------------------------------
+
+    if map_view == "Overall":
+
+        st.caption(
+            "Overall view displays geographic clusters across all mapped records."
+        )
+
+    elif map_view == "Ward-wise":
+
+        st.caption(
+            "Ward-wise view displays geographic clusters together with BMC ward boundaries."
+        )
+
+    elif map_view == "Top Hotspots":
+
+        st.caption(
+            f"Top {top_n} geographic clusters by mapped case count are displayed."
+        )
+
+    elif map_view == "BMC Boundary":
+
+        st.caption(
+            "BMC Boundary view displays the administrative ward reference map."
+        )
+
+    # --------------------------------------------------------
+    # Displayed map download
+    # --------------------------------------------------------
+
+    if map_view != "BMC Boundary":
+
+        st.markdown(
+            "### 🖼️ Download Displayed Map"
+        )
+
+        display_disease_name = (
+            local_disease
+            if local_disease != "All Diseases"
+            else "All Diseases"
+        )
+
+        png_bytes, displayed_pdf_bytes = (
+            _create_displayed_map_files(
+                cluster_df=display_cluster_df,
+                disease_name=display_disease_name,
+                cluster_size_m=cluster_size_m,
+                ward_geojson=bmc_geojson,
+                map_view=map_view,
+                show_labels=show_labels,
             )
         )
 
@@ -1778,248 +2341,266 @@ def render_map(
 
         with d1:
 
-            if png_data:
+            if png_bytes:
 
                 st.download_button(
-                    "🖼️ Download Displayed Map PNG",
-                    data=png_data,
+                    label="🖼️ Download Displayed Map PNG",
+                    data=png_bytes,
                     file_name=(
-                        "geographic_hotspot_displayed_map.png"
+                        "geographic_hotspot_map.png"
                     ),
                     mime="image/png",
-                    use_container_width=True,
                     key="phase6_displayed_map_png",
                 )
 
         with d2:
 
-            if displayed_pdf_data:
+            if displayed_pdf_bytes:
 
                 st.download_button(
-                    "📕 Download Displayed Map PDF",
-                    data=displayed_pdf_data,
+                    label="📕 Download Displayed Map PDF",
+                    data=displayed_pdf_bytes,
                     file_name=(
-                        "geographic_hotspot_displayed_map.pdf"
+                        "geographic_hotspot_map.pdf"
                     ),
                     mime="application/pdf",
-                    use_container_width=True,
                     key="phase6_displayed_map_pdf",
                 )
 
-    else:
-
-        st.info(
-            "Static map download requires matplotlib."
-        )
-
     # --------------------------------------------------------
-    # TABLE
+    # Hotspot summary
     # --------------------------------------------------------
 
-    st.markdown(
-        "### 🔥 Hotspot Summary"
-    )
-
-    hotspot_summary = (
-        cluster_df[
-            [
-                "Cluster ID",
-                "Cluster_Cases",
-                "Hotspot",
-                "Cluster_Latitude",
-                "Cluster_Longitude",
-            ]
-        ]
-        .sort_values(
-            "Cluster_Cases",
-            ascending=False,
-        )
-        .reset_index(drop=True)
-    )
-
-    hotspot_summary.index = (
-        hotspot_summary.index + 1
-    )
-
-    st.dataframe(
-        hotspot_summary,
-        use_container_width=True,
-        height=350,
-    )
-
-    # --------------------------------------------------------
-    # DOWNLOADS
-    # --------------------------------------------------------
-
-    st.markdown(
-        "### ⬇️ Download Hotspot Data"
-    )
-
-    download_df = _prepare_download_dataframe(
-        working,
-        cols,
-    )
-
-    excel_buffer = io.BytesIO()
-
-    try:
-
-        with pd.ExcelWriter(
-            excel_buffer,
-            engine="openpyxl",
-        ) as writer:
-
-            download_df.to_excel(
-                writer,
-                index=False,
-                sheet_name="Hotspot Data",
-            )
-
-            hotspot_summary.to_excel(
-                writer,
-                index=False,
-                sheet_name="Hotspot Summary",
-            )
-
-        excel_buffer.seek(0)
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-
-            st.download_button(
-                "📊 Download Hotspot Excel",
-                data=excel_buffer.getvalue(),
-                file_name=(
-                    "geographic_hotspot_data.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-                use_container_width=True,
-                key="phase6_hotspot_excel",
-            )
-
-        with col2:
-
-            csv_data = download_df.to_csv(
-                index=False
-            ).encode("utf-8")
-
-            st.download_button(
-                "📄 Download Hotspot CSV",
-                data=csv_data,
-                file_name=(
-                    "geographic_hotspot_data.csv"
-                ),
-                mime="text/csv",
-                use_container_width=True,
-                key="phase6_hotspot_csv",
-            )
-
-        with col3:
-
-            if filter_info is None:
-                filter_info = {}
-
-            pdf_data = _create_pdf(
-                cluster_df,
-                selected_disease or "All",
-                filter_info,
-            )
-
-            if pdf_data:
-
-                st.download_button(
-                    "📕 Download Hotspot Report PDF",
-                    data=pdf_data,
-                    file_name=(
-                        "geographic_hotspot_report.pdf"
-                    ),
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="phase6_hotspot_report_pdf",
-                )
-
-    except Exception as e:
-
-        st.warning(
-            f"Download preparation issue: {e}"
-        )
-
-    # --------------------------------------------------------
-    # WARD SUMMARY
-    # --------------------------------------------------------
-
-    if cols["ward"]:
+    if map_view != "BMC Boundary":
 
         st.markdown(
-            "### 🏢 Ward-wise Geographic Summary"
+            "### 🔥 Hotspot Summary"
         )
 
-        ward_summary = (
-            working.groupby(
-                cols["ward"],
-                dropna=False,
+        hotspot_summary = (
+            cluster_df[
+                [
+                    "Cluster_ID",
+                    "Cluster_Cases",
+                    "Hotspot_Classification",
+                    "Cluster_Ward",
+                    "Cluster_Facility",
+                ]
+            ]
+            .sort_values(
+                "Cluster_Cases",
+                ascending=False,
             )
-            .agg(
-                Cases=(
-                    "Cluster ID",
-                    "size",
-                ),
-                Geographic_Clusters=(
-                    "Cluster ID",
-                    "nunique",
-                ),
-            )
-            .reset_index()
+            .copy()
         )
 
-        ward_summary = ward_summary.sort_values(
-            "Cases",
-            ascending=False,
+        hotspot_summary = (
+            hotspot_summary.rename(
+                columns={
+                    "Cluster_ID": "Cluster ID",
+                    "Cluster_Cases": "Cases",
+                    "Hotspot_Classification": "Hotspot",
+                    "Cluster_Ward": "Ward",
+                    "Cluster_Facility": "Facility",
+                }
+            )
         )
+
+        st.dataframe(
+            hotspot_summary,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # --------------------------------------------------------
+    # Ward-wise geographic summary
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 🏘️ Ward-wise Geographic Summary"
+    )
+
+    ward_summary = _create_ward_summary(
+        cluster_df,
+        columns,
+    )
+
+    if not ward_summary.empty:
 
         st.dataframe(
             ward_summary,
             use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.info(
+            "Ward information is not available for geographic summary."
         )
 
     # --------------------------------------------------------
-    # FACILITY SUMMARY
+    # Facility-wise geographic summary
     # --------------------------------------------------------
 
-    if cols["facility"]:
+    st.markdown(
+        "### 🏥 Facility-wise Geographic Summary"
+    )
 
-        st.markdown(
-            "### 🏥 Facility-wise Geographic Summary"
-        )
+    st.caption(
+        "This summary describes geographic distribution of mapped records associated with each facility. Facility locations are not plotted because facility coordinates are not being used in this module."
+    )
 
-        facility_summary = (
-            working.groupby(
-                cols["facility"],
-                dropna=False,
-            )
-            .agg(
-                Cases=(
-                    "Cluster ID",
-                    "size",
-                ),
-                Geographic_Clusters=(
-                    "Cluster ID",
-                    "nunique",
-                ),
-            )
-            .reset_index()
-        )
+    facility_summary = _create_facility_summary(
+        cluster_df,
+        columns,
+    )
 
-        facility_summary = facility_summary.sort_values(
-            "Cases",
-            ascending=False,
-        )
+    if not facility_summary.empty:
 
         st.dataframe(
             facility_summary,
             use_container_width=True,
+            hide_index=True,
         )
+
+    else:
+
+        st.info(
+            "Facility information is not available for geographic summary."
+        )
+
+    # --------------------------------------------------------
+    # Downloads
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### 📥 Download Geographic Data"
+    )
+
+    download_df = _prepare_download_dataframe(
+        clustered_df,
+        columns,
+    )
+
+    if not download_df.empty:
+
+        # ----------------------------------------------------
+        # Excel
+        # ----------------------------------------------------
+
+        excel_buffer = io.BytesIO()
+
+        try:
+
+            with pd.ExcelWriter(
+                excel_buffer,
+                engine="openpyxl",
+            ) as writer:
+
+                download_df.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Geographic Data",
+                )
+
+                hotspot_summary.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Hotspot Summary",
+                )
+
+                if not ward_summary.empty:
+
+                    ward_summary.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name="Ward Summary",
+                    )
+
+                if not facility_summary.empty:
+
+                    facility_summary.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name="Facility Summary",
+                    )
+
+            excel_buffer.seek(0)
+
+            excel_bytes = (
+                excel_buffer.getvalue()
+            )
+
+        except Exception:
+
+            excel_bytes = None
+
+        # ----------------------------------------------------
+        # CSV
+        # ----------------------------------------------------
+
+        csv_bytes = download_df.to_csv(
+            index=False
+        ).encode(
+            "utf-8-sig"
+        )
+
+        # ----------------------------------------------------
+        # PDF report
+        # ----------------------------------------------------
+
+        report_pdf_bytes = _create_pdf(
+            cluster_df=cluster_df,
+            disease_name=(
+                local_disease
+                if local_disease != "All Diseases"
+                else "All Diseases"
+            ),
+            filter_info=filter_info,
+            map_view=map_view,
+        )
+
+        d1, d2, d3 = st.columns(3)
+
+        with d1:
+
+            if excel_bytes:
+
+                st.download_button(
+                    label="📊 Download Excel",
+                    data=excel_bytes,
+                    file_name=(
+                        "geographic_analysis.xlsx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    ),
+                    key="phase6_geo_excel",
+                )
+
+        with d2:
+
+            st.download_button(
+                label="📄 Download CSV",
+                data=csv_bytes,
+                file_name=(
+                    "geographic_analysis.csv"
+                ),
+                mime="text/csv",
+                key="phase6_geo_csv",
+            )
+
+        with d3:
+
+            if report_pdf_bytes:
+
+                st.download_button(
+                    label="📕 Download Geographic Report PDF",
+                    data=report_pdf_bytes,
+                    file_name=(
+                        "geographic_analysis_report.pdf"
+                    ),
+                    mime="application/pdf",
+                    key="phase6_geo_report_pdf",
+                )
