@@ -1403,7 +1403,10 @@ def calculate_view(
 ):
     if (
         case_points is None
-        or not isinstance(case_points, pd.DataFrame)
+        or not isinstance(
+            case_points,
+            pd.DataFrame,
+        )
         or case_points.empty
     ):
         return (
@@ -1419,9 +1422,34 @@ def calculate_view(
             10.3,
         )
 
+    # --------------------------------------------------------
+    # SUPPORT BOTH RAW CASE DATA AND HOTSPOT DATA
+    # --------------------------------------------------------
+
+    if (
+        LAT_COL in case_points.columns
+        and LON_COL in case_points.columns
+    ):
+        lat_column = LAT_COL
+        lon_column = LON_COL
+
+    elif (
+        "Latitude" in case_points.columns
+        and "Longitude" in case_points.columns
+    ):
+        lat_column = "Latitude"
+        lon_column = "Longitude"
+
+    else:
+        return (
+            19.0760,
+            72.8777,
+            10.3,
+        )
+
     lat_values = (
         pd.to_numeric(
-            case_points[LAT_COL],
+            case_points[lat_column],
             errors="coerce",
         )
         .dropna()
@@ -1430,7 +1458,7 @@ def calculate_view(
 
     lon_values = (
         pd.to_numeric(
-            case_points[LON_COL],
+            case_points[lon_column],
             errors="coerce",
         )
         .dropna()
