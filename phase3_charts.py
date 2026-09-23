@@ -74,7 +74,12 @@ def _normalize_month(value):
     if text in {"july", "jul", "7", "07"}:
         return "Jul"
 
-    if text in {"august", "aug", "8", "08"}:
+    if text in {
+        "august",
+        "aug",
+        "8",
+        "08",
+    }:
         return "Aug"
 
     if text in {
@@ -98,13 +103,233 @@ def _normalize_month(value):
     return text
 
 
+# ============================================================
+# YEAR NORMALIZATION
+# ============================================================
+
+def _normalize_year(value):
+    """
+    Convert different year formats into a numeric year.
+    """
+
+    if value is None:
+        return ""
+
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        return ""
+
+    text = str(value).strip()
+
+    if not text:
+        return ""
+
+    # Direct numeric year
+    try:
+        numeric = float(text)
+
+        if numeric.is_integer():
+
+            year = int(numeric)
+
+            if 1900 <= year <= 2100:
+                return year
+
+    except Exception:
+        pass
+
+    # Date-like year values
+    try:
+        parsed = pd.to_datetime(
+            value,
+            errors="coerce",
+        )
+
+        if not pd.isna(parsed):
+            year = int(parsed.year)
+
+            if 1900 <= year <= 2100:
+                return year
+
+    except Exception:
+        pass
+
+    return ""
+
+
+# ============================================================
+# YEAR-MONTH TIMELINE
+# ============================================================
+
+def _build_year_month_timeline(
+    data,
+    year_column="Year",
+    month_column="Month",
+    value_column="Records",
+):
+    """
+    Create a continuous chronological Year-Month timeline.
+
+    Example:
+
+    Jan-23
+    Feb-23
+    ...
+    Dec-23
+    Jan-24
+    Feb-24
+    ...
+    Dec-24
+
+    Missing months are retained with zero records.
+    """
+
+    if (
+        data is None
+        or data.empty
+        or year_column not in data.columns
+        or month_column not in data.columns
+        or value_column not in data.columns
+    ):
+        return pd.DataFrame()
+
+    temp = data.copy()
+
+    temp["Month"] = (
+        temp[month_column]
+        .apply(_normalize_month)
+    )
+
+    temp["Year"] = (
+        temp[year_column]
+        .apply(_normalize_year)
+    )
+
+    temp["Year"] = pd.to_numeric(
+        temp["Year"],
+        errors="coerce",
+    )
+
+    temp = temp[
+        temp["Month"].isin(
+            CALENDAR_MONTHS
+        )
+        & temp["Year"].notna()
+    ].copy()
+
+    if temp.empty:
+        return pd.DataFrame()
+
+    temp["Year"] = (
+        temp["Year"]
+        .astype(int)
+    )
+
+    temp[value_column] = pd.to_numeric(
+        temp[value_column],
+        errors="coerce",
+    ).fillna(0)
+
+    # --------------------------------------------------------
+    # Aggregate existing Year-Month combinations
+    # --------------------------------------------------------
+
+    temp = (
+        temp
+        .groupby(
+            [
+                "Year",
+                "Month",
+            ],
+            as_index=False,
+        )[value_column]
+        .sum()
+    )
+
+    # --------------------------------------------------------
+    # Get all years available after Global Dashboard Filters
+    # --------------------------------------------------------
+
+    available_years = sorted(
+        temp["Year"]
+        .unique()
+        .tolist()
+    )
+
+    if not available_years:
+        return pd.DataFrame()
+
+    # --------------------------------------------------------
+    # Build complete Year × Month structure
+    # --------------------------------------------------------
+
+    full_index = pd.MultiIndex.from_product(
+        [
+            available_years,
+            CALENDAR_MONTHS,
+        ],
+        names=[
+            "Year",
+            "Month",
+        ],
+    )
+
+    temp = (
+        temp
+        .set_index(
+            [
+                "Year",
+                "Month",
+            ]
+        )
+        .reindex(
+            full_index,
+            fill_value=0,
+        )
+        .reset_index()
+    )
+
+    temp[value_column] = (
+        pd.to_numeric(
+            temp[value_column],
+            errors="coerce",
+        )
+        .fillna(0)
+        .astype(int)
+    )
+
+    # --------------------------------------------------------
+    # Create visible Month-Year label
+    # --------------------------------------------------------
+
+    temp["Month-Year"] = temp.apply(
+        lambda row:
+        f"{row['Month']}-{str(int(row['Year']))[-2:]}",
+        axis=1,
+    )
+
+    return temp[
+        [
+            "Year",
+            "Month",
+            "Month-Year",
+            value_column,
+        ]
+    ]
+
+
+# ============================================================
+# OLD MONTH ORDER HELPERS
+# ============================================================
+
 def _month_sort_key(month):
     """
     Create an invisible sorting prefix.
 
-    The prefix is not visually noticeable in the chart,
-    but it forces the chart library to sort months
-    from January to December.
+    Used only as fallback when Year information
+    is not available.
     """
 
     if month not in CALENDAR_MONTHS:
@@ -114,9 +339,9 @@ def _month_sort_key(month):
         CALENDAR_MONTHS.index(month) + 1
     )
 
-    # Zero-width space repeated according to month number.
-    # This remains visually invisible.
-    return ("\u200b" * month_number) + month
+    return (
+        "\u200b" * month_number
+    ) + month
 
 
 def _apply_hidden_month_order(series):
@@ -137,10 +362,13 @@ def _apply_hidden_month_order(series):
         month = str(value)
 
         if month in CALENDAR_MONTHS:
+
             new_index.append(
                 _month_sort_key(month)
             )
+
         else:
+
             new_index.append(month)
 
     result.index = new_index
@@ -152,6 +380,8 @@ def _apply_hidden_month_order_dataframe(df):
     """
     Apply invisible chronological ordering to the Month
     index of a DataFrame.
+
+    Used only when Year information is unavailable.
     """
 
     if df is None or df.empty:
@@ -166,10 +396,13 @@ def _apply_hidden_month_order_dataframe(df):
         month = str(value)
 
         if month in CALENDAR_MONTHS:
+
             new_index.append(
                 _month_sort_key(month)
             )
+
         else:
+
             new_index.append(month)
 
     result.index = new_index
@@ -197,7 +430,11 @@ def _remove_hidden_month_prefix(value):
 
 def _sort_ward_dataframe(df, column="Ward"):
 
-    if df is None or df.empty or column not in df.columns:
+    if (
+        df is None
+        or df.empty
+        or column not in df.columns
+    ):
         return df
 
     result = df.copy()
@@ -232,7 +469,9 @@ def _sort_ward_dataframe(df, column="Ward"):
 
 def render_charts(df):
 
-    st.subheader("📈 Charts & Trends")
+    st.subheader(
+        "📈 Charts & Trends"
+    )
 
     if df is None or df.empty:
 
@@ -246,6 +485,25 @@ def render_charts(df):
         "Month-wise, disease-wise, facility-wise and ward-wise "
         "analysis based on the currently selected Global Dashboard Filters."
     )
+
+    # ========================================================
+    # YEAR COLUMN DETECTION
+    # ========================================================
+
+    year_column = None
+
+    possible_year_columns = [
+        "Year",
+        "Reporting Year",
+        "Year of Reporting",
+    ]
+
+    for column in possible_year_columns:
+
+        if column in df.columns:
+
+            year_column = column
+            break
 
     # ========================================================
     # 1. MONTH-WISE PROGRAMME TREND
@@ -271,97 +529,166 @@ def render_charts(df):
 
         if not month_series.empty:
 
-            normalized_months = (
-                month_series.apply(
-                    _normalize_month
-                )
-            )
-
-            month_counts = (
-                normalized_months
-                .value_counts()
-                .rename_axis("Month")
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            # Keep only valid calendar months
-            month_counts = month_counts[
-                month_counts["Month"].isin(
-                    CALENDAR_MONTHS
-                )
-            ].copy()
-
             # ------------------------------------------------
-            # CREATE MONTH ORDER
+            # YEAR-WISE TIMELINE
             # ------------------------------------------------
 
-            month_counts["_Month_Order"] = (
-                month_counts["Month"]
-                .map(
+            use_year_month = False
+
+            if year_column is not None:
+
+                timeline_source = pd.DataFrame(
                     {
-                        month: index
-                        for index, month
-                        in enumerate(
-                            CALENDAR_MONTHS,
-                            start=1,
-                        )
+                        "Year": df[
+                            year_column
+                        ],
+                        "Month": df[
+                            "Month"
+                        ],
                     }
                 )
-            )
 
-            month_counts = (
-                month_counts
-                .sort_values(
-                    "_Month_Order"
+                timeline_source["Records"] = 1
+
+                year_month_data = (
+                    _build_year_month_timeline(
+                        timeline_source,
+                        year_column="Year",
+                        month_column="Month",
+                        value_column="Records",
+                    )
                 )
-                .drop(
-                    columns="_Month_Order"
-                )
-                .reset_index(
-                    drop=True
-                )
-            )
+
+                if not year_month_data.empty:
+
+                    use_year_month = True
+
+                    chart_series = (
+                        year_month_data
+                        .set_index(
+                            "Month-Year"
+                        )["Records"]
+                    )
+
+                    render_bar_chart(
+                        chart_series,
+                        use_container_width=True,
+                    )
+
+                    display_month_counts = (
+                        year_month_data[
+                            [
+                                "Month-Year",
+                                "Records",
+                            ]
+                        ].copy()
+                    )
+
+                    st.dataframe(
+                        display_month_counts,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
             # ------------------------------------------------
-            # HIDDEN ORDER FOR CHART HELPER
+            # FALLBACK: MONTH-ONLY ANALYSIS
             # ------------------------------------------------
 
-            chart_series = (
-                month_counts
-                .set_index("Month")["Records"]
-            )
+            if not use_year_month:
 
-            chart_series = (
-                _apply_hidden_month_order(
-                    chart_series
+                normalized_months = (
+                    month_series.apply(
+                        _normalize_month
+                    )
                 )
-            )
 
-            render_bar_chart(
-                chart_series,
-                use_container_width=True,
-            )
+                month_counts = (
+                    normalized_months
+                    .value_counts()
+                    .rename_axis("Month")
+                    .reset_index(
+                        name="Records"
+                    )
+                )
 
-            # ------------------------------------------------
-            # DISPLAY TABLE WITHOUT HIDDEN CHARACTERS
-            # ------------------------------------------------
+                # Keep only valid calendar months
+                month_counts = month_counts[
+                    month_counts["Month"].isin(
+                        CALENDAR_MONTHS
+                    )
+                ].copy()
 
-            display_month_counts = (
-                month_counts.copy()
-            )
+                # ------------------------------------------------
+                # CREATE MONTH ORDER
+                # ------------------------------------------------
 
-            display_month_counts["Month"] = (
-                display_month_counts["Month"]
-                .astype(str)
-            )
+                month_counts["_Month_Order"] = (
+                    month_counts["Month"]
+                    .map(
+                        {
+                            month: index
+                            for index, month
+                            in enumerate(
+                                CALENDAR_MONTHS,
+                                start=1,
+                            )
+                        }
+                    )
+                )
 
-            st.dataframe(
-                display_month_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
+                month_counts = (
+                    month_counts
+                    .sort_values(
+                        "_Month_Order"
+                    )
+                    .drop(
+                        columns="_Month_Order"
+                    )
+                    .reset_index(
+                        drop=True
+                    )
+                )
+
+                # ------------------------------------------------
+                # HIDDEN ORDER FOR CHART HELPER
+                # ------------------------------------------------
+
+                chart_series = (
+                    month_counts
+                    .set_index(
+                        "Month"
+                    )["Records"]
+                )
+
+                chart_series = (
+                    _apply_hidden_month_order(
+                        chart_series
+                    )
+                )
+
+                render_bar_chart(
+                    chart_series,
+                    use_container_width=True,
+                )
+
+                # ------------------------------------------------
+                # DISPLAY TABLE WITHOUT HIDDEN CHARACTERS
+                # ------------------------------------------------
+
+                display_month_counts = (
+                    month_counts.copy()
+                )
+
+                display_month_counts["Month"] = (
+                    display_month_counts["Month"]
+                    .astype(str)
+                )
+
+                st.dataframe(
+                    display_month_counts,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         else:
 
@@ -390,6 +717,11 @@ def render_charts(df):
                 "Month",
                 "Disease",
             ]
+            + (
+                [year_column]
+                if year_column is not None
+                else []
+            )
         ].copy()
 
         temp["Month"] = _clean_series(
@@ -428,70 +760,308 @@ def render_charts(df):
 
             if not temp.empty:
 
-                cross_tab = pd.crosstab(
-                    temp["Month"],
-                    temp["Disease"],
-                )
+                # =================================================
+                # YEAR-WISE DISEASE TIMELINE
+                # =================================================
 
-                # ------------------------------------------------
-                # FORCE COMPLETE JAN -> DEC STRUCTURE
-                # ------------------------------------------------
+                use_year_month_disease = False
 
-                cross_tab = (
-                    cross_tab
-                    .reindex(
-                        CALENDAR_MONTHS,
-                        fill_value=0,
+                if year_column is not None:
+
+                    temp["Year"] = (
+                        temp[
+                            year_column
+                        ].apply(
+                            _normalize_year
+                        )
                     )
-                )
 
-                # ------------------------------------------------
-                # SELECT TOP 10 DISEASES
-                # ------------------------------------------------
-
-                disease_totals = (
-                    cross_tab
-                    .sum()
-                    .sort_values(
-                        ascending=False
+                    temp["Year"] = pd.to_numeric(
+                        temp["Year"],
+                        errors="coerce",
                     )
-                )
 
-                selected_diseases = (
-                    disease_totals
-                    .head(10)
-                    .index
-                    .tolist()
-                )
+                    valid_year_temp = temp[
+                        temp["Year"].notna()
+                    ].copy()
 
-                chart_data = (
-                    cross_tab[
-                        selected_diseases
-                    ]
-                )
+                    if not valid_year_temp.empty:
 
-                # ------------------------------------------------
-                # HIDDEN CHRONOLOGICAL ORDER
-                # ------------------------------------------------
+                        valid_year_temp["Year"] = (
+                            valid_year_temp[
+                                "Year"
+                            ].astype(int)
+                        )
 
-                chart_data = (
-                    _apply_hidden_month_order_dataframe(
-                        chart_data
+                        # ------------------------------------------------
+                        # Identify top 10 diseases across all selected data
+                        # ------------------------------------------------
+
+                        disease_totals = (
+                            valid_year_temp[
+                                "Disease"
+                            ]
+                            .value_counts()
+                            .sort_values(
+                                ascending=False
+                            )
+                        )
+
+                        selected_diseases = (
+                            disease_totals
+                            .head(10)
+                            .index
+                            .tolist()
+                        )
+
+                        if selected_diseases:
+
+                            selected_temp = (
+                                valid_year_temp[
+                                    valid_year_temp[
+                                        "Disease"
+                                    ].isin(
+                                        selected_diseases
+                                    )
+                                ].copy()
+                            )
+
+                            # ------------------------------------------------
+                            # Count Year-Month-Disease
+                            # ------------------------------------------------
+
+                            disease_month = (
+                                selected_temp
+                                .groupby(
+                                    [
+                                        "Year",
+                                        "Month",
+                                        "Disease",
+                                    ]
+                                )
+                                .size()
+                                .rename(
+                                    "Records"
+                                )
+                                .reset_index()
+                            )
+
+                            # ------------------------------------------------
+                            # Complete Year × Month × Disease structure
+                            # ------------------------------------------------
+
+                            available_years = sorted(
+                                selected_temp[
+                                    "Year"
+                                ]
+                                .unique()
+                                .tolist()
+                            )
+
+                            full_index = (
+                                pd.MultiIndex.from_product(
+                                    [
+                                        available_years,
+                                        CALENDAR_MONTHS,
+                                        selected_diseases,
+                                    ],
+                                    names=[
+                                        "Year",
+                                        "Month",
+                                        "Disease",
+                                    ],
+                                )
+                            )
+
+                            disease_month = (
+                                disease_month
+                                .set_index(
+                                    [
+                                        "Year",
+                                        "Month",
+                                        "Disease",
+                                    ]
+                                )
+                                .reindex(
+                                    full_index,
+                                    fill_value=0,
+                                )
+                                .reset_index()
+                            )
+
+                            disease_month["Records"] = (
+                                pd.to_numeric(
+                                    disease_month[
+                                        "Records"
+                                    ],
+                                    errors="coerce",
+                                )
+                                .fillna(0)
+                                .astype(int)
+                            )
+
+                            # ------------------------------------------------
+                            # Create chronological Month-Year label
+                            # ------------------------------------------------
+
+                            disease_month[
+                                "Month-Year"
+                            ] = disease_month.apply(
+                                lambda row:
+                                f"{row['Month']}-{str(int(row['Year']))[-2:]}",
+                                axis=1,
+                            )
+
+                            # ------------------------------------------------
+                            # Pivot for existing line chart helper
+                            # ------------------------------------------------
+
+                            chart_data = (
+                                disease_month
+                                .pivot(
+                                    index="Month-Year",
+                                    columns="Disease",
+                                    values="Records",
+                                )
+                                .fillna(0)
+                            )
+
+                            # ------------------------------------------------
+                            # Force exact chronological order
+                            # ------------------------------------------------
+
+                            timeline_order = (
+                                disease_month[
+                                    [
+                                        "Year",
+                                        "Month",
+                                        "Month-Year",
+                                    ]
+                                ]
+                                .drop_duplicates()
+                                .sort_values(
+                                    [
+                                        "Year",
+                                        "Month",
+                                    ],
+                                    key=lambda column:
+                                    column.map(
+                                        {
+                                            **{
+                                                month: index
+                                                for index, month
+                                                in enumerate(
+                                                    CALENDAR_MONTHS,
+                                                    start=1,
+                                                )
+                                            }
+                                        }
+                                    )
+                                    if column.name == "Month"
+                                    else column,
+                                )[
+                                    "Month-Year"
+                                ]
+                                .tolist()
+                            )
+
+                            # ------------------------------------------------
+                            # Reorder chart data
+                            # ------------------------------------------------
+
+                            chart_data = (
+                                chart_data
+                                .reindex(
+                                    timeline_order,
+                                    fill_value=0,
+                                )
+                            )
+
+                            render_line_chart(
+                                chart_data,
+                                use_container_width=True,
+                                height=450,
+                            )
+
+                            st.caption(
+                                "Chart displays the top 10 diseases by total "
+                                "records within the selected filters. "
+                                "Months are shown chronologically by year "
+                                "from January to December."
+                            )
+
+                            use_year_month_disease = True
+
+                # =================================================
+                # FALLBACK: MONTH-ONLY DISEASE ANALYSIS
+                # =================================================
+
+                if not use_year_month_disease:
+
+                    cross_tab = pd.crosstab(
+                        temp["Month"],
+                        temp["Disease"],
                     )
-                )
 
-                render_line_chart(
-                    chart_data,
-                    use_container_width=True,
-                    height=450,
-                )
+                    # ------------------------------------------------
+                    # FORCE COMPLETE JAN -> DEC STRUCTURE
+                    # ------------------------------------------------
 
-                st.caption(
-                    "Chart displays the top 10 diseases by total "
-                    "records within the selected filters. "
-                    "Months are shown in calendar order from "
-                    "January to December."
-                )
+                    cross_tab = (
+                        cross_tab
+                        .reindex(
+                            CALENDAR_MONTHS,
+                            fill_value=0,
+                        )
+                    )
+
+                    # ------------------------------------------------
+                    # SELECT TOP 10 DISEASES
+                    # ------------------------------------------------
+
+                    disease_totals = (
+                        cross_tab
+                        .sum()
+                        .sort_values(
+                            ascending=False
+                        )
+                    )
+
+                    selected_diseases = (
+                        disease_totals
+                        .head(10)
+                        .index
+                        .tolist()
+                    )
+
+                    chart_data = (
+                        cross_tab[
+                            selected_diseases
+                        ]
+                    )
+
+                    # ------------------------------------------------
+                    # HIDDEN CHRONOLOGICAL ORDER
+                    # ------------------------------------------------
+
+                    chart_data = (
+                        _apply_hidden_month_order_dataframe(
+                            chart_data
+                        )
+                    )
+
+                    render_line_chart(
+                        chart_data,
+                        use_container_width=True,
+                        height=450,
+                    )
+
+                    st.caption(
+                        "Chart displays the top 10 diseases by total "
+                        "records within the selected filters. "
+                        "Months are shown in calendar order from "
+                        "January to December."
+                    )
 
             else:
 
