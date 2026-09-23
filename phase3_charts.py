@@ -1,4 +1,4 @@
-```python
+
 import streamlit as st
 import pandas as pd
 
@@ -956,4 +956,4 @@ def render_charts(df):
                 "Wards",
                 "0",
             )
-```
+
