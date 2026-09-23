@@ -1,3 +1,4 @@
+
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -342,11 +343,164 @@ def _month_order_value(value):
         return 999
 
 
+def _normalise_year(value):
+    """
+    Convert different year formats into
+    a four-digit year where possible.
+    """
+
+    if isinstance(value, pd.Series):
+
+        return value.apply(
+            _normalise_year
+        )
+
+    if value is None:
+        return ""
+
+    try:
+
+        if pd.isna(value):
+            return ""
+
+    except Exception:
+        return ""
+
+    text = str(value).strip()
+
+    if not text:
+        return ""
+
+    # Direct numeric year
+    try:
+
+        numeric = float(text)
+
+        if numeric.is_integer():
+
+            numeric = int(numeric)
+
+            if 1900 <= numeric <= 2100:
+                return str(numeric)
+
+    except Exception:
+        pass
+
+    # Date-like year
+    try:
+
+        parsed = pd.to_datetime(
+            value,
+            errors="coerce",
+        )
+
+        if not pd.isna(parsed):
+
+            year = int(
+                parsed.year
+            )
+
+            if 1900 <= year <= 2100:
+                return str(year)
+
+    except Exception:
+        pass
+
+    # Handle text containing a four-digit year
+    for part in text.replace(
+        "/",
+        " ",
+    ).replace(
+        "-",
+        " ",
+    ).split():
+
+        if (
+            part.isdigit()
+            and len(part) == 4
+        ):
+
+            numeric = int(part)
+
+            if 1900 <= numeric <= 2100:
+                return str(numeric)
+
+    return ""
+
+
+def _month_year_label(
+    month,
+    year,
+):
+    """
+    Create compact Month-Year label such as Jan-23.
+    """
+
+    month = _normalise_month(
+        month
+    )
+
+    year = _normalise_year(
+        year
+    )
+
+    if (
+        month in MONTH_ORDER
+        and year
+    ):
+
+        return (
+            f"{month}-{year[-2:]}"
+        )
+
+    return ""
+
+
+def _month_year_order_value(
+    month,
+    year,
+):
+    """
+    Return chronological order value for
+    a Month-Year combination.
+    """
+
+    month = _normalise_month(
+        month
+    )
+
+    year = _normalise_year(
+        year
+    )
+
+    if (
+        month not in MONTH_ORDER
+        or not year
+    ):
+
+        return 999999
+
+    try:
+
+        return (
+            int(year) * 100
+            + MONTH_ORDER.index(month)
+            + 1
+        )
+
+    except Exception:
+
+        return 999999
+
+
 def _ordered_month_chart_data(
     month_df
 ):
     """
     Prepare explicitly ordered Jan-Dec data.
+
+    Kept for compatibility with existing
+    month-only logic.
     """
 
     if (
@@ -407,6 +561,161 @@ def _ordered_month_chart_data(
     return temp[
         [
             "Month",
+            "Records",
+        ]
+    ].copy()
+
+
+def _ordered_month_year_chart_data(
+    month_df
+):
+    """
+    Prepare chronological Month-Year data.
+
+    Output example:
+    Jan-23, Feb-23, ..., Dec-23,
+    Jan-24, Feb-24, ..., Dec-24
+    """
+
+    if (
+        month_df is None
+        or month_df.empty
+        or "Month" not in month_df.columns
+        or "Year" not in month_df.columns
+        or "Records" not in month_df.columns
+    ):
+
+        return pd.DataFrame()
+
+    temp = month_df.copy()
+
+    temp["Month"] = (
+        temp["Month"]
+        .map(_normalise_month)
+    )
+
+    temp["Year"] = (
+        temp["Year"]
+        .map(_normalise_year)
+    )
+
+    temp = temp[
+        temp["Month"].isin(
+            MONTH_ORDER
+        )
+        & _valid_value_mask(
+            temp["Year"]
+        )
+    ].copy()
+
+    if temp.empty:
+        return pd.DataFrame()
+
+    # Combine duplicate Month-Year combinations
+    temp = (
+        temp
+        .groupby(
+            [
+                "Year",
+                "Month",
+            ],
+            as_index=False,
+        )["Records"]
+        .sum()
+    )
+
+    # --------------------------------------------------------
+    # Build complete monthly timeline for every available year
+    # --------------------------------------------------------
+
+    available_years = sorted(
+        temp["Year"]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist(),
+        key=lambda x: int(x),
+    )
+
+    complete_rows = []
+
+    for year in available_years:
+
+        for month in MONTH_ORDER:
+
+            matching = temp[
+                (
+                    temp["Year"]
+                    == year
+                )
+                & (
+                    temp["Month"]
+                    == month
+                )
+            ]
+
+            if matching.empty:
+
+                records = 0
+
+            else:
+
+                records = (
+                    matching["Records"]
+                    .sum()
+                )
+
+            complete_rows.append(
+                {
+                    "Year": year,
+                    "Month": month,
+                    "Records": records,
+                    "Month-Year": (
+                        _month_year_label(
+                            month,
+                            year,
+                        )
+                    ),
+                }
+            )
+
+    result = pd.DataFrame(
+        complete_rows
+    )
+
+    if result.empty:
+        return pd.DataFrame()
+
+    result["_Order"] = result.apply(
+        lambda row: (
+            _month_year_order_value(
+                row["Month"],
+                row["Year"],
+            )
+        ),
+        axis=1,
+    )
+
+    result = (
+        result
+        .sort_values(
+            "_Order",
+            ascending=True,
+            kind="stable",
+        )
+        .drop(
+            columns="_Order"
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+    return result[
+        [
+            "Year",
+            "Month",
+            "Month-Year",
             "Records",
         ]
     ].copy()
@@ -610,6 +919,8 @@ def _render_month_line_chart(
     """
     Render monthly line chart.
 
+    Supports dynamic Month-Year timeline.
+
     Data labels follow the global
     Show Data Labels switch.
     """
@@ -623,22 +934,53 @@ def _render_month_line_chart(
 
     plot_df = chart_data.copy()
 
-    plot_df["Month"] = pd.Categorical(
-        plot_df["Month"],
-        categories=MONTH_ORDER,
-        ordered=True,
-    )
+    # --------------------------------------------------------
+    # MONTH-YEAR MODE
+    # --------------------------------------------------------
 
-    plot_df = (
-        plot_df
-        .sort_values(
-            "Month",
-            kind="stable",
+    if (
+        "Month-Year" in plot_df.columns
+        and "Year" in plot_df.columns
+    ):
+
+        x_column = "Month-Year"
+
+        category_order = (
+            plot_df[
+                x_column
+            ]
+            .astype(str)
+            .tolist()
         )
-        .reset_index(
-            drop=True
+
+    else:
+
+        # ----------------------------------------------------
+        # EXISTING MONTH-ONLY MODE
+        # Kept as fallback so existing behaviour is preserved
+        # if Year is not available.
+        # ----------------------------------------------------
+
+        x_column = "Month"
+
+        plot_df["Month"] = pd.Categorical(
+            plot_df["Month"],
+            categories=MONTH_ORDER,
+            ordered=True,
         )
-    )
+
+        plot_df = (
+            plot_df
+            .sort_values(
+                "Month",
+                kind="stable",
+            )
+            .reset_index(
+                drop=True
+            )
+        )
+
+        category_order = MONTH_ORDER
 
     # --------------------------------------------------------
     # GLOBAL DATA LABEL CONTROL
@@ -655,13 +997,13 @@ def _render_month_line_chart(
 
         fig = px.line(
             plot_df,
-            x="Month",
+            x=x_column,
             y="Records",
             markers=True,
             text="Data Label",
             title=title,
             category_orders={
-                "Month": MONTH_ORDER
+                x_column: category_order
             },
         )
 
@@ -690,12 +1032,12 @@ def _render_month_line_chart(
 
         fig = px.line(
             plot_df,
-            x="Month",
+            x=x_column,
             y="Records",
             markers=True,
             title=title,
             category_orders={
-                "Month": MONTH_ORDER
+                x_column: category_order
             },
         )
 
@@ -716,7 +1058,7 @@ def _render_month_line_chart(
 
     fig.update_xaxes(
         categoryorder="array",
-        categoryarray=MONTH_ORDER,
+        categoryarray=category_order,
     )
 
     fig.update_yaxes(
@@ -752,6 +1094,8 @@ def _render_selected_item_chart(
     """
     Render selected laboratory item trend.
 
+    Supports dynamic Month-Year timeline.
+
     Data labels follow the global
     Show Data Labels switch.
     """
@@ -762,6 +1106,29 @@ def _render_selected_item_chart(
     ):
 
         return
+
+    # --------------------------------------------------------
+    # DETERMINE X-AXIS
+    # --------------------------------------------------------
+
+    if "Month-Year" in plot_df.columns:
+
+        x_column = "Month-Year"
+
+        category_order = (
+            plot_df[
+                x_column
+            ]
+            .astype(str)
+            .drop_duplicates()
+            .tolist()
+        )
+
+    else:
+
+        x_column = "Month"
+
+        category_order = MONTH_ORDER
 
     # --------------------------------------------------------
     # DATA LABELS ONLY WHEN GLOBAL SWITCH IS ON
@@ -782,14 +1149,14 @@ def _render_selected_item_chart(
 
         fig = px.line(
             plot_df,
-            x="Month",
+            x=x_column,
             y="Records",
             color="Selected Item",
             markers=True,
             text="Data Label",
             title=title,
             category_orders={
-                "Month": MONTH_ORDER
+                x_column: category_order
             },
         )
 
@@ -816,13 +1183,13 @@ def _render_selected_item_chart(
 
         fig = px.line(
             plot_df,
-            x="Month",
+            x=x_column,
             y="Records",
             color="Selected Item",
             markers=True,
             title=title,
             category_orders={
-                "Month": MONTH_ORDER
+                x_column: category_order
             },
         )
 
@@ -841,7 +1208,7 @@ def _render_selected_item_chart(
 
     fig.update_xaxes(
         categoryorder="array",
-        categoryarray=MONTH_ORDER,
+        categoryarray=category_order,
     )
 
     fig.update_yaxes(
@@ -946,6 +1313,13 @@ def render_lab_pathogen(filtered_df):
         laboratory_records,
         [
             "Month",
+        ],
+    )
+
+    year_col = _find_column(
+        laboratory_records,
+        [
+            "Year",
         ],
     )
 
@@ -1309,11 +1683,18 @@ def render_lab_pathogen(filtered_df):
         and month_col is not None
     ):
 
+        temp_columns = [
+            month_col,
+            test_col,
+        ]
+
+        if year_col is not None:
+            temp_columns.append(
+                year_col
+            )
+
         temp = laboratory_records[
-            [
-                month_col,
-                test_col,
-            ]
+            temp_columns
         ].copy()
 
         temp["Month"] = (
@@ -1327,6 +1708,13 @@ def render_lab_pathogen(filtered_df):
             )
         )
 
+        if year_col is not None:
+
+            temp["Year"] = (
+                temp[year_col]
+                .map(_normalise_year)
+            )
+
         temp = temp[
             temp["Month"].isin(
                 MONTH_ORDER
@@ -1336,26 +1724,66 @@ def render_lab_pathogen(filtered_df):
             )
         ].copy()
 
+        if (
+            year_col is not None
+            and "Year" in temp.columns
+        ):
+
+            temp = temp[
+                _valid_value_mask(
+                    temp["Year"]
+                )
+            ].copy()
+
         if not temp.empty:
 
-            month_test = (
-                temp
-                .groupby(
-                    "Month",
-                    sort=False,
-                )
-                .size()
-                .rename(
-                    "Records"
-                )
-                .reset_index()
-            )
+            if (
+                year_col is not None
+                and "Year" in temp.columns
+            ):
 
-            chart_data = (
-                _ordered_month_chart_data(
-                    month_test
+                month_test = (
+                    temp
+                    .groupby(
+                        [
+                            "Year",
+                            "Month",
+                        ],
+                        sort=False,
+                    )
+                    .size()
+                    .rename(
+                        "Records"
+                    )
+                    .reset_index()
                 )
-            )
+
+                chart_data = (
+                    _ordered_month_year_chart_data(
+                        month_test
+                    )
+                )
+
+            else:
+
+                month_test = (
+                    temp
+                    .groupby(
+                        "Month",
+                        sort=False,
+                    )
+                    .size()
+                    .rename(
+                        "Records"
+                    )
+                    .reset_index()
+                )
+
+                chart_data = (
+                    _ordered_month_chart_data(
+                        month_test
+                    )
+                )
 
             if not chart_data.empty:
 
@@ -1400,11 +1828,18 @@ def render_lab_pathogen(filtered_df):
         and month_col is not None
     ):
 
+        temp_columns = [
+            month_col,
+            pathogen_col,
+        ]
+
+        if year_col is not None:
+            temp_columns.append(
+                year_col
+            )
+
         temp = laboratory_records[
-            [
-                month_col,
-                pathogen_col,
-            ]
+            temp_columns
         ].copy()
 
         temp["Month"] = (
@@ -1418,6 +1853,13 @@ def render_lab_pathogen(filtered_df):
             )
         )
 
+        if year_col is not None:
+
+            temp["Year"] = (
+                temp[year_col]
+                .map(_normalise_year)
+            )
+
         temp = temp[
             temp["Month"].isin(
                 MONTH_ORDER
@@ -1427,26 +1869,66 @@ def render_lab_pathogen(filtered_df):
             )
         ].copy()
 
+        if (
+            year_col is not None
+            and "Year" in temp.columns
+        ):
+
+            temp = temp[
+                _valid_value_mask(
+                    temp["Year"]
+                )
+            ].copy()
+
         if not temp.empty:
 
-            pathogen_month = (
-                temp
-                .groupby(
-                    "Month",
-                    sort=False,
-                )
-                .size()
-                .rename(
-                    "Records"
-                )
-                .reset_index()
-            )
+            if (
+                year_col is not None
+                and "Year" in temp.columns
+            ):
 
-            chart_data = (
-                _ordered_month_chart_data(
-                    pathogen_month
+                pathogen_month = (
+                    temp
+                    .groupby(
+                        [
+                            "Year",
+                            "Month",
+                        ],
+                        sort=False,
+                    )
+                    .size()
+                    .rename(
+                        "Records"
+                    )
+                    .reset_index()
                 )
-            )
+
+                chart_data = (
+                    _ordered_month_year_chart_data(
+                        pathogen_month
+                    )
+                )
+
+            else:
+
+                pathogen_month = (
+                    temp
+                    .groupby(
+                        "Month",
+                        sort=False,
+                    )
+                    .size()
+                    .rename(
+                        "Records"
+                    )
+                    .reset_index()
+                )
+
+                chart_data = (
+                    _ordered_month_chart_data(
+                        pathogen_month
+                    )
+                )
 
             if not chart_data.empty:
 
@@ -1477,8 +1959,7 @@ def render_lab_pathogen(filtered_df):
 
     st.divider()
 
-
-        # ========================================================
+    # ========================================================
     # 7. SELECTED LABORATORY ITEM TREND
     # ========================================================
 
@@ -1536,8 +2017,18 @@ def render_lab_pathogen(filtered_df):
             # PREPARE CURRENT FILTERED DATA
             # ------------------------------------------------
 
+            temp_columns = [
+                month_col,
+                selected_column,
+            ]
+
+            if year_col is not None:
+                temp_columns.append(
+                    year_col
+                )
+
             temp = laboratory_records[
-                [month_col, selected_column]
+                temp_columns
             ].copy()
 
             temp["Month"] = temp[
@@ -1548,12 +2039,32 @@ def render_lab_pathogen(filtered_df):
                 temp[selected_column]
             )
 
+            if year_col is not None:
+
+                temp["Year"] = (
+                    temp[year_col]
+                    .map(_normalise_year)
+                )
+
             temp = temp[
-                temp["Month"].isin(MONTH_ORDER)
+                temp["Month"].isin(
+                    MONTH_ORDER
+                )
                 & _valid_value_mask(
                     temp["Selected Item"]
                 )
             ].copy()
+
+            if (
+                year_col is not None
+                and "Year" in temp.columns
+            ):
+
+                temp = temp[
+                    _valid_value_mask(
+                        temp["Year"]
+                    )
+                ].copy()
 
             if not temp.empty:
 
@@ -1599,9 +2110,6 @@ def render_lab_pathogen(filtered_df):
 
                     # ----------------------------------------
                     # RESET VERSION
-                    #
-                    # This avoids modifying checkbox widget
-                    # state after it has been instantiated.
                     # ----------------------------------------
 
                     reset_version_key = (
@@ -1723,9 +2231,6 @@ def render_lab_pathogen(filtered_df):
 
                             # --------------------------------
                             # UPDATE OUR OWN SELECTION LIST
-                            #
-                            # We NEVER modify the checkbox
-                            # widget's own session-state key.
                             # --------------------------------
 
                             if checked:
@@ -1762,9 +2267,6 @@ def render_lab_pathogen(filtered_df):
 
                         # ------------------------------------
                         # RESET SELECTION
-                        #
-                        # Clears our selection list and
-                        # creates a fresh checkbox-key version.
                         # ------------------------------------
 
                         if st.button(
@@ -1828,139 +2330,299 @@ def render_lab_pathogen(filtered_df):
                             # MONTH × SELECTED ITEM
                             # --------------------------------
 
-                            item_month = (
-                                selected_temp
-                                .groupby(
-                                    [
-                                        "Month",
-                                        "Selected Item",
-                                    ],
-                                    sort=False,
+                            if (
+                                year_col is not None
+                                and "Year"
+                                in selected_temp.columns
+                            ):
+
+                                item_month = (
+                                    selected_temp
+                                    .groupby(
+                                        [
+                                            "Year",
+                                            "Month",
+                                            "Selected Item",
+                                        ],
+                                        sort=False,
+                                    )
+                                    .size()
+                                    .rename(
+                                        "Records"
+                                    )
+                                    .reset_index()
                                 )
-                                .size()
-                                .rename(
-                                    "Records"
+
+                                # --------------------------------
+                                # CREATE COMPLETE MONTH-YEAR
+                                # TIMELINE FOR EACH SELECTED ITEM
+                                # --------------------------------
+
+                                available_years = sorted(
+                                    item_month[
+                                        "Year"
+                                    ]
+                                    .dropna()
+                                    .astype(str)
+                                    .unique()
+                                    .tolist(),
+                                    key=lambda x: int(x),
                                 )
-                                .reset_index()
-                            )
 
-                            item_month["Month"] = (
-                                pd.Categorical(
-                                    item_month["Month"],
-                                    categories=MONTH_ORDER,
-                                    ordered=True,
+                                complete_rows = []
+
+                                for year in available_years:
+
+                                    for month in MONTH_ORDER:
+
+                                        for indicator in selected_indicators:
+
+                                            matching = item_month[
+                                                (
+                                                    item_month[
+                                                        "Year"
+                                                    ]
+                                                    == year
+                                                )
+                                                & (
+                                                    item_month[
+                                                        "Month"
+                                                    ]
+                                                    == month
+                                                )
+                                                & (
+                                                    item_month[
+                                                        "Selected Item"
+                                                    ]
+                                                    == indicator
+                                                )
+                                            ]
+
+                                            if matching.empty:
+
+                                                records = 0
+
+                                            else:
+
+                                                records = (
+                                                    matching[
+                                                        "Records"
+                                                    ].sum()
+                                                )
+
+                                            complete_rows.append(
+                                                {
+                                                    "Year": year,
+                                                    "Month": month,
+                                                    "Month-Year": (
+                                                        _month_year_label(
+                                                            month,
+                                                            year,
+                                                        )
+                                                    ),
+                                                    "Selected Item": (
+                                                        indicator
+                                                    ),
+                                                    "Records": records,
+                                                }
+                                            )
+
+                                item_month_complete = (
+                                    pd.DataFrame(
+                                        complete_rows
+                                    )
                                 )
-                            )
 
-                            item_month = (
-                                item_month
-                                .sort_values(
-                                    [
-                                        "Month",
-                                        "Selected Item",
-                                    ],
-                                    kind="stable",
+                                if (
+                                    not item_month_complete.empty
+                                ):
+
+                                    item_month_complete[
+                                        "_Order"
+                                    ] = (
+                                        item_month_complete.apply(
+                                            lambda row: (
+                                                _month_year_order_value(
+                                                    row["Month"],
+                                                    row["Year"],
+                                                )
+                                            ),
+                                            axis=1,
+                                        )
+                                    )
+
+                                    item_month_complete = (
+                                        item_month_complete
+                                        .sort_values(
+                                            [
+                                                "_Order",
+                                                "Selected Item",
+                                            ],
+                                            kind="stable",
+                                        )
+                                        .drop(
+                                            columns="_Order"
+                                        )
+                                        .reset_index(
+                                            drop=True
+                                        )
+                                    )
+
+                                    plot_df = (
+                                        item_month_complete[
+                                            [
+                                                "Year",
+                                                "Month",
+                                                "Month-Year",
+                                                "Selected Item",
+                                                "Records",
+                                            ]
+                                        ]
+                                        .copy()
+                                    )
+
+                                else:
+
+                                    plot_df = (
+                                        pd.DataFrame()
+                                    )
+
+                            else:
+
+                                item_month = (
+                                    selected_temp
+                                    .groupby(
+                                        [
+                                            "Month",
+                                            "Selected Item",
+                                        ],
+                                        sort=False,
+                                    )
+                                    .size()
+                                    .rename(
+                                        "Records"
+                                    )
+                                    .reset_index()
                                 )
-                                .reset_index(
-                                    drop=True
+
+                                item_month["Month"] = (
+                                    pd.Categorical(
+                                        item_month["Month"],
+                                        categories=MONTH_ORDER,
+                                        ordered=True,
+                                    )
                                 )
-                            )
 
-                            # --------------------------------
-                            # PIVOT
-                            # --------------------------------
-
-                            pivot_data = (
-                                item_month
-                                .pivot(
-                                    index="Month",
-                                    columns="Selected Item",
-                                    values="Records",
+                                item_month = (
+                                    item_month
+                                    .sort_values(
+                                        [
+                                            "Month",
+                                            "Selected Item",
+                                        ],
+                                        kind="stable",
+                                    )
+                                    .reset_index(
+                                        drop=True
+                                    )
                                 )
-                                .fillna(0)
-                            )
 
-                            pivot_data = (
-                                pivot_data.reindex(
-                                    MONTH_ORDER,
-                                    fill_value=0,
+                                pivot_data = (
+                                    item_month
+                                    .pivot(
+                                        index="Month",
+                                        columns="Selected Item",
+                                        values="Records",
+                                    )
+                                    .fillna(0)
                                 )
-                            )
 
-                            pivot_data = (
-                                pivot_data.reindex(
-                                    columns=[
-                                        item
-                                        for item
-                                        in selected_indicators
-                                        if item
-                                        in pivot_data.columns
-                                    ],
-                                    fill_value=0,
+                                pivot_data = (
+                                    pivot_data.reindex(
+                                        MONTH_ORDER,
+                                        fill_value=0,
+                                    )
                                 )
-                            )
 
-                            # --------------------------------
-                            # LONG FORMAT FOR CHART
-                            # --------------------------------
-
-                            plot_df = (
-                                pivot_data
-                                .reset_index()
-                                .melt(
-                                    id_vars=["Month"],
-                                    var_name="Selected Item",
-                                    value_name="Records",
+                                pivot_data = (
+                                    pivot_data.reindex(
+                                        columns=[
+                                            item
+                                            for item
+                                            in selected_indicators
+                                            if item
+                                            in pivot_data.columns
+                                        ],
+                                        fill_value=0,
+                                    )
                                 )
-                            )
 
-                            # --------------------------------
-                            # DATA LABEL
-                            # --------------------------------
+                                plot_df = (
+                                    pivot_data
+                                    .reset_index()
+                                    .melt(
+                                        id_vars=["Month"],
+                                        var_name="Selected Item",
+                                        value_name="Records",
+                                    )
+                                )
 
-                            plot_df[
-                                "Data Label"
-                            ] = (
+                            if not plot_df.empty:
+
+                                # --------------------------------
+                                # DATA LABEL
+                                # --------------------------------
+
                                 plot_df[
-                                    "Records"
-                                ]
-                                .fillna(0)
-                                .astype(int)
-                                .astype(str)
-                            )
-
-                            plot_df.loc[
-                                plot_df[
-                                    "Records"
-                                ].eq(0),
-                                "Data Label",
-                            ] = ""
-
-                            # --------------------------------
-                            # RENDER CHART
-                            # --------------------------------
-
-                            _render_selected_item_chart(
-                                plot_df,
-                                f"Monthly Trend — "
-                                f"{selected_label}",
-                                height=450,
-                            )
-
-                            st.caption(
-                                "Showing monthly trend for "
-                                f"{len(selected_indicators):,} "
-                                f"selected "
-                                f"{selected_label.lower()}"
-                                + (
-                                    ""
-                                    if len(
-                                        selected_indicators
-                                    ) == 1
-                                    else "s"
+                                    "Data Label"
+                                ] = (
+                                    plot_df[
+                                        "Records"
+                                    ]
+                                    .fillna(0)
+                                    .astype(int)
+                                    .astype(str)
                                 )
-                                + "."
-                            )
+
+                                plot_df.loc[
+                                    plot_df[
+                                        "Records"
+                                    ].eq(0),
+                                    "Data Label",
+                                ] = ""
+
+                                # --------------------------------
+                                # RENDER CHART
+                                # --------------------------------
+
+                                _render_selected_item_chart(
+                                    plot_df,
+                                    f"Monthly Trend — "
+                                    f"{selected_label}",
+                                    height=450,
+                                )
+
+                                st.caption(
+                                    "Showing monthly trend for "
+                                    f"{len(selected_indicators):,} "
+                                    f"selected "
+                                    f"{selected_label.lower()}"
+                                    + (
+                                        ""
+                                        if len(
+                                            selected_indicators
+                                        ) == 1
+                                        else "s"
+                                    )
+                                    + "."
+                                )
+
+                            else:
+
+                                st.info(
+                                    "No trend data is available "
+                                    "for the selected indicators."
+                                )
 
                         else:
 
@@ -1991,10 +2653,7 @@ def render_lab_pathogen(filtered_df):
         )
 
     st.divider()
-  
 
-
-    
     # ========================================================
     # 8. FACILITY-WISE LABORATORY ANALYSIS
     # ========================================================
@@ -2167,3 +2826,4 @@ def render_lab_pathogen(filtered_df):
         f"{len(laboratory_records):,} "
         f"filtered records."
     )
+
