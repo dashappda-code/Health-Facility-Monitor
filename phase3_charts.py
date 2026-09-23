@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 
 from chart_helpers import (
     render_bar_chart,
@@ -328,7 +329,7 @@ def render_charts(df):
             st.info("Month information is not available for the selected records.")
 
     # ========================================================
-    # 2. MONTHLY DISEASE COMPARISON
+    # 2. MONTHLY DISEASE COMPARISON (WITH BOTTOM LEGEND & LABELS)
     # ========================================================
 
     st.divider()
@@ -415,12 +416,7 @@ def render_charts(df):
                                 .reset_index(drop=True)
                             )
 
-                            chart_data = (
-                                disease_month
-                                .pivot(index="Month-Year", columns="Disease", values="Records")
-                                .fillna(0)
-                            )
-
+                            # Create proper chronological timeline order list
                             timeline_order = (
                                 disease_month[["Sort Date", "Month-Year"]]
                                 .drop_duplicates(subset=["Month-Year"])
@@ -428,21 +424,32 @@ def render_charts(df):
                                 .tolist()
                             )
 
-                            chart_data = chart_data.reindex(timeline_order, fill_value=0)
-
-                            chart_labels = _apply_chronological_zwsp(timeline_order)
-                            chart_data.index = pd.CategoricalIndex(
-                                chart_labels, 
-                                categories=chart_labels, 
-                                ordered=True, 
-                                name="Month-Year"
+                            # --- EXPLICIT ALTAIR CHART (FIXES DISAPPEARING LEGEND) ---
+                            show_labels_ym = st.toggle("Show Data Labels", value=False, key="toggle_labels_ym")
+                            
+                            base_chart = alt.Chart(disease_month).encode(
+                                x=alt.X("Month-Year:O", sort=timeline_order, title="Timeline", axis=alt.Axis(labelAngle=-45)),
+                                y=alt.Y("Records:Q", title="Records"),
+                                color=alt.Color("Disease:N", legend=alt.Legend(orient="bottom", title="Disease", labelLimit=0))
                             )
-
-                            render_line_chart(
-                                chart_data,
-                                use_container_width=True,
-                                height=450,
-                            )
+                            
+                            lines = base_chart.mark_line(point=True)
+                            
+                            if show_labels_ym:
+                                text_labels = base_chart.mark_text(
+                                    align='center',
+                                    baseline='bottom',
+                                    dy=-10,
+                                    fontSize=11
+                                ).encode(
+                                    text=alt.Text("Records:Q")
+                                )
+                                final_chart = (lines + text_labels).properties(height=450)
+                            else:
+                                final_chart = lines.properties(height=450)
+                                
+                            st.altair_chart(final_chart, use_container_width=True)
+                            # ------------------------------------------------------------------
 
                             st.caption(
                                 "Chart displays the top 10 diseases by total "
@@ -460,21 +467,36 @@ def render_charts(df):
                     disease_totals = cross_tab.sum().sort_values(ascending=False)
                     selected_diseases = disease_totals.head(10).index.tolist()
 
-                    chart_data = cross_tab[selected_diseases].copy()
-
-                    chart_labels = [("\u200b" * MONTH_NUMBER_MAP[m]) + m for m in chart_data.index]
-                    chart_data.index = pd.CategoricalIndex(
-                        chart_labels, 
-                        categories=chart_labels, 
-                        ordered=True, 
-                        name="Month"
+                    long_df = cross_tab[selected_diseases].reset_index().melt(
+                        id_vars="Month", var_name="Disease", value_name="Records"
                     )
 
-                    render_line_chart(
-                        chart_data,
-                        use_container_width=True,
-                        height=450,
+                    # --- EXPLICIT ALTAIR CHART FOR FALLBACK (FIXES DISAPPEARING LEGEND) ---
+                    show_labels_m = st.toggle("Show Data Labels", value=False, key="toggle_labels_m")
+                    
+                    base_chart = alt.Chart(long_df).encode(
+                        x=alt.X("Month:O", sort=CALENDAR_MONTHS, title="Month", axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y("Records:Q", title="Records"),
+                        color=alt.Color("Disease:N", legend=alt.Legend(orient="bottom", title="Disease", labelLimit=0))
                     )
+                    
+                    lines = base_chart.mark_line(point=True)
+                    
+                    if show_labels_m:
+                        text_labels = base_chart.mark_text(
+                            align='center',
+                            baseline='bottom',
+                            dy=-10,
+                            fontSize=11
+                        ).encode(
+                            text=alt.Text("Records:Q")
+                        )
+                        final_chart = (lines + text_labels).properties(height=450)
+                    else:
+                        final_chart = lines.properties(height=450)
+                        
+                    st.altair_chart(final_chart, use_container_width=True)
+                    # ------------------------------------------------------------------
 
                     st.caption(
                         "Chart displays the top 10 diseases by total records. "
