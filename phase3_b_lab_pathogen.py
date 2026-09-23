@@ -1489,13 +1489,11 @@ def render_lab_pathogen(filtered_df):
     available_items = []
 
     if test_col is not None:
-
         available_items.append(
             "Test Performed"
         )
 
     if pathogen_col is not None:
-
         available_items.append(
             "Pathogen Name"
         )
@@ -1512,326 +1510,297 @@ def render_lab_pathogen(filtered_df):
 
         selected_item = st.selectbox(
             "Select Laboratory Item",
-            available_items,
+            options=[""] + available_items,
+            format_func=lambda x: (
+                "Select Test Performed / Pathogen Name"
+                if x == ""
+                else x
+            ),
             key="lab_pathogen_selected_item",
         )
 
-        if selected_item == "Test Performed":
-
-            selected_column = test_col
-
-        else:
-
-            selected_column = pathogen_col
-
-        selected_label = selected_item
-
         # ----------------------------------------------------
-        # PREPARE CURRENT FILTERED DATA
+        # SHOW LEVEL 2 ONLY AFTER LEVEL 1 IS SELECTED
         # ----------------------------------------------------
 
-        temp = laboratory_records[
-            [
-                month_col,
-                selected_column,
-            ]
-        ].copy()
+        if selected_item:
 
-        temp["Month"] = (
-            temp[month_col]
-            .map(_normalise_month)
-        )
+            if selected_item == "Test Performed":
+                selected_column = test_col
+            else:
+                selected_column = pathogen_col
 
-        temp["Selected Item"] = (
-            _clean_text_series(
+            selected_label = selected_item
+
+            # ------------------------------------------------
+            # PREPARE CURRENT FILTERED DATA
+            # ------------------------------------------------
+
+            temp = laboratory_records[
+                [month_col, selected_column]
+            ].copy()
+
+            temp["Month"] = temp[
+                month_col
+            ].map(_normalise_month)
+
+            temp["Selected Item"] = _clean_text_series(
                 temp[selected_column]
             )
-        )
 
-        temp = temp[
-            temp["Month"].isin(
-                MONTH_ORDER
-            )
-            & _valid_value_mask(
-                temp["Selected Item"]
-            )
-        ].copy()
+            temp = temp[
+                temp["Month"].isin(MONTH_ORDER)
+                & _valid_value_mask(
+                    temp["Selected Item"]
+                )
+            ].copy()
 
-        # ----------------------------------------------------
-        # LEVEL 2:
-        # AVAILABLE INDICATORS
-        # ----------------------------------------------------
+            if not temp.empty:
 
-        if not temp.empty:
+                # --------------------------------------------
+                # AVAILABLE INDICATORS
+                # --------------------------------------------
 
-            available_indicator_list = sorted(
-                temp[
-                    "Selected Item"
-                ]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .unique()
-                .tolist(),
-                key=lambda x: x.lower(),
-            )
-
-            if available_indicator_list:
-
-                # ------------------------------------------------
-                # CREATE A FILTER-SENSITIVE WIDGET KEY
-                #
-                # This ensures that when Global Filters change,
-                # the available indicator selection refreshes.
-                # ------------------------------------------------
-
-                indicator_signature = "|".join(
-                    available_indicator_list
+                available_indicator_list = sorted(
+                    temp["Selected Item"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .unique()
+                    .tolist(),
+                    key=lambda x: x.lower(),
                 )
 
-                selection_key = (
-                    "lab_selected_indicators_"
-                    + selected_item.lower().replace(
-                        " ",
-                        "_",
-                    )
-                    + "_"
-                    + str(
-                        abs(
-                            hash(
-                                indicator_signature
-                            )
-                        )
-                    )
-                )
+                if available_indicator_list:
 
-                # ------------------------------------------------
-                # RESET SELECTION
-                # ------------------------------------------------
+                    # ----------------------------------------
+                    # UNIQUE KEY BASED ON CURRENT INDICATORS
+                    # This makes the selector refresh when
+                    # Global Filters change the available list.
+                    # ----------------------------------------
 
-                reset_key = (
-                    selection_key
-                    + "_reset"
-                )
-
-                if st.button(
-                    "Reset Selection",
-                    key=reset_key,
-                    help=(
-                        "Select all available indicators "
-                        "for the current Global Dashboard Filters."
-                    ),
-                ):
-
-                    st.session_state[
-                        selection_key
-                    ] = (
+                    indicator_signature = "|".join(
                         available_indicator_list
                     )
 
-                    st.rerun()
-
-                # ------------------------------------------------
-                # MULTI-SELECT INDICATOR CONTROL
-                #
-                # Default = ALL indicators selected.
-                # ------------------------------------------------
-
-                selected_indicators = st.multiselect(
-                    (
-                        "Select "
-                        + selected_label
-                        + " Indicators"
-                    ),
-                    options=available_indicator_list,
-                    default=available_indicator_list,
-                    key=selection_key,
-                    help=(
-                        "All available indicators are selected "
-                        "by default. Deselect any indicator to "
-                        "remove it from the trend chart."
-                    ),
-                )
-
-                # ------------------------------------------------
-                # HANDLE NO SELECTION
-                # ------------------------------------------------
-
-                if not selected_indicators:
-
-                    st.info(
-                        "Please select at least one "
-                        f"{selected_label.lower()} indicator "
-                        "to display the trend."
+                    selection_key = (
+                        "lab_selected_indicators_"
+                        + selected_item.lower().replace(
+                            " ",
+                            "_",
+                        )
+                        + "_"
+                        + str(
+                            abs(
+                                hash(
+                                    indicator_signature
+                                )
+                            )
+                        )
                     )
 
-                else:
+                    reset_key = (
+                        selection_key
+                        + "_reset"
+                    )
 
-                    # --------------------------------------------
-                    # FILTER ONLY SELECTED INDICATORS
-                    # --------------------------------------------
+                    # ----------------------------------------
+                    # LEVEL 2:
+                    # USER SELECTS INDICATORS
+                    #
+                    # IMPORTANT:
+                    # No default selection.
+                    # User must manually select.
+                    # ----------------------------------------
 
-                    selected_temp = temp[
-                        temp[
-                            "Selected Item"
-                        ].isin(
-                            selected_indicators
-                        )
-                    ].copy()
+                    selected_indicators = st.multiselect(
+                        f"Select {selected_label} Indicators",
+                        options=available_indicator_list,
+                        default=[],
+                        key=selection_key,
+                        help=(
+                            "Select one or more indicators "
+                            "to display the monthly trend."
+                        ),
+                    )
 
-                    if not selected_temp.empty:
+                    # ----------------------------------------
+                    # RESET SELECTION
+                    #
+                    # Reset = CLEAR selection
+                    # NOT Select All
+                    # ----------------------------------------
 
-                        # ----------------------------------------
-                        # MONTH-WISE SELECTED ITEM COUNTS
-                        # ----------------------------------------
+                    def _reset_lab_indicator_selection():
+                        st.session_state[
+                            selection_key
+                        ] = []
 
-                        item_month = (
-                            selected_temp
-                            .groupby(
-                                [
-                                    "Month",
-                                    "Selected Item",
-                                ],
-                                sort=False,
-                            )
-                            .size()
-                            .rename(
-                                "Records"
-                            )
-                            .reset_index()
-                        )
+                    st.button(
+                        "Reset Selection",
+                        key=reset_key,
+                        on_click=(
+                            _reset_lab_indicator_selection
+                        ),
+                        help=(
+                            "Clear the selected indicators."
+                        ),
+                    )
 
-                        # ----------------------------------------
-                        # COMPLETE JAN-DEC STRUCTURE
-                        # ----------------------------------------
+                    # ----------------------------------------
+                    # NO INDICATOR SELECTED
+                    # ----------------------------------------
 
-                        item_month["Month"] = (
-                            pd.Categorical(
-                                item_month[
-                                    "Month"
-                                ],
-                                categories=MONTH_ORDER,
-                                ordered=True,
-                            )
-                        )
+                    if not selected_indicators:
 
-                        item_month = (
-                            item_month
-                            .sort_values(
-                                [
-                                    "Month",
-                                    "Selected Item",
-                                ],
-                                kind="stable",
-                            )
-                            .reset_index(
-                                drop=True
-                            )
+                        st.info(
+                            "Please select at least one "
+                            f"{selected_label.lower()} indicator "
+                            "to display the monthly trend."
                         )
 
-                        # ----------------------------------------
-                        # PIVOT
-                        # ----------------------------------------
+                    else:
 
-                        pivot_data = (
-                            item_month
-                            .pivot(
-                                index="Month",
-                                columns="Selected Item",
-                                values="Records",
+                        # ------------------------------------
+                        # FILTER SELECTED INDICATORS
+                        # ------------------------------------
+
+                        selected_temp = temp[
+                            temp["Selected Item"].isin(
+                                selected_indicators
                             )
-                            .fillna(0)
-                        )
+                        ].copy()
 
-                        # ----------------------------------------
-                        # FORCE JAN-DEC
-                        # ----------------------------------------
+                        if not selected_temp.empty:
 
-                        pivot_data = (
-                            pivot_data
-                            .reindex(
-                                MONTH_ORDER,
-                                fill_value=0,
+                            # --------------------------------
+                            # MONTH × SELECTED ITEM
+                            # --------------------------------
+
+                            item_month = (
+                                selected_temp
+                                .groupby(
+                                    [
+                                        "Month",
+                                        "Selected Item",
+                                    ],
+                                    sort=False,
+                                )
+                                .size()
+                                .rename(
+                                    "Records"
+                                )
+                                .reset_index()
                             )
-                        )
 
-                        # ----------------------------------------
-                        # KEEP SELECTED INDICATOR ORDER
-                        # ----------------------------------------
-
-                        pivot_data = (
-                            pivot_data
-                            .reindex(
-                                columns=[
-                                    item
-                                    for item
-                                    in selected_indicators
-                                    if item
-                                    in pivot_data.columns
-                                ],
-                                fill_value=0,
+                            item_month["Month"] = (
+                                pd.Categorical(
+                                    item_month["Month"],
+                                    categories=MONTH_ORDER,
+                                    ordered=True,
+                                )
                             )
-                        )
 
-                        # ----------------------------------------
-                        # LONG FORMAT
-                        # ----------------------------------------
-
-                        plot_df = (
-                            pivot_data
-                            .reset_index()
-                            .melt(
-                                id_vars=[
-                                    "Month"
-                                ],
-                                var_name=(
-                                    "Selected Item"
-                                ),
-                                value_name="Records",
+                            item_month = (
+                                item_month
+                                .sort_values(
+                                    [
+                                        "Month",
+                                        "Selected Item",
+                                    ],
+                                    kind="stable",
+                                )
+                                .reset_index(
+                                    drop=True
+                                )
                             )
-                        )
 
-                        # ----------------------------------------
-                        # DATA LABELS
-                        #
-                        # Actual visibility is controlled by
-                        # the global Show Data Labels switch.
-                        # ----------------------------------------
+                            # --------------------------------
+                            # PIVOT
+                            # --------------------------------
 
-                        plot_df["Data Label"] = (
-                            plot_df["Records"]
-                            .fillna(0)
-                            .astype(int)
-                            .astype(str)
-                        )
+                            pivot_data = (
+                                item_month
+                                .pivot(
+                                    index="Month",
+                                    columns="Selected Item",
+                                    values="Records",
+                                )
+                                .fillna(0)
+                            )
 
-                        # Zero values remain unlabeled.
-                        plot_df.loc[
+                            pivot_data = (
+                                pivot_data.reindex(
+                                    MONTH_ORDER,
+                                    fill_value=0,
+                                )
+                            )
+
+                            pivot_data = (
+                                pivot_data.reindex(
+                                    columns=[
+                                        item
+                                        for item
+                                        in selected_indicators
+                                        if item
+                                        in pivot_data.columns
+                                    ],
+                                    fill_value=0,
+                                )
+                            )
+
+                            # --------------------------------
+                            # LONG FORMAT FOR CHART
+                            # --------------------------------
+
+                            plot_df = (
+                                pivot_data
+                                .reset_index()
+                                .melt(
+                                    id_vars=["Month"],
+                                    var_name="Selected Item",
+                                    value_name="Records",
+                                )
+                            )
+
+                            # --------------------------------
+                            # DATA LABEL
+                            # --------------------------------
+
                             plot_df[
-                                "Records"
-                            ].eq(0),
-                            "Data Label",
-                        ] = ""
+                                "Data Label"
+                            ] = (
+                                plot_df[
+                                    "Records"
+                                ]
+                                .fillna(0)
+                                .astype(int)
+                                .astype(str)
+                            )
 
-                        # ----------------------------------------
-                        # RENDER CHART
-                        # ----------------------------------------
+                            plot_df.loc[
+                                plot_df[
+                                    "Records"
+                                ].eq(0),
+                                "Data Label",
+                            ] = ""
 
-                        _render_selected_item_chart(
-                            plot_df,
-                            (
-                                "Monthly Trend — "
-                                + selected_label
-                            ),
-                            height=450,
-                        )
+                            # --------------------------------
+                            # RENDER CHART
+                            # --------------------------------
 
-                        st.caption(
-                            (
+                            _render_selected_item_chart(
+                                plot_df,
+                                f"Monthly Trend — "
+                                f"{selected_label}",
+                                height=450,
+                            )
+
+                            st.caption(
                                 "Showing monthly trend for "
                                 f"{len(selected_indicators):,} "
-                                f"selected {selected_label.lower()} "
-                                "indicator"
+                                f"selected "
+                                f"{selected_label.lower()}"
                                 + (
                                     ""
                                     if len(
@@ -1841,29 +1810,28 @@ def render_lab_pathogen(filtered_df):
                                 )
                                 + "."
                             )
-                        )
 
-                    else:
+                        else:
 
-                        st.info(
-                            "No trend data is available for "
-                            "the selected indicators."
-                        )
+                            st.info(
+                                "No trend data is available "
+                                "for the selected indicators."
+                            )
+
+                else:
+
+                    st.info(
+                        f"No {selected_label.lower()} "
+                        "indicators are available for "
+                        "the selected Global Dashboard Filters."
+                    )
 
             else:
 
                 st.info(
-                    f"No {selected_label.lower()} indicators "
-                    "are available for the selected Global "
-                    "Dashboard Filters."
+                    "No trend data is available for "
+                    "the selected laboratory item."
                 )
-
-        else:
-
-            st.info(
-                "No trend data is available for the "
-                "selected laboratory item."
-            )
 
     else:
 
