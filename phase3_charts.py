@@ -13,11 +13,10 @@ render_line_chart,
 # ============================================================
 
 def _clean_series(df, column):
+if df is None or df.empty or column not in df.columns:
+return pd.Series(dtype="object")
 
 ```
-if df is None or df.empty or column not in df.columns:
-    return pd.Series(dtype="object")
-
 return (
     df[column]
     .fillna("")
@@ -26,12 +25,25 @@ return (
 )
 ```
 
-def _month_order(df):
+def _valid_text_mask(series):
+text = (
+series
+.fillna("")
+.astype(str)
+.str.strip()
+)
 
 ```
-if df is None or df.empty or "Month" not in df.columns:
-    return []
+return ~text.str.lower().isin(
+    ["", "nan", "nat", "none", "null"]
+)
+```
 
+def _month_order(df):
+if df is None or df.empty or "Month" not in df.columns:
+return []
+
+```
 months = (
     df["Month"]
     .fillna("")
@@ -47,6 +59,7 @@ months = [
         "nan",
         "nat",
         "none",
+        "null",
     }
 ]
 
@@ -67,7 +80,6 @@ month_map = {
     "feb": 2,
     "mar": 3,
     "apr": 4,
-    "may": 5,
     "jun": 6,
     "jul": 7,
     "aug": 8,
@@ -78,62 +90,26 @@ month_map = {
     "dec": 12,
 }
 
-def month_sort(value):
-
+def sort_key(value):
     text = str(value).strip().lower()
 
     if text in month_map:
-        return (
-            0,
-            month_map[text],
-            text,
-        )
+        return (0, month_map[text], text)
 
     try:
-        return (
-            1,
-            int(float(text)),
-            text,
-        )
+        return (1, int(float(text)), text)
     except Exception:
-        return (
-            2,
-            999,
-            text,
-        )
+        return (2, 999, text)
 
 return sorted(
     months,
-    key=month_sort,
-)
-```
-
-def _valid_text_mask(series):
-
-```
-text = (
-    series
-    .fillna("")
-    .astype(str)
-    .str.strip()
-)
-
-return (
-    text.ne("")
-    & ~text.str.lower().isin(
-        [
-            "nan",
-            "nat",
-            "none",
-            "null",
-        ]
-    )
+    key=sort_key,
 )
 ```
 
 # ============================================================
 
-# MAIN CHART RENDER FUNCTION
+# MAIN FUNCTION
 
 # ============================================================
 
@@ -143,21 +119,19 @@ def render_charts(df):
 st.subheader("📈 Charts & Trends")
 
 if df is None or df.empty:
-
     st.warning(
         "No records available for the selected filters."
     )
-
     return
 
 st.caption(
     "Month-wise, disease-wise, facility-wise, ward-wise "
-    "and pathogen-wise analysis based on the currently "
-    "selected Global Dashboard Filters."
+    "and pathogen-wise analysis based on the selected "
+    "Global Dashboard Filters."
 )
 
 # ========================================================
-# 1. MONTH-WISE ANALYSIS
+# 1. MONTH-WISE PROGRAMME TREND
 # ========================================================
 
 st.markdown("### 🗓️ Month-wise Programme Trend")
@@ -179,52 +153,38 @@ if "Month" in df.columns:
             month_series
             .value_counts()
             .rename_axis("Month")
-            .reset_index(
-                name="Records"
-            )
+            .reset_index(name="Records")
         )
 
         ordered_months = _month_order(df)
 
         if ordered_months:
 
+            order_map = {
+                month: index
+                for index, month
+                in enumerate(ordered_months)
+            }
+
             month_counts["sort_order"] = (
                 month_counts["Month"]
-                .map(
-                    {
-                        month: index
-                        for index, month
-                        in enumerate(
-                            ordered_months
-                        )
-                    }
-                )
+                .map(order_map)
                 .fillna(999)
             )
 
             month_counts = (
                 month_counts
                 .sort_values(
-                    [
-                        "sort_order",
-                        "Month",
-                    ]
+                    ["sort_order", "Month"]
                 )
                 .drop(
-                    columns=[
-                        "sort_order"
-                    ]
+                    columns=["sort_order"]
                 )
-                .reset_index(
-                    drop=True
-                )
+                .reset_index(drop=True)
             )
 
         render_bar_chart(
-            month_counts
-            .set_index("Month")[
-                "Records"
-            ],
+            month_counts.set_index("Month")["Records"],
             use_container_width=True,
         )
 
@@ -235,32 +195,23 @@ if "Month" in df.columns:
         )
 
     else:
-
         st.info(
             "Month information is not available "
             "for the selected records."
         )
 
 # ========================================================
-# 2. MONTHLY COMPARISON BY DISEASE
+# 2. MONTHLY DISEASE COMPARISON
 # ========================================================
 
 st.divider()
 
-st.markdown(
-    "### 🦠 Monthly Disease Comparison"
-)
+st.markdown("### 🦠 Monthly Disease Comparison")
 
-if (
-    "Month" in df.columns
-    and "Disease" in df.columns
-):
+if "Month" in df.columns and "Disease" in df.columns:
 
     temp = df[
-        [
-            "Month",
-            "Disease",
-        ]
+        ["Month", "Disease"]
     ].copy()
 
     temp["Month"] = (
@@ -278,12 +229,8 @@ if (
     )
 
     temp = temp[
-        _valid_text_mask(
-            temp["Month"]
-        )
-        & _valid_text_mask(
-            temp["Disease"]
-        )
+        _valid_text_mask(temp["Month"])
+        & _valid_text_mask(temp["Disease"])
     ]
 
     if not temp.empty:
@@ -293,9 +240,7 @@ if (
             temp["Disease"],
         )
 
-        ordered_months = _month_order(
-            df
-        )
+        ordered_months = _month_order(df)
 
         available_months = [
             month
@@ -310,16 +255,13 @@ if (
         ]
 
         cross_tab = cross_tab.reindex(
-            available_months
-            + remaining_months
+            available_months + remaining_months
         )
 
         disease_totals = (
             cross_tab
             .sum()
-            .sort_values(
-                ascending=False
-            )
+            .sort_values(ascending=False)
         )
 
         selected_diseases = (
@@ -339,12 +281,11 @@ if (
         )
 
         st.caption(
-            "Chart displays the top 10 diseases "
-            "by total records within the selected filters."
+            "Chart displays the top 10 diseases by "
+            "total records within the selected filters."
         )
 
     else:
-
         st.info(
             "Disease/month information is not available "
             "for the selected records."
@@ -356,9 +297,7 @@ if (
 
 st.divider()
 
-st.markdown(
-    "### 🦠 Disease-wise Burden"
-)
+st.markdown("### 🦠 Disease-wise Burden")
 
 if "Disease" in df.columns:
 
@@ -368,9 +307,7 @@ if "Disease" in df.columns:
     )
 
     disease_series = disease_series[
-        _valid_text_mask(
-            disease_series
-        )
+        _valid_text_mask(disease_series)
     ]
 
     if not disease_series.empty:
@@ -380,16 +317,11 @@ if "Disease" in df.columns:
             .value_counts()
             .head(15)
             .rename_axis("Disease")
-            .reset_index(
-                name="Records"
-            )
+            .reset_index(name="Records")
         )
 
         render_bar_chart(
-            disease_counts
-            .set_index("Disease")[
-                "Records"
-            ],
+            disease_counts.set_index("Disease")["Records"],
             use_container_width=True,
         )
 
@@ -400,7 +332,6 @@ if "Disease" in df.columns:
         )
 
     else:
-
         st.info(
             "Disease information is not available."
         )
@@ -411,9 +342,7 @@ if "Disease" in df.columns:
 
 st.divider()
 
-st.markdown(
-    "### 🏥 Facility-wise Burden"
-)
+st.markdown("### 🏥 Facility-wise Burden")
 
 if "Facility Name" in df.columns:
 
@@ -423,9 +352,7 @@ if "Facility Name" in df.columns:
     )
 
     facility_series = facility_series[
-        _valid_text_mask(
-            facility_series
-        )
+        _valid_text_mask(facility_series)
     ]
 
     if not facility_series.empty:
@@ -435,16 +362,11 @@ if "Facility Name" in df.columns:
             .value_counts()
             .head(20)
             .rename_axis("Facility")
-            .reset_index(
-                name="Records"
-            )
+            .reset_index(name="Records")
         )
 
         render_bar_chart(
-            facility_counts
-            .set_index("Facility")[
-                "Records"
-            ],
+            facility_counts.set_index("Facility")["Records"],
             use_container_width=True,
         )
 
@@ -455,7 +377,6 @@ if "Facility Name" in df.columns:
         )
 
     else:
-
         st.info(
             "Facility information is not available."
         )
@@ -466,9 +387,7 @@ if "Facility Name" in df.columns:
 
 st.divider()
 
-st.markdown(
-    "### 📍 Ward-wise Burden"
-)
+st.markdown("### 📍 Ward-wise Burden")
 
 if "Ward Name" in df.columns:
 
@@ -478,9 +397,7 @@ if "Ward Name" in df.columns:
     )
 
     ward_series = ward_series[
-        _valid_text_mask(
-            ward_series
-        )
+        _valid_text_mask(ward_series)
     ]
 
     if not ward_series.empty:
@@ -490,16 +407,11 @@ if "Ward Name" in df.columns:
             .value_counts()
             .head(20)
             .rename_axis("Ward")
-            .reset_index(
-                name="Records"
-            )
+            .reset_index(name="Records")
         )
 
         render_bar_chart(
-            ward_counts
-            .set_index("Ward")[
-                "Records"
-            ],
+            ward_counts.set_index("Ward")["Records"],
             use_container_width=True,
         )
 
@@ -510,20 +422,17 @@ if "Ward Name" in df.columns:
         )
 
     else:
-
         st.info(
             "Ward information is not available."
         )
 
 # ========================================================
-# 6. OPD / IPD COMPARISON
+# 6. OPD / IPD DISTRIBUTION
 # ========================================================
 
 st.divider()
 
-st.markdown(
-    "### 🏨 OPD / IPD Distribution"
-)
+st.markdown("### 🏨 OPD / IPD Distribution")
 
 if "OPD/IPD" in df.columns:
 
@@ -533,9 +442,7 @@ if "OPD/IPD" in df.columns:
     )
 
     opd_series = opd_series[
-        _valid_text_mask(
-            opd_series
-        )
+        _valid_text_mask(opd_series)
     ]
 
     if not opd_series.empty:
@@ -544,16 +451,11 @@ if "OPD/IPD" in df.columns:
             opd_series
             .value_counts()
             .rename_axis("OPD/IPD")
-            .reset_index(
-                name="Records"
-            )
+            .reset_index(name="Records")
         )
 
         render_bar_chart(
-            opd_counts
-            .set_index("OPD/IPD")[
-                "Records"
-            ],
+            opd_counts.set_index("OPD/IPD")["Records"],
             use_container_width=True,
         )
 
@@ -564,7 +466,6 @@ if "OPD/IPD" in df.columns:
         )
 
     else:
-
         st.info(
             "OPD/IPD information is not available."
         )
@@ -575,31 +476,21 @@ if "OPD/IPD" in df.columns:
 
 st.divider()
 
-st.markdown(
-    "### 📅 Reporting Date Trend"
-)
+st.markdown("### 📅 Reporting Date Trend")
 
 if "Reporting Date" in df.columns:
 
     date_df = df[
-        [
-            "Reporting Date"
-        ]
+        ["Reporting Date"]
     ].copy()
 
-    date_df[
-        "Reporting Date"
-    ] = pd.to_datetime(
-        date_df[
-            "Reporting Date"
-        ],
+    date_df["Reporting Date"] = pd.to_datetime(
+        date_df["Reporting Date"],
         errors="coerce",
     )
 
     date_df = date_df.dropna(
-        subset=[
-            "Reporting Date"
-        ]
+        subset=["Reporting Date"]
     )
 
     if not date_df.empty:
@@ -608,9 +499,7 @@ if "Reporting Date" in df.columns:
             date_df
             .assign(
                 Date=lambda x:
-                x[
-                    "Reporting Date"
-                ].dt.normalize()
+                x["Reporting Date"].dt.normalize()
             )
             .groupby("Date")
             .size()
@@ -623,20 +512,17 @@ if "Reporting Date" in df.columns:
         )
 
     else:
-
         st.info(
             "Valid reporting dates are not available."
         )
 
 # ========================================================
-# 8. SUMMARY
+# 8. TREND SUMMARY
 # ========================================================
 
 st.divider()
 
-st.markdown(
-    "### 📌 Trend Summary"
-)
+st.markdown("### 📌 Trend Summary")
 
 summary_columns = st.columns(4)
 
@@ -657,9 +543,7 @@ with summary_columns[1]:
         )
 
         disease_count = disease_count[
-            _valid_text_mask(
-                disease_count
-            )
+            _valid_text_mask(disease_count)
         ]
 
         st.metric(
@@ -684,9 +568,7 @@ with summary_columns[2]:
         )
 
         facility_count = facility_count[
-            _valid_text_mask(
-                facility_count
-            )
+            _valid_text_mask(facility_count)
         ]
 
         st.metric(
@@ -711,9 +593,7 @@ with summary_columns[3]:
         )
 
         ward_count = ward_count[
-            _valid_text_mask(
-                ward_count
-            )
+            _valid_text_mask(ward_count)
         ]
 
         st.metric(
@@ -738,9 +618,7 @@ st.markdown(
     "### 🧫 Test Performed Pathogen-wise Analysis"
 )
 
-pathogen_column = (
-    "Test Performed Pathogen Name"
-)
+pathogen_column = "Test Performed Pathogen Name"
 
 if pathogen_column not in df.columns:
 
@@ -758,9 +636,7 @@ else:
     )
 
     pathogen_series = pathogen_series[
-        _valid_text_mask(
-            pathogen_series
-        )
+        _valid_text_mask(pathogen_series)
     ]
 
     if pathogen_series.empty:
@@ -784,23 +660,15 @@ else:
             pathogen_series
             .value_counts()
             .rename_axis("Pathogen")
-            .reset_index(
-                name="Records"
-            )
+            .reset_index(name="Records")
         )
 
-        total_pathogen_records = (
-            pathogen_counts[
-                "Records"
-            ].sum()
+        total_pathogen_records = int(
+            pathogen_counts["Records"].sum()
         )
 
-        pathogen_counts[
-            "Share %"
-        ] = (
-            pathogen_counts[
-                "Records"
-            ]
+        pathogen_counts["Share %"] = (
+            pathogen_counts["Records"]
             / total_pathogen_records
             * 100
         ).round(2)
@@ -851,10 +719,9 @@ else:
         )
 
         render_bar_chart(
-            top_pathogens
-            .set_index("Pathogen")[
-                "Records"
-            ],
+            top_pathogens.set_index(
+                "Pathogen"
+            )["Records"],
             use_container_width=True,
         )
 
@@ -892,12 +759,8 @@ else:
                 .str.strip()
             )
 
-            pathogen_month[
-                "Month"
-            ] = (
-                pathogen_month[
-                    "Month"
-                ]
+            pathogen_month["Month"] = (
+                pathogen_month["Month"]
                 .fillna("")
                 .astype(str)
                 .str.strip()
@@ -905,14 +768,10 @@ else:
 
             pathogen_month = pathogen_month[
                 _valid_text_mask(
-                    pathogen_month[
-                        pathogen_column
-                    ]
+                    pathogen_month[pathogen_column]
                 )
                 & _valid_text_mask(
-                    pathogen_month[
-                        "Month"
-                    ]
+                    pathogen_month["Month"]
                 )
             ]
 
@@ -931,20 +790,14 @@ else:
                 pathogen_month = pathogen_month[
                     pathogen_month[
                         pathogen_column
-                    ].isin(
-                        top_10_pathogens
-                    )
+                    ].isin(top_10_pathogens)
                 ]
 
-                monthly_pathogen = (
-                    pd.crosstab(
-                        pathogen_month[
-                            "Month"
-                        ],
-                        pathogen_month[
-                            pathogen_column
-                        ],
-                    )
+                monthly_pathogen = pd.crosstab(
+                    pathogen_month["Month"],
+                    pathogen_month[
+                        pathogen_column
+                    ],
                 )
 
                 ordered_months = _month_order(
@@ -954,16 +807,13 @@ else:
                 available_months = [
                     month
                     for month in ordered_months
-                    if month
-                    in monthly_pathogen.index
+                    if month in monthly_pathogen.index
                 ]
 
                 remaining_months = [
                     month
-                    for month
-                    in monthly_pathogen.index
-                    if month
-                    not in available_months
+                    for month in monthly_pathogen.index
+                    if month not in available_months
                 ]
 
                 monthly_pathogen = (
@@ -1017,23 +867,15 @@ else:
                 ]
             ].copy()
 
-            pathogen_ward[
-                ward_column
-            ] = (
-                pathogen_ward[
-                    ward_column
-                ]
+            pathogen_ward[ward_column] = (
+                pathogen_ward[ward_column]
                 .fillna("")
                 .astype(str)
                 .str.strip()
             )
 
-            pathogen_ward[
-                pathogen_column
-            ] = (
-                pathogen_ward[
-                    pathogen_column
-                ]
+            pathogen_ward[pathogen_column] = (
+                pathogen_ward[pathogen_column]
                 .fillna("")
                 .astype(str)
                 .str.strip()
@@ -1041,48 +883,32 @@ else:
 
             pathogen_ward = pathogen_ward[
                 _valid_text_mask(
-                    pathogen_ward[
-                        ward_column
-                    ]
+                    pathogen_ward[ward_column]
                 )
                 & _valid_text_mask(
-                    pathogen_ward[
-                        pathogen_column
-                    ]
+                    pathogen_ward[pathogen_column]
                 )
             ]
 
             if not pathogen_ward.empty:
 
                 top_wards = (
-                    pathogen_ward[
-                        ward_column
-                    ]
+                    pathogen_ward[ward_column]
                     .value_counts()
                     .head(15)
                     .index
                     .tolist()
                 )
 
-                pathogen_ward = (
-                    pathogen_ward[
-                        pathogen_ward[
-                            ward_column
-                        ].isin(
-                            top_wards
-                        )
-                    ]
-                )
-
-                ward_pathogen_table = (
-                    pd.crosstab(
-                        pathogen_ward[
-                            ward_column
-                        ],
-                        pathogen_ward[
-                            pathogen_column
-                        ],
+                pathogen_ward = pathogen_ward[
+                    pathogen_ward[ward_column].isin(
+                        top_wards
                     )
+                ]
+
+                ward_pathogen_table = pd.crosstab(
+                    pathogen_ward[ward_column],
+                    pathogen_ward[pathogen_column],
                 )
 
                 ward_totals = (
@@ -1136,23 +962,15 @@ else:
                 ]
             ].copy()
 
-            pathogen_facility[
-                facility_column
-            ] = (
-                pathogen_facility[
-                    facility_column
-                ]
+            pathogen_facility[facility_column] = (
+                pathogen_facility[facility_column]
                 .fillna("")
                 .astype(str)
                 .str.strip()
             )
 
-            pathogen_facility[
-                pathogen_column
-            ] = (
-                pathogen_facility[
-                    pathogen_column
-                ]
+            pathogen_facility[pathogen_column] = (
+                pathogen_facility[pathogen_column]
                 .fillna("")
                 .astype(str)
                 .str.strip()
@@ -1160,14 +978,10 @@ else:
 
             pathogen_facility = pathogen_facility[
                 _valid_text_mask(
-                    pathogen_facility[
-                        facility_column
-                    ]
+                    pathogen_facility[facility_column]
                 )
                 & _valid_text_mask(
-                    pathogen_facility[
-                        pathogen_column
-                    ]
+                    pathogen_facility[pathogen_column]
                 )
             ]
 
@@ -1183,25 +997,19 @@ else:
                     .tolist()
                 )
 
-                pathogen_facility = (
+                pathogen_facility = pathogen_facility[
                     pathogen_facility[
-                        pathogen_facility[
-                            facility_column
-                        ].isin(
-                            top_facilities
-                        )
-                    ]
-                )
+                        facility_column
+                    ].isin(top_facilities)
+                ]
 
-                facility_pathogen_table = (
-                    pd.crosstab(
-                        pathogen_facility[
-                            facility_column
-                        ],
-                        pathogen_facility[
-                            pathogen_column
-                        ],
-                    )
+                facility_pathogen_table = pd.crosstab(
+                    pathogen_facility[
+                        facility_column
+                    ],
+                    pathogen_facility[
+                        pathogen_column
+                    ],
                 )
 
                 facility_totals = (
@@ -1237,7 +1045,7 @@ else:
             )
 
         # ------------------------------------------------
-        # 9F. COMPLETE PATHOGEN SUMMARY TABLE
+        # 9F. COMPLETE PATHOGEN SUMMARY
         # ------------------------------------------------
 
         st.markdown(
