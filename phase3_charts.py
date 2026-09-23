@@ -98,14 +98,104 @@ def _normalize_month(value):
     return text
 
 
+def _month_sort_key(month):
+    """
+    Create an invisible sorting prefix.
+
+    The prefix is not visually noticeable in the chart,
+    but it forces the chart library to sort months
+    from January to December.
+    """
+
+    if month not in CALENDAR_MONTHS:
+        return month
+
+    month_number = (
+        CALENDAR_MONTHS.index(month) + 1
+    )
+
+    # Zero-width space repeated according to month number.
+    # This remains visually invisible.
+    return ("\u200b" * month_number) + month
+
+
+def _apply_hidden_month_order(series):
+    """
+    Apply invisible chronological ordering to a Series
+    while keeping the visible month text as Jan-Dec.
+    """
+
+    if series is None or series.empty:
+        return series
+
+    result = series.copy()
+
+    new_index = []
+
+    for value in result.index:
+
+        month = str(value)
+
+        if month in CALENDAR_MONTHS:
+            new_index.append(
+                _month_sort_key(month)
+            )
+        else:
+            new_index.append(month)
+
+    result.index = new_index
+
+    return result
+
+
+def _apply_hidden_month_order_dataframe(df):
+    """
+    Apply invisible chronological ordering to the Month
+    index of a DataFrame.
+    """
+
+    if df is None or df.empty:
+        return df
+
+    result = df.copy()
+
+    new_index = []
+
+    for value in result.index:
+
+        month = str(value)
+
+        if month in CALENDAR_MONTHS:
+            new_index.append(
+                _month_sort_key(month)
+            )
+        else:
+            new_index.append(month)
+
+    result.index = new_index
+
+    return result
+
+
+def _remove_hidden_month_prefix(value):
+    """
+    Remove invisible sorting characters for display tables.
+    """
+
+    if pd.isna(value):
+        return value
+
+    return (
+        str(value)
+        .replace("\u200b", "")
+    )
+
+
 # ============================================================
 # WARD ORDER
 # ============================================================
 
 def _sort_ward_dataframe(df, column="Ward"):
-    """
-    Sort ward names alphabetically / logically.
-    """
 
     if df is None or df.empty or column not in df.columns:
         return df
@@ -145,9 +235,11 @@ def render_charts(df):
     st.subheader("📈 Charts & Trends")
 
     if df is None or df.empty:
+
         st.warning(
             "No records available for the selected filters."
         )
+
         return
 
     st.caption(
@@ -179,8 +271,10 @@ def render_charts(df):
 
         if not month_series.empty:
 
-            normalized_months = month_series.apply(
-                _normalize_month
+            normalized_months = (
+                month_series.apply(
+                    _normalize_month
+                )
             )
 
             month_counts = (
@@ -192,35 +286,67 @@ def render_charts(df):
                 )
             )
 
-            # Force calendar order
-            month_counts["Month"] = pd.Categorical(
-                month_counts["Month"],
-                categories=CALENDAR_MONTHS,
-                ordered=True,
+            # Keep only valid calendar months
+            month_counts = month_counts[
+                month_counts["Month"].isin(
+                    CALENDAR_MONTHS
+                )
+            ].copy()
+
+            # ------------------------------------------------
+            # CREATE MONTH ORDER
+            # ------------------------------------------------
+
+            month_counts["_Month_Order"] = (
+                month_counts["Month"]
+                .map(
+                    {
+                        month: index
+                        for index, month
+                        in enumerate(
+                            CALENDAR_MONTHS,
+                            start=1,
+                        )
+                    }
+                )
             )
 
             month_counts = (
                 month_counts
-                .dropna(
-                    subset=["Month"]
-                )
                 .sort_values(
-                    "Month"
+                    "_Month_Order"
+                )
+                .drop(
+                    columns="_Month_Order"
                 )
                 .reset_index(
                     drop=True
                 )
             )
 
+            # ------------------------------------------------
+            # HIDDEN ORDER FOR CHART HELPER
+            # ------------------------------------------------
+
             chart_series = (
                 month_counts
                 .set_index("Month")["Records"]
+            )
+
+            chart_series = (
+                _apply_hidden_month_order(
+                    chart_series
+                )
             )
 
             render_bar_chart(
                 chart_series,
                 use_container_width=True,
             )
+
+            # ------------------------------------------------
+            # DISPLAY TABLE WITHOUT HIDDEN CHARACTERS
+            # ------------------------------------------------
 
             display_month_counts = (
                 month_counts.copy()
@@ -287,68 +413,92 @@ def render_charts(df):
 
         if not temp.empty:
 
-            temp["Month"] = temp[
-                "Month"
-            ].apply(
-                _normalize_month
-            )
-
-            cross_tab = pd.crosstab(
-                temp["Month"],
-                temp["Disease"],
-            )
-
-            # Force complete Jan-Dec index
-            cross_tab = (
-                cross_tab
-                .reindex(
-                    CALENDAR_MONTHS,
-                    fill_value=0,
+            temp["Month"] = (
+                temp["Month"].apply(
+                    _normalize_month
                 )
             )
 
-            cross_tab.index = pd.CategoricalIndex(
-                cross_tab.index,
-                categories=CALENDAR_MONTHS,
-                ordered=True,
-                name="Month",
-            )
-
-            cross_tab = (
-                cross_tab
-                .sort_index()
-            )
-
-            disease_totals = (
-                cross_tab
-                .sum()
-                .sort_values(
-                    ascending=False
+            # Keep valid months only
+            temp = temp[
+                temp["Month"].isin(
+                    CALENDAR_MONTHS
                 )
-            )
+            ].copy()
 
-            selected_diseases = (
-                disease_totals
-                .head(10)
-                .index
-                .tolist()
-            )
+            if not temp.empty:
 
-            chart_data = cross_tab[
-                selected_diseases
-            ]
+                cross_tab = pd.crosstab(
+                    temp["Month"],
+                    temp["Disease"],
+                )
 
-            render_line_chart(
-                chart_data,
-                use_container_width=True,
-                height=450,
-            )
+                # ------------------------------------------------
+                # FORCE COMPLETE JAN -> DEC STRUCTURE
+                # ------------------------------------------------
 
-            st.caption(
-                "Chart displays the top 10 diseases by total "
-                "records within the selected filters. "
-                "Months are shown in calendar order from January to December."
-            )
+                cross_tab = (
+                    cross_tab
+                    .reindex(
+                        CALENDAR_MONTHS,
+                        fill_value=0,
+                    )
+                )
+
+                # ------------------------------------------------
+                # SELECT TOP 10 DISEASES
+                # ------------------------------------------------
+
+                disease_totals = (
+                    cross_tab
+                    .sum()
+                    .sort_values(
+                        ascending=False
+                    )
+                )
+
+                selected_diseases = (
+                    disease_totals
+                    .head(10)
+                    .index
+                    .tolist()
+                )
+
+                chart_data = (
+                    cross_tab[
+                        selected_diseases
+                    ]
+                )
+
+                # ------------------------------------------------
+                # HIDDEN CHRONOLOGICAL ORDER
+                # ------------------------------------------------
+
+                chart_data = (
+                    _apply_hidden_month_order_dataframe(
+                        chart_data
+                    )
+                )
+
+                render_line_chart(
+                    chart_data,
+                    use_container_width=True,
+                    height=450,
+                )
+
+                st.caption(
+                    "Chart displays the top 10 diseases by total "
+                    "records within the selected filters. "
+                    "Months are shown in calendar order from "
+                    "January to December."
+                )
+
+            else:
+
+                st.info(
+                    "Valid month information is not available "
+                    "for the selected records."
+                )
 
         else:
 
@@ -433,8 +583,13 @@ def render_charts(df):
     for column in possible_pathogen_columns:
 
         if column in df.columns:
+
             pathogen_column = column
             break
+
+    # --------------------------------------------------------
+    # CASE 1: Combined field
+    # --------------------------------------------------------
 
     if pathogen_column is not None:
 
@@ -482,6 +637,10 @@ def render_charts(df):
                 "Test performed / pathogen information "
                 "is not available for the selected records."
             )
+
+    # --------------------------------------------------------
+    # CASE 2: Separate fields
+    # --------------------------------------------------------
 
     elif (
         "Test Performed" in df.columns
