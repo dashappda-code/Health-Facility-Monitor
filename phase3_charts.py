@@ -329,7 +329,7 @@ def render_charts(df):
             st.info("Month information is not available for the selected records.")
 
     # ========================================================
-    # 2. MONTHLY DISEASE COMPARISON (WITH BOTTOM LEGEND & LABELS)
+    # 2. MONTHLY DISEASE COMPARISON (LEGEND AT BOTTOM, NO HARDCODED LABELS)
     # ========================================================
 
     st.divider()
@@ -427,25 +427,13 @@ def render_charts(df):
                             label_map = dict(zip(timeline_order, chart_labels))
                             disease_month["Month-Year-Label"] = disease_month["Month-Year"].map(label_map)
 
-                            # --- EXPLICIT ALTAIR CHART TO GUARANTEE LABELS + BOTTOM LEGEND ---
-                            base_chart = alt.Chart(disease_month).encode(
+                            # --- EXPLICIT ALTAIR CHART (NO HARDCODED LABELS) ---
+                            final_chart = alt.Chart(disease_month).mark_line(point=True).encode(
                                 x=alt.X("Month-Year-Label:O", sort=chart_labels, title="Timeline", axis=alt.Axis(labelAngle=-45)),
                                 y=alt.Y("Records:Q", title="Records"),
                                 color=alt.Color("Disease:N", legend=alt.Legend(orient="bottom", title="Disease"))
-                            )
+                            ).properties(height=450)
                             
-                            lines = base_chart.mark_line(point=True)
-                            
-                            text_labels = base_chart.mark_text(
-                                align='center',
-                                baseline='bottom',
-                                dy=-8,
-                                fontSize=11
-                            ).encode(
-                                text=alt.Text("Records:Q")
-                            )
-                            
-                            final_chart = (lines + text_labels).properties(height=450)
                             st.altair_chart(final_chart, use_container_width=True)
                             # ------------------------------------------------------------------
 
@@ -473,25 +461,13 @@ def render_charts(df):
                     label_map = {m: (("\u200b" * MONTH_NUMBER_MAP[m]) + m) for m in CALENDAR_MONTHS}
                     long_df["Month-Label"] = long_df["Month"].map(label_map)
 
-                    # --- EXPLICIT ALTAIR CHART FOR FALLBACK (LABELS + BOTTOM LEGEND) ---
-                    base_chart = alt.Chart(long_df).encode(
+                    # --- EXPLICIT ALTAIR CHART FOR FALLBACK (NO HARDCODED LABELS) ---
+                    final_chart = alt.Chart(long_df).mark_line(point=True).encode(
                         x=alt.X("Month-Label:O", sort=chart_labels, title="Month", axis=alt.Axis(labelAngle=-45)),
                         y=alt.Y("Records:Q", title="Records"),
                         color=alt.Color("Disease:N", legend=alt.Legend(orient="bottom", title="Disease"))
-                    )
+                    ).properties(height=450)
                     
-                    lines = base_chart.mark_line(point=True)
-                    
-                    text_labels = base_chart.mark_text(
-                        align='center',
-                        baseline='bottom',
-                        dy=-8,
-                        fontSize=11
-                    ).encode(
-                        text=alt.Text("Records:Q")
-                    )
-                    
-                    final_chart = (lines + text_labels).properties(height=450)
                     st.altair_chart(final_chart, use_container_width=True)
                     # ------------------------------------------------------------------
 
