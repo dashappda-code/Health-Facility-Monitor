@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import plotly.express as px
 
 from chart_helpers import (
     render_bar_chart,
@@ -159,7 +160,9 @@ def _prepare_working_data(df):
 
     for col in columns_to_clean:
         if col in working.columns:
-            working[col] = _clean_text_series(working[col])
+            working[col] = _clean_text_series(
+                working[col]
+            )
 
     return working
 
@@ -223,12 +226,6 @@ def _month_order_value(value):
 def _ordered_month_chart_data(month_df):
     """
     Prepare explicitly ordered Jan-Dec data.
-
-    IMPORTANT:
-    The chart receives clean labels:
-    Jan, Feb, Mar ... Dec
-
-    No 01-Jan / 02-Feb labels are created.
     """
     if (
         month_df is None
@@ -240,7 +237,10 @@ def _ordered_month_chart_data(month_df):
 
     temp = month_df.copy()
 
-    temp["Month"] = temp["Month"].map(_normalise_month)
+    temp["Month"] = (
+        temp["Month"]
+        .map(_normalise_month)
+    )
 
     temp = temp[
         temp["Month"].ne("")
@@ -249,8 +249,10 @@ def _ordered_month_chart_data(month_df):
     if temp.empty:
         return pd.DataFrame()
 
-    # First explicit chronological sort
-    temp["_Month_Order"] = temp["Month"].map(_month_order_value)
+    temp["_Month_Order"] = (
+        temp["Month"]
+        .map(_month_order_value)
+    )
 
     temp = (
         temp
@@ -262,7 +264,6 @@ def _ordered_month_chart_data(month_df):
         .reset_index(drop=True)
     )
 
-    # Explicit categorical ordering
     temp["Month"] = pd.Categorical(
         temp["Month"],
         categories=MONTH_ORDER,
@@ -279,15 +280,12 @@ def _ordered_month_chart_data(month_df):
         .reset_index(drop=True)
     )
 
-    chart_data = (
-        temp[
-            [
-                "Month",
-                "Records",
-            ]
+    chart_data = temp[
+        [
+            "Month",
+            "Records",
         ]
-        .set_index("Month")
-    )
+    ].copy()
 
     return chart_data
 
@@ -362,7 +360,9 @@ def _count_table(
     ):
         return pd.DataFrame()
 
-    series = _clean_text_series(df[column])
+    series = _clean_text_series(
+        df[column]
+    )
 
     valid = series[
         series.ne("")
@@ -382,9 +382,6 @@ def _count_table(
         .reset_index(name="Records")
     )
 
-    # --------------------------------------------------------
-    # MONTH ORDER
-    # --------------------------------------------------------
     if order_type == "month":
 
         result[output_name] = (
@@ -404,13 +401,12 @@ def _count_table(
                 ascending=True,
                 kind="stable",
             )
-            .drop(columns=["_Order"])
+            .drop(
+                columns=["_Order"]
+            )
             .reset_index(drop=True)
         )
 
-    # --------------------------------------------------------
-    # WARD ORDER
-    # --------------------------------------------------------
     elif order_type == "ward":
 
         result[output_name] = (
@@ -430,11 +426,94 @@ def _count_table(
                 ascending=True,
                 kind="stable",
             )
-            .drop(columns=["_Order"])
+            .drop(
+                columns=["_Order"]
+            )
             .reset_index(drop=True)
         )
 
     return result
+
+
+# ============================================================
+# PLOTLY MONTH CHART
+# ============================================================
+
+def _render_month_line_chart(
+    chart_data,
+    title,
+    height=400,
+):
+    """
+    Render a monthly line chart with a strict
+    Jan-Dec categorical order.
+
+    This follows the same approach used in
+    phase3_charts.py:
+    pd.Categorical + sort_values + Plotly.
+    """
+
+    if (
+        chart_data is None
+        or chart_data.empty
+    ):
+        return
+
+    plot_df = chart_data.copy()
+
+    plot_df["Month"] = pd.Categorical(
+        plot_df["Month"],
+        categories=MONTH_ORDER,
+        ordered=True,
+    )
+
+    plot_df = (
+        plot_df
+        .sort_values(
+            "Month",
+            kind="stable",
+        )
+        .reset_index(drop=True)
+    )
+
+    fig = px.line(
+        plot_df,
+        x="Month",
+        y="Records",
+        markers=True,
+        title=title,
+        category_orders={
+            "Month": MONTH_ORDER
+        },
+    )
+
+    fig.update_xaxes(
+        categoryorder="array",
+        categoryarray=MONTH_ORDER,
+    )
+
+    fig.update_layout(
+        height=height,
+        margin=dict(
+            l=40,
+            r=20,
+            t=60,
+            b=40,
+        ),
+    )
+
+    fig.update_traces(
+        hovertemplate=(
+            "Month: %{x}<br>"
+            "Records: %{y:,}"
+            "<extra></extra>"
+        )
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
 
 
 # ============================================================
@@ -443,11 +522,13 @@ def _count_table(
 
 def render_lab_pathogen(filtered_df):
 
-    st.subheader("Laboratory & Pathogen Analysis")
+    st.subheader(
+        "Laboratory & Pathogen Analysis"
+    )
 
     st.caption(
-        "Laboratory testing and pathogen analysis based on "
-        "the currently selected Global Dashboard Filters."
+        "Laboratory testing and pathogen analysis based "
+        "on the currently selected Global Dashboard Filters."
     )
 
     # ========================================================
@@ -511,13 +592,6 @@ def render_lab_pathogen(filtered_df):
         ],
     )
 
-    year_col = _find_column(
-        laboratory_records,
-        [
-            "Year",
-        ],
-    )
-
     # ========================================================
     # 1. SUMMARY KPIs
     # ========================================================
@@ -537,10 +611,6 @@ def render_lab_pathogen(filtered_df):
     top_test = "Not available"
     top_pathogen = "Not available"
 
-    # --------------------------------------------------------
-    # TEST SUMMARY
-    # --------------------------------------------------------
-
     if test_col is not None:
 
         valid_tests = _clean_text_series(
@@ -555,7 +625,9 @@ def render_lab_pathogen(filtered_df):
 
         if not valid_tests.empty:
 
-            test_types = valid_tests.nunique()
+            test_types = (
+                valid_tests.nunique()
+            )
 
             test_counts = (
                 valid_tests
@@ -566,10 +638,6 @@ def render_lab_pathogen(filtered_df):
                 top_test = str(
                     test_counts.index[0]
                 )
-
-    # --------------------------------------------------------
-    # PATHOGEN SUMMARY
-    # --------------------------------------------------------
 
     if pathogen_col is not None:
 
@@ -602,10 +670,6 @@ def render_lab_pathogen(filtered_df):
                 top_pathogen = str(
                     pathogen_counts.index[0]
                 )
-
-    # --------------------------------------------------------
-    # KPI DISPLAY
-    # --------------------------------------------------------
 
     kpi_cols = st.columns(6)
 
@@ -808,9 +872,10 @@ def render_lab_pathogen(filtered_df):
                 .head(15)
             )
 
-            cross_table = cross_table.loc[
-                test_totals.index
-            ]
+            cross_table = (
+                cross_table
+                .loc[test_totals.index]
+            )
 
             pathogen_totals = (
                 cross_table
@@ -821,9 +886,11 @@ def render_lab_pathogen(filtered_df):
                 .head(15)
             )
 
-            cross_table = cross_table[
-                pathogen_totals.index
-            ]
+            cross_table = (
+                cross_table[
+                    pathogen_totals.index
+                ]
+            )
 
             st.dataframe(
                 cross_table,
@@ -901,22 +968,15 @@ def render_lab_pathogen(filtered_df):
 
             if not chart_data.empty:
 
-                # IMPORTANT:
-                # Keep chart labels as:
-                # Jan, Feb, Mar ... Dec
-                #
-                # Do NOT convert them to:
-                # 01-Jan, 02-Feb, etc.
-
-                render_line_chart(
+                _render_month_line_chart(
                     chart_data,
+                    "Monthly Laboratory Test Trend",
                     height=400,
-                    use_container_width=True,
                 )
 
                 display_table = (
                     chart_data
-                    .reset_index()
+                    .reset_index(drop=True)
                 )
 
                 st.dataframe(
@@ -996,18 +1056,15 @@ def render_lab_pathogen(filtered_df):
 
             if not chart_data.empty:
 
-                # Keep clean month labels:
-                # Jan, Feb, Mar ... Dec
-
-                render_line_chart(
+                _render_month_line_chart(
                     chart_data,
+                    "Monthly Pathogen Trend",
                     height=400,
-                    use_container_width=True,
                 )
 
                 display_table = (
                     chart_data
-                    .reset_index()
+                    .reset_index(drop=True)
                 )
 
                 st.dataframe(
@@ -1141,6 +1198,10 @@ def render_lab_pathogen(filtered_df):
                 .reset_index(drop=True)
             )
 
+            # ------------------------------------------------
+            # PIVOT
+            # ------------------------------------------------
+
             pivot_data = (
                 item_month
                 .pivot(
@@ -1152,7 +1213,7 @@ def render_lab_pathogen(filtered_df):
             )
 
             # ------------------------------------------------
-            # STRICT MONTH REINDEX
+            # STRICT JAN-DEC REINDEX
             # ------------------------------------------------
 
             valid_months = [
@@ -1166,16 +1227,84 @@ def render_lab_pathogen(filtered_df):
                 .reindex(valid_months)
             )
 
-            # IMPORTANT:
-            # Do NOT convert the index to
-            # 01-Jan / 02-Feb.
-            #
-            # Chart receives:
-            # Jan, Feb, Mar ... Dec
+            # ------------------------------------------------
+            # CONVERT TO LONG FORMAT
+            # FOR PLOTLY
+            # ------------------------------------------------
 
-            render_line_chart(
-                pivot_data,
+            plot_df = (
+                pivot_data
+                .reset_index()
+                .melt(
+                    id_vars=["Month"],
+                    var_name="Selected Item",
+                    value_name="Records",
+                )
+            )
+
+            plot_df["Month"] = pd.Categorical(
+                plot_df["Month"],
+                categories=MONTH_ORDER,
+                ordered=True,
+            )
+
+            plot_df = (
+                plot_df
+                .sort_values(
+                    [
+                        "Month",
+                        "Selected Item",
+                    ],
+                    kind="stable",
+                )
+                .reset_index(drop=True)
+            )
+
+            # ------------------------------------------------
+            # PLOTLY CHART
+            # ------------------------------------------------
+
+            fig = px.line(
+                plot_df,
+                x="Month",
+                y="Records",
+                color="Selected Item",
+                markers=True,
+                title=(
+                    f"Monthly Trend — "
+                    f"{selected_label}"
+                ),
+                category_orders={
+                    "Month": MONTH_ORDER
+                },
+            )
+
+            fig.update_xaxes(
+                categoryorder="array",
+                categoryarray=MONTH_ORDER,
+            )
+
+            fig.update_layout(
                 height=450,
+                margin=dict(
+                    l=40,
+                    r=20,
+                    t=60,
+                    b=40,
+                ),
+            )
+
+            fig.update_traces(
+                hovertemplate=(
+                    "Month: %{x}<br>"
+                    "Records: %{y:,}<br>"
+                    "Item: %{fullData.name}"
+                    "<extra></extra>"
+                )
+            )
+
+            st.plotly_chart(
+                fig,
                 use_container_width=True,
             )
 
@@ -1265,9 +1394,6 @@ def render_lab_pathogen(filtered_df):
     )
 
     if ward_col is not None:
-
-        # IMPORTANT:
-        # Keep existing A-T ordering exactly as working.
 
         ward_table = _count_table(
             laboratory_records,
