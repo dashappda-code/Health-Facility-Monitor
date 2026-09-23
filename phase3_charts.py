@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+import re
 
 from chart_helpers import (
     render_bar_chart,
@@ -28,16 +29,45 @@ CALENDAR_MONTHS = [
     "Dec",
 ]
 
-# Main colour used for Month-wise and Ward-wise charts.
+# Common colour for Month-wise and Ward-wise charts
 CHART_LABEL_COLOR = "#1f77b4"
+
+# Fixed Ward sequence
+FIXED_WARD_ORDER = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+]
 
 
 # ============================================================
-# HELPER FUNCTIONS
+# BASIC CLEANING HELPERS
 # ============================================================
 
 def _clean_series(df, column):
-    if df is None or df.empty or column not in df.columns:
+
+    if (
+        df is None
+        or df.empty
+        or column not in df.columns
+    ):
         return pd.Series(dtype="object")
 
     return (
@@ -49,6 +79,7 @@ def _clean_series(df, column):
 
 
 def _valid_text_series(series):
+
     if series is None or series.empty:
         return series
 
@@ -61,13 +92,19 @@ def _valid_text_series(series):
     ]
 
 
+# ============================================================
+# MONTH NORMALIZATION
+# ============================================================
+
 def _normalize_month(value):
+
     if pd.isna(value):
         return None
 
     text = str(value).strip().lower()
 
     month_map = {
+
         "january": "Jan",
         "jan": "Jan",
         "1": "Jan",
@@ -129,27 +166,115 @@ def _normalize_month(value):
     return month_map.get(text)
 
 
-def _ward_sort_key(value):
+# ============================================================
+# WARD NORMALIZATION
+# ============================================================
+
+def _extract_ward_letter(value):
+
+    """
+    Extracts the ward letter from common formats such as:
+
+    A
+    B
+    Ward A
+    WARD B
+    Ward-A
+    Ward_B
+    A Ward
+    B WARD
+    """
+
+    if pd.isna(value):
+        return None
+
     text = str(value).strip().upper()
 
-    if text.startswith("WARD "):
-        text = text[5:].strip()
+    # Replace separators
+    text = re.sub(
+        r"[-_/]+",
+        " ",
+        text,
+    )
 
-    if text.startswith("W"):
-        text = text[1:].strip()
+    # Normalize multiple spaces
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    ).strip()
 
-    # Alphabetical wards: A, B, C ... T
-    if len(text) == 1 and text.isalpha():
-        return (0, ord(text))
+    # --------------------------------------------------------
+    # Ward A / WARD A
+    # --------------------------------------------------------
 
-    # Numeric wards: 1, 2, 3 ...
-    try:
-        return (1, int(text))
-    except ValueError:
-        return (2, text)
+    match = re.search(
+        r"\bWARD\s*([A-Z])\b",
+        text,
+    )
+
+    if match:
+
+        letter = match.group(1)
+
+        if letter in FIXED_WARD_ORDER:
+            return letter
+
+    # --------------------------------------------------------
+    # A Ward / B Ward
+    # --------------------------------------------------------
+
+    match = re.search(
+        r"\b([A-Z])\s*WARD\b",
+        text,
+    )
+
+    if match:
+
+        letter = match.group(1)
+
+        if letter in FIXED_WARD_ORDER:
+            return letter
+
+    # --------------------------------------------------------
+    # Simple A / B / C
+    # --------------------------------------------------------
+
+    match = re.fullmatch(
+        r"([A-Z])",
+        text,
+    )
+
+    if match:
+
+        letter = match.group(1)
+
+        if letter in FIXED_WARD_ORDER:
+            return letter
+
+    return None
+
+
+def _ward_sort_key(value):
+
+    letter = _extract_ward_letter(value)
+
+    if letter is not None:
+
+        return (
+            0,
+            FIXED_WARD_ORDER.index(letter),
+        )
+
+    # Unknown ward names come after A-T
+    return (
+        1,
+        str(value).upper(),
+    )
 
 
 def _sort_wards(df, column="Ward"):
+
     if (
         df is None
         or df.empty
@@ -159,21 +284,22 @@ def _sort_wards(df, column="Ward"):
 
     result = df.copy()
 
-    result["_sort_key"] = result[column].apply(
-        _ward_sort_key
+    result["_ward_sort_key"] = (
+        result[column]
+        .apply(_ward_sort_key)
     )
 
     result = (
         result
         .sort_values(
-            "_sort_key",
+            "_ward_sort_key",
             kind="stable",
         )
         .drop(
-            columns="_sort_key"
+            columns="_ward_sort_key"
         )
         .reset_index(
-            drop=True
+            drop=True,
         )
     )
 
@@ -192,6 +318,7 @@ def _render_month_chart(month_df):
             color=CHART_LABEL_COLOR
         )
         .encode(
+
             x=alt.X(
                 "Month:N",
                 sort=CALENDAR_MONTHS,
@@ -200,15 +327,19 @@ def _render_month_chart(month_df):
                     labelAngle=0
                 ),
             ),
+
             y=alt.Y(
                 "Records:Q",
                 title="Records",
             ),
+
             tooltip=[
+
                 alt.Tooltip(
                     "Month:N",
                     title="Month",
                 ),
+
                 alt.Tooltip(
                     "Records:Q",
                     title="Records",
@@ -227,13 +358,16 @@ def _render_month_chart(month_df):
             color=CHART_LABEL_COLOR,
         )
         .encode(
+
             x=alt.X(
                 "Month:N",
                 sort=CALENDAR_MONTHS,
             ),
+
             y=alt.Y(
-                "Records:Q"
+                "Records:Q",
             ),
+
             text=alt.Text(
                 "Records:Q",
                 format=",d",
@@ -244,7 +378,7 @@ def _render_month_chart(month_df):
     chart = (
         bars + labels
     ).properties(
-        height=400
+        height=400,
     )
 
     st.altair_chart(
@@ -273,7 +407,9 @@ def _render_month_disease_chart(
     )
 
     long_df = long_df.melt(
-        id_vars=["Month"],
+        id_vars=[
+            "Month"
+        ],
         value_vars=disease_columns,
         var_name="Disease",
         value_name="Records",
@@ -290,6 +426,7 @@ def _render_month_disease_chart(
             strokeWidth=3,
         )
         .encode(
+
             x=alt.X(
                 "Month:N",
                 sort=CALENDAR_MONTHS,
@@ -298,23 +435,29 @@ def _render_month_disease_chart(
                     labelAngle=0
                 ),
             ),
+
             y=alt.Y(
                 "Records:Q",
                 title="Records",
             ),
+
             color=alt.Color(
                 "Disease:N",
                 title="Disease",
             ),
+
             tooltip=[
+
                 alt.Tooltip(
                     "Month:N",
                     title="Month",
                 ),
+
                 alt.Tooltip(
                     "Disease:N",
                     title="Disease",
                 ),
+
                 alt.Tooltip(
                     "Records:Q",
                     title="Records",
@@ -325,10 +468,7 @@ def _render_month_disease_chart(
     )
 
     # --------------------------------------------------------
-    # Bold coloured data labels
-    #
-    # The colour is linked to Disease, therefore every
-    # label automatically gets the same colour as its line.
+    # Bold coloured labels
     # --------------------------------------------------------
 
     labels = (
@@ -339,17 +479,21 @@ def _render_month_disease_chart(
             fontWeight="bold",
         )
         .encode(
+
             x=alt.X(
                 "Month:N",
                 sort=CALENDAR_MONTHS,
             ),
+
             y=alt.Y(
-                "Records:Q"
+                "Records:Q",
             ),
+
             text=alt.Text(
                 "Records:Q",
                 format=",d",
             ),
+
             color=alt.Color(
                 "Disease:N",
                 legend=None,
@@ -357,14 +501,10 @@ def _render_month_disease_chart(
         )
     )
 
-    # --------------------------------------------------------
-    # Combine lines + labels
-    # --------------------------------------------------------
-
     chart = (
         lines + labels
     ).properties(
-        height=450
+        height=450,
     )
 
     st.altair_chart(
@@ -379,10 +519,63 @@ def _render_month_disease_chart(
 
 def _render_ward_chart(ward_df):
 
+    ward_df = ward_df.copy()
+
+    # --------------------------------------------------------
+    # Extract A-T position
+    # --------------------------------------------------------
+
+    ward_df["_ward_letter"] = (
+        ward_df["Ward"]
+        .apply(
+            _extract_ward_letter
+        )
+    )
+
+    ward_df["_ward_position"] = (
+        ward_df["_ward_letter"]
+        .apply(
+            lambda x:
+            FIXED_WARD_ORDER.index(x)
+            if x in FIXED_WARD_ORDER
+            else 999
+        )
+    )
+
+    # --------------------------------------------------------
+    # Strict A -> T sorting
+    # --------------------------------------------------------
+
+    ward_df = (
+        ward_df
+        .sort_values(
+            "_ward_position",
+            kind="stable",
+        )
+        .drop(
+            columns=[
+                "_ward_letter",
+                "_ward_position",
+            ]
+        )
+        .reset_index(
+            drop=True,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Actual display order
+    # --------------------------------------------------------
+
     ward_order = (
         ward_df["Ward"]
+        .astype(str)
         .tolist()
     )
+
+    # --------------------------------------------------------
+    # Bars
+    # --------------------------------------------------------
 
     bars = (
         alt.Chart(ward_df)
@@ -390,6 +583,7 @@ def _render_ward_chart(ward_df):
             color=CHART_LABEL_COLOR
         )
         .encode(
+
             x=alt.X(
                 "Ward:N",
                 sort=ward_order,
@@ -398,15 +592,19 @@ def _render_ward_chart(ward_df):
                     labelAngle=0
                 ),
             ),
+
             y=alt.Y(
                 "Records:Q",
                 title="Records",
             ),
+
             tooltip=[
+
                 alt.Tooltip(
                     "Ward:N",
                     title="Ward",
                 ),
+
                 alt.Tooltip(
                     "Records:Q",
                     title="Records",
@@ -415,6 +613,10 @@ def _render_ward_chart(ward_df):
             ],
         )
     )
+
+    # --------------------------------------------------------
+    # Bold data labels
+    # --------------------------------------------------------
 
     labels = (
         alt.Chart(ward_df)
@@ -425,13 +627,16 @@ def _render_ward_chart(ward_df):
             color=CHART_LABEL_COLOR,
         )
         .encode(
+
             x=alt.X(
                 "Ward:N",
                 sort=ward_order,
             ),
+
             y=alt.Y(
-                "Records:Q"
+                "Records:Q",
             ),
+
             text=alt.Text(
                 "Records:Q",
                 format=",d",
@@ -439,10 +644,14 @@ def _render_ward_chart(ward_df):
         )
     )
 
+    # --------------------------------------------------------
+    # Final chart
+    # --------------------------------------------------------
+
     chart = (
         bars + labels
     ).properties(
-        height=450
+        height=450,
     )
 
     st.altair_chart(
@@ -462,9 +671,11 @@ def render_charts(df):
     )
 
     if df is None or df.empty:
+
         st.warning(
             "No records available for the selected filters."
         )
+
         return
 
     st.caption(
@@ -494,7 +705,9 @@ def render_charts(df):
 
             normalized_months = (
                 month_series
-                .apply(_normalize_month)
+                .apply(
+                    _normalize_month
+                )
                 .dropna()
             )
 
@@ -503,16 +716,21 @@ def render_charts(df):
                 month_counts = (
                     normalized_months
                     .value_counts()
-                    .rename_axis("Month")
+                    .rename_axis(
+                        "Month"
+                    )
                     .reset_index(
                         name="Records"
                     )
                 )
 
-                ordered_month_df = pd.DataFrame(
-                    {
-                        "Month": CALENDAR_MONTHS
-                    }
+                ordered_month_df = (
+                    pd.DataFrame(
+                        {
+                            "Month":
+                            CALENDAR_MONTHS
+                        }
+                    )
                 )
 
                 ordered_month_df = (
@@ -611,11 +829,15 @@ def render_charts(df):
 
             temp["Month"] = (
                 temp["Month"]
-                .apply(_normalize_month)
+                .apply(
+                    _normalize_month
+                )
             )
 
             temp = temp.dropna(
-                subset=["Month"]
+                subset=[
+                    "Month"
+                ]
             )
 
             if not temp.empty:
@@ -643,8 +865,10 @@ def render_charts(df):
                     temp["Disease"],
                 )
 
-                ordered_disease_df = pd.DataFrame(
-                    index=CALENDAR_MONTHS
+                ordered_disease_df = (
+                    pd.DataFrame(
+                        index=CALENDAR_MONTHS
+                    )
                 )
 
                 for disease in selected_diseases:
@@ -684,7 +908,7 @@ def render_charts(df):
                     "The chart displays the top 10 diseases "
                     "by total records within the selected filters. "
                     "Months are shown in calendar order. "
-                    "Data labels show the record count at each point."
+                    "Data labels show record counts at each point."
                 )
 
                 display_disease_df = (
@@ -771,7 +995,7 @@ def render_charts(df):
             )
 
     # ========================================================
-    # TEST PERFORMED / PATHOGEN NAME-WISE ANALYSIS
+    # TEST PERFORMED / PATHOGEN NAME
     # ========================================================
 
     st.divider()
@@ -794,11 +1018,11 @@ def render_charts(df):
         if candidate in df.columns:
 
             pathogen_column = candidate
+
             break
 
     # --------------------------------------------------------
-    # CASE 1:
-    # Combined pathogen field already exists
+    # CASE 1: Combined field
     # --------------------------------------------------------
 
     if pathogen_column is not None:
@@ -851,8 +1075,7 @@ def render_charts(df):
             )
 
     # --------------------------------------------------------
-    # CASE 2:
-    # Separate Test Performed + Pathogen Name
+    # CASE 2: Separate fields
     # --------------------------------------------------------
 
     elif (
@@ -1200,7 +1423,7 @@ def render_charts(df):
     summary_columns = st.columns(4)
 
     # --------------------------------------------------------
-    # Records Analysed
+    # Records
     # --------------------------------------------------------
 
     with summary_columns[0]:
