@@ -1477,7 +1477,7 @@ def render_lab_pathogen(filtered_df):
 
     st.divider()
 
-    
+
         # ========================================================
     # 7. SELECTED LABORATORY ITEM TREND
     # ========================================================
@@ -1574,7 +1574,7 @@ def render_lab_pathogen(filtered_df):
                 if available_indicator_list:
 
                     # ----------------------------------------
-                    # SESSION KEY
+                    # UNIQUE SELECTION KEY
                     # ----------------------------------------
 
                     indicator_signature = "|".join(
@@ -1597,16 +1597,29 @@ def render_lab_pathogen(filtered_df):
                         )
                     )
 
-                    reset_key = (
+                    # ----------------------------------------
+                    # RESET VERSION
+                    #
+                    # This avoids modifying checkbox widget
+                    # state after it has been instantiated.
+                    # ----------------------------------------
+
+                    reset_version_key = (
                         selection_key
-                        + "_reset"
+                        + "_reset_version"
                     )
 
+                    if reset_version_key not in st.session_state:
+                        st.session_state[
+                            reset_version_key
+                        ] = 0
+
+                    reset_version = st.session_state[
+                        reset_version_key
+                    ]
+
                     # ----------------------------------------
-                    # INITIALISE SELECTION
-                    #
-                    # IMPORTANT:
-                    # Nothing is selected initially.
+                    # SELECTED INDICATORS STORAGE
                     # ----------------------------------------
 
                     if selection_key not in st.session_state:
@@ -1614,8 +1627,7 @@ def render_lab_pathogen(filtered_df):
                             selection_key
                         ] = []
 
-                    # Keep only indicators which are still
-                    # available after Global Filters change.
+                    # Keep only currently available indicators.
                     st.session_state[
                         selection_key
                     ] = [
@@ -1631,12 +1643,7 @@ def render_lab_pathogen(filtered_df):
                     ]
 
                     # ----------------------------------------
-                    # COMPACT SECOND SELECTOR
-                    #
-                    # Selected values are NOT displayed
-                    # across the top bar.
-                    #
-                    # Clicking the selector opens checkboxes.
+                    # COMPACT SELECTOR
                     # ----------------------------------------
 
                     selected_count = len(
@@ -1667,7 +1674,7 @@ def render_lab_pathogen(filtered_df):
 
                     with st.popover(
                         selector_text,
-                        use_container_width=True,
+                        use_container_width=False,
                     ):
 
                         st.markdown(
@@ -1676,46 +1683,60 @@ def render_lab_pathogen(filtered_df):
                         )
 
                         st.caption(
-                            "Tick the indicators you want "
-                            "to include in the monthly trend."
+                            "Select one or more indicators."
                         )
 
-                        for indicator in (
+                        # ------------------------------------
+                        # TWO-COLUMN CHECKBOX LAYOUT
+                        # ------------------------------------
+
+                        columns = st.columns(2)
+
+                        for index, indicator in enumerate(
                             available_indicator_list
                         ):
 
                             checkbox_key = (
                                 selection_key
                                 + "_"
-                                + str(
-                                    abs(
-                                        hash(
-                                            indicator
-                                        )
-                                    )
-                                )
+                                + str(reset_version)
+                                + "_"
+                                + str(index)
                             )
 
-                            is_checked = (
+                            current_selected = (
                                 indicator
                                 in st.session_state[
                                     selection_key
                                 ]
                             )
 
-                            checked = st.checkbox(
-                                indicator,
-                                value=is_checked,
-                                key=checkbox_key,
-                            )
+                            with columns[
+                                index % 2
+                            ]:
+
+                                checked = st.checkbox(
+                                    indicator,
+                                    value=current_selected,
+                                    key=checkbox_key,
+                                )
+
+                            # --------------------------------
+                            # UPDATE OUR OWN SELECTION LIST
+                            #
+                            # We NEVER modify the checkbox
+                            # widget's own session-state key.
+                            # --------------------------------
 
                             if checked:
+
                                 if (
                                     indicator
                                     not in st.session_state[
                                         selection_key
                                     ]
                                 ):
+
                                     st.session_state[
                                         selection_key
                                     ].append(
@@ -1723,12 +1744,14 @@ def render_lab_pathogen(filtered_df):
                                     )
 
                             else:
+
                                 if (
                                     indicator
                                     in st.session_state[
                                         selection_key
                                     ]
                                 ):
+
                                     st.session_state[
                                         selection_key
                                     ].remove(
@@ -1740,12 +1763,16 @@ def render_lab_pathogen(filtered_df):
                         # ------------------------------------
                         # RESET SELECTION
                         #
-                        # RESET = CLEAR ALL TICKS
+                        # Clears our selection list and
+                        # creates a fresh checkbox-key version.
                         # ------------------------------------
 
                         if st.button(
                             "Reset Selection",
-                            key=reset_key,
+                            key=(
+                                selection_key
+                                + "_reset_button"
+                            ),
                             use_container_width=True,
                         ):
 
@@ -1753,26 +1780,11 @@ def render_lab_pathogen(filtered_df):
                                 selection_key
                             ] = []
 
-                            for indicator in (
-                                available_indicator_list
-                            ):
-
-                                checkbox_key = (
-                                    selection_key
-                                    + "_"
-                                    + str(
-                                        abs(
-                                            hash(
-                                                indicator
-                                            )
-                                        )
-                                    )
-                                )
-
-                                if checkbox_key in st.session_state:
-                                    st.session_state[
-                                        checkbox_key
-                                    ] = False
+                            st.session_state[
+                                reset_version_key
+                            ] = (
+                                reset_version + 1
+                            )
 
                             st.rerun()
 
@@ -1979,6 +1991,10 @@ def render_lab_pathogen(filtered_df):
         )
 
     st.divider()
+  
+
+
+    
     # ========================================================
     # 8. FACILITY-WISE LABORATORY ANALYSIS
     # ========================================================
