@@ -21,7 +21,6 @@ BMC_WARD_URL = (
     "BMConMaps_Nov26gdb/FeatureServer/24"
 )
 
-# Dark / Black map background
 MAP_STYLE = (
     "https://basemaps.cartocdn.com/gl/"
     "dark-matter-gl-style/style.json"
@@ -1036,6 +1035,7 @@ def reset_geo_disease_selection():
 
 # ============================================================
 # DISEASE SELECTION
+# Existing Geographic Disease Selection
 # ============================================================
 
 def disease_selection_control(diseases):
@@ -1090,6 +1090,259 @@ def disease_selection_control(diseases):
 
     if not selected:
         return diseases
+
+    return selected
+
+
+# ============================================================
+# WARD CHOROPLETH CHECKBOX CONTROL
+# Maximum 6 diseases
+# ============================================================
+
+def reset_choropleth_selection():
+    for disease in st.session_state.get(
+        "geo_choropleth_available_diseases",
+        [],
+    ):
+        key = (
+            "geo_choro_checkbox_"
+            + re.sub(
+                r"[^A-Za-z0-9]+",
+                "_",
+                disease,
+            )
+        )
+
+        if key in st.session_state:
+            st.session_state[key] = False
+
+    st.session_state[
+        "geo_choropleth_selection"
+    ] = []
+
+    st.session_state[
+        "geo_choropleth_limit_message"
+    ] = ""
+
+
+def choropleth_checkbox_callback(
+    disease,
+):
+    checkbox_key = (
+        "geo_choro_checkbox_"
+        + re.sub(
+            r"[^A-Za-z0-9]+",
+            "_",
+            disease,
+        )
+    )
+
+    selected = []
+
+    for available_disease in st.session_state.get(
+        "geo_choropleth_available_diseases",
+        [],
+    ):
+        key = (
+            "geo_choro_checkbox_"
+            + re.sub(
+                r"[^A-Za-z0-9]+",
+                "_",
+                available_disease,
+            )
+        )
+
+        if st.session_state.get(
+            key,
+            False,
+        ):
+            selected.append(
+                available_disease
+            )
+
+    if len(selected) > 6:
+
+        st.session_state[
+            checkbox_key
+        ] = False
+
+        selected = [
+            value
+            for value in selected
+            if value != disease
+        ]
+
+        st.session_state[
+            "geo_choropleth_limit_message"
+        ] = (
+            "⚠️ Maximum 6 diseases can be selected "
+            "at a time. Please deselect one disease "
+            "before selecting another."
+        )
+
+    else:
+
+        st.session_state[
+            "geo_choropleth_limit_message"
+        ] = ""
+
+    st.session_state[
+        "geo_choropleth_selection"
+    ] = selected
+
+
+def render_choropleth_disease_checkboxes(
+    available_diseases,
+):
+    available_diseases = [
+        clean_text(disease)
+        for disease in available_diseases
+        if clean_text(disease)
+    ]
+
+    available_diseases = list(
+        dict.fromkeys(
+            available_diseases
+        )
+    )
+
+    st.session_state[
+        "geo_choropleth_available_diseases"
+    ] = available_diseases
+
+    if (
+        "geo_choropleth_selection"
+        not in st.session_state
+    ):
+        st.session_state[
+            "geo_choropleth_selection"
+        ] = []
+
+    current_selection = (
+        st.session_state[
+            "geo_choropleth_selection"
+        ]
+    )
+
+    current_selection = [
+        disease
+        for disease in current_selection
+        if disease in available_diseases
+    ]
+
+    st.session_state[
+        "geo_choropleth_selection"
+    ] = current_selection
+
+    st.markdown(
+        "#### Select Diseases to Display"
+    )
+
+    st.caption(
+        "Select up to 6 diseases. "
+        "Each selected disease will be displayed "
+        "as a ward choropleth map with its ward-wise table."
+    )
+
+    # --------------------------------------------------------
+    # CREATE CHECKBOXES IN 2-COLUMN GRID
+    # --------------------------------------------------------
+
+    for row_start in range(
+        0,
+        len(available_diseases),
+        2,
+    ):
+        row_diseases = available_diseases[
+            row_start:row_start + 2
+        ]
+
+        columns = st.columns(2)
+
+        for column, disease in zip(
+            columns,
+            row_diseases,
+        ):
+            checkbox_key = (
+                "geo_choro_checkbox_"
+                + re.sub(
+                    r"[^A-Za-z0-9]+",
+                    "_",
+                    disease,
+                )
+            )
+
+            if checkbox_key not in st.session_state:
+                st.session_state[
+                    checkbox_key
+                ] = (
+                    disease
+                    in current_selection
+                )
+
+            with column:
+                st.checkbox(
+                    disease,
+                    key=checkbox_key,
+                    on_change=(
+                        choropleth_checkbox_callback
+                    ),
+                    args=(disease,),
+                )
+
+    selected = []
+
+    for disease in available_diseases:
+        checkbox_key = (
+            "geo_choro_checkbox_"
+            + re.sub(
+                r"[^A-Za-z0-9]+",
+                "_",
+                disease,
+            )
+        )
+
+        if st.session_state.get(
+            checkbox_key,
+            False,
+        ):
+            selected.append(disease)
+
+    # Safety limit
+    if len(selected) > 6:
+        selected = selected[:6]
+
+        for disease in available_diseases:
+            checkbox_key = (
+                "geo_choro_checkbox_"
+                + re.sub(
+                    r"[^A-Za-z0-9]+",
+                    "_",
+                    disease,
+                )
+            )
+
+            st.session_state[
+                checkbox_key
+            ] = disease in selected
+
+    st.session_state[
+        "geo_choropleth_selection"
+    ] = selected
+
+    if st.session_state.get(
+        "geo_choropleth_limit_message",
+        "",
+    ):
+        st.warning(
+            st.session_state[
+                "geo_choropleth_limit_message"
+            ]
+        )
+
+    st.markdown(
+        f"**Selected: {len(selected)} / 6**"
+    )
 
     return selected
 
@@ -1547,6 +1800,151 @@ def download_hotspot_data(
 
 
 # ============================================================
+# NEW — WARD CHOROPLETH DISPLAY EXPORT
+# ============================================================
+
+def download_choropleth_data(
+    map_df,
+    selected_choropleth_diseases,
+):
+    output = io.BytesIO()
+
+    with pd.ExcelWriter(
+        output,
+        engine="openpyxl",
+    ) as writer:
+
+        if (
+            map_df is not None
+            and isinstance(map_df, pd.DataFrame)
+            and not map_df.empty
+            and selected_choropleth_diseases
+        ):
+
+            disease_col = get_disease_column(
+                map_df
+            )
+
+            all_rows = []
+
+            for disease in selected_choropleth_diseases:
+
+                disease_df = (
+                    get_disease_map_data(
+                        map_df,
+                        disease,
+                    )
+                )
+
+                if disease_df.empty:
+                    continue
+
+                disease_ward_summary = (
+                    create_ward_summary(
+                        disease_df
+                    )
+                )
+
+                disease_ward_summary[
+                    "Disease"
+                ] = disease
+
+                disease_ward_summary[
+                    "Burden"
+                ] = "Low"
+
+                max_cases = int(
+                    disease_ward_summary[
+                        "Cases"
+                    ].max()
+                )
+
+                if max_cases > 0:
+
+                    disease_ward_summary.loc[
+                        disease_ward_summary[
+                            "Cases"
+                        ]
+                        >= max_cases * 0.70,
+                        "Burden",
+                    ] = "High"
+
+                    disease_ward_summary.loc[
+                        (
+                            disease_ward_summary[
+                                "Cases"
+                            ]
+                            >= max_cases * 0.35
+                        )
+                        & (
+                            disease_ward_summary[
+                                "Cases"
+                            ]
+                            < max_cases * 0.70
+                        ),
+                        "Burden",
+                    ] = "Moderate"
+
+                all_rows.append(
+                    disease_ward_summary[
+                        [
+                            "Disease",
+                            "Ward",
+                            "Cases",
+                            "Burden",
+                        ]
+                    ]
+                )
+
+            if all_rows:
+
+                export_df = pd.concat(
+                    all_rows,
+                    ignore_index=True,
+                )
+
+                export_df.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Ward_Choropleth",
+                )
+
+            else:
+
+                pd.DataFrame(
+                    columns=[
+                        "Disease",
+                        "Ward",
+                        "Cases",
+                        "Burden",
+                    ]
+                ).to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Ward_Choropleth",
+                )
+
+        else:
+
+            pd.DataFrame(
+                columns=[
+                    "Disease",
+                    "Ward",
+                    "Cases",
+                    "Burden",
+                ]
+            ).to_excel(
+                writer,
+                index=False,
+                sheet_name="Ward_Choropleth",
+            )
+
+    output.seek(0)
+
+    return output
+
+
+# ============================================================
 # MAIN GEOGRAPHIC MAP
 # ============================================================
 
@@ -1772,10 +2170,6 @@ def render_geographic_map(
 
     # ========================================================
     # SINGLE ACTIVE VIEW
-    #
-    # IMPORTANT:
-    # Only one PyDeck map is rendered at a time.
-    # This prevents multiple WebGL contexts.
     # ========================================================
 
     st.markdown(
@@ -1918,8 +2312,9 @@ def render_geographic_map(
         )
 
         st.caption(
-            "High burden areas are shown with stronger "
-            "disease-specific colours. Low burden areas are shown faintly."
+            "Select up to 6 diseases. "
+            "Selected diseases are displayed in a compact "
+            "two-column map and table layout."
         )
 
         if not isinstance(
@@ -1939,151 +2334,391 @@ def render_geographic_map(
 
         else:
 
-            comparison_diseases = (
-                selected_diseases
-                if selected_diseases
-                else diseases
+            # ------------------------------------------------
+            # AVAILABLE DISEASES
+            #
+            # These diseases already respect the existing
+            # Global / Disease Selection filtering because
+            # map_df has already been created above.
+            #
+            # When no disease restriction is applied,
+            # all diseases available in filtered data appear.
+            # ------------------------------------------------
+
+            comparison_diseases = sorted(
+                [
+                    clean_text(value)
+                    for value in (
+                        map_df[disease_col]
+                        .dropna()
+                        .unique()
+                    )
+                    if clean_text(value)
+                ]
             )
 
-            selected_map_disease = st.selectbox(
-                "Disease Map",
-                comparison_diseases,
-                key="geo_choropleth_disease",
-            )
-
-            disease_df = (
-                get_disease_map_data(
-                    map_df,
-                    selected_map_disease,
-                )
-            )
-
-            if disease_df.empty:
+            if not comparison_diseases:
 
                 st.info(
-                    f"No geographic data available for "
-                    f"{selected_map_disease}."
+                    "No diseases are available for Ward Choropleth."
                 )
 
             else:
 
-                disease_ward_summary = (
-                    create_ward_summary(
-                        disease_df
-                    )
+                # ------------------------------------------------
+                # If available disease list changed, remove old
+                # selections that are no longer valid.
+                # ------------------------------------------------
+
+                previous_available = st.session_state.get(
+                    "geo_choropleth_last_available",
+                    [],
                 )
 
-                disease_choropleth = (
-                    prepare_bmc_choropleth(
-                        bmc_geojson,
-                        disease_ward_summary,
-                        disease_name=selected_map_disease,
-                    )
-                )
+                if previous_available != comparison_diseases:
 
-                disease_cases = len(
-                    disease_df
-                )
-
-                palette = (
-                    get_disease_palette(
-                        selected_map_disease
-                    )
-                )
-
-                st.markdown(
-                    f"#### {selected_map_disease}"
-                )
-
-                st.caption(
-                    f"{disease_cases:,} cases | "
-                    f"{palette['name']} burden palette"
-                )
-
-                if disease_choropleth:
-
-                    disease_map = (
-                        build_choropleth_map(
-                            disease_choropleth
+                    old_selection = (
+                        st.session_state.get(
+                            "geo_choropleth_selection",
+                            [],
                         )
                     )
 
-                    st.pydeck_chart(
-                        disease_map,
-                        use_container_width=True,
-                        height=500,
-                        key=(
-                            "geo_choropleth_active_"
-                            + re.sub(
-                                r"[^A-Za-z0-9]+",
-                                "_",
-                                selected_map_disease,
+                    valid_selection = [
+                        disease
+                        for disease in old_selection
+                        if disease in comparison_diseases
+                    ]
+
+                    st.session_state[
+                        "geo_choropleth_selection"
+                    ] = valid_selection
+
+                    st.session_state[
+                        "geo_choropleth_last_available"
+                    ] = comparison_diseases
+
+                    # Clear checkbox states for diseases
+                    # no longer available.
+                    for old_disease in previous_available:
+
+                        if (
+                            old_disease
+                            not in comparison_diseases
+                        ):
+
+                            old_key = (
+                                "geo_choro_checkbox_"
+                                + re.sub(
+                                    r"[^A-Za-z0-9]+",
+                                    "_",
+                                    old_disease,
+                                )
                             )
+
+                            if old_key in st.session_state:
+                                st.session_state[
+                                    old_key
+                                ] = False
+
+                # ------------------------------------------------
+                # DISEASE CHECKBOXES
+                # ------------------------------------------------
+
+                selected_choropleth_diseases = (
+                    render_choropleth_disease_checkboxes(
+                        comparison_diseases
+                    )
+                )
+
+                # ------------------------------------------------
+                # RESET BUTTON
+                # ------------------------------------------------
+
+                reset_col, info_col = st.columns(
+                    [1, 4]
+                )
+
+                with reset_col:
+
+                    if st.button(
+                        "Clear Selection",
+                        key="geo_choropleth_clear",
+                    ):
+
+                        for disease in comparison_diseases:
+
+                            checkbox_key = (
+                                "geo_choro_checkbox_"
+                                + re.sub(
+                                    r"[^A-Za-z0-9]+",
+                                    "_",
+                                    disease,
+                                )
+                            )
+
+                            st.session_state[
+                                checkbox_key
+                            ] = False
+
+                        st.session_state[
+                            "geo_choropleth_selection"
+                        ] = []
+
+                        st.session_state[
+                            "geo_choropleth_limit_message"
+                        ] = ""
+
+                        st.rerun()
+
+                with info_col:
+
+                    if selected_choropleth_diseases:
+
+                        st.success(
+                            f"{len(selected_choropleth_diseases)} "
+                            "disease map(s) selected."
+                        )
+
+                    else:
+
+                        st.info(
+                            "Select one or more diseases above "
+                            "to display ward choropleth maps."
+                        )
+
+                # ------------------------------------------------
+                # 2-COLUMN MAP GRID
+                # ------------------------------------------------
+
+                if selected_choropleth_diseases:
+
+                    st.markdown(
+                        "### Selected Disease Maps"
+                    )
+
+                    for row_start in range(
+                        0,
+                        len(
+                            selected_choropleth_diseases
                         ),
-                    )
+                        2,
+                    ):
 
-                else:
+                        row_diseases = (
+                            selected_choropleth_diseases[
+                                row_start:row_start + 2
+                            ]
+                        )
 
-                    st.warning(
-                        "Ward map could not be prepared."
-                    )
+                        map_columns = st.columns(
+                            2,
+                            gap="medium",
+                        )
+
+                        for column, disease in zip(
+                            map_columns,
+                            row_diseases,
+                        ):
+
+                            with column:
+
+                                disease_df = (
+                                    get_disease_map_data(
+                                        map_df,
+                                        disease,
+                                    )
+                                )
+
+                                if disease_df.empty:
+
+                                    st.info(
+                                        f"No geographic data available "
+                                        f"for {disease}."
+                                    )
+
+                                    continue
+
+                                disease_ward_summary = (
+                                    create_ward_summary(
+                                        disease_df
+                                    )
+                                )
+
+                                disease_choropleth = (
+                                    prepare_bmc_choropleth(
+                                        bmc_geojson,
+                                        disease_ward_summary,
+                                        disease_name=disease,
+                                    )
+                                )
+
+                                disease_cases = len(
+                                    disease_df
+                                )
+
+                                palette = (
+                                    get_disease_palette(
+                                        disease
+                                    )
+                                )
+
+                                # --------------------------------
+                                # DISEASE TITLE
+                                # --------------------------------
+
+                                st.markdown(
+                                    f"#### {disease}"
+                                )
+
+                                st.caption(
+                                    f"{disease_cases:,} cases | "
+                                    f"{palette['name']} burden palette"
+                                )
+
+                                # --------------------------------
+                                # MAP
+                                # --------------------------------
+
+                                if disease_choropleth:
+
+                                    disease_map = (
+                                        build_choropleth_map(
+                                            disease_choropleth
+                                        )
+                                    )
+
+                                    safe_disease_key = re.sub(
+                                        r"[^A-Za-z0-9]+",
+                                        "_",
+                                        disease,
+                                    )
+
+                                    st.pydeck_chart(
+                                        disease_map,
+                                        use_container_width=True,
+                                        height=365,
+                                        key=(
+                                            "geo_choropleth_grid_"
+                                            + str(row_start)
+                                            + "_"
+                                            + safe_disease_key
+                                        ),
+                                    )
+
+                                else:
+
+                                    st.warning(
+                                        "Ward map could not be prepared."
+                                    )
+
+                                # --------------------------------
+                                # WARD TABLE
+                                # --------------------------------
+
+                                st.markdown(
+                                    "**Ward-wise Burden**"
+                                )
+
+                                display_summary = (
+                                    disease_ward_summary
+                                    .sort_values(
+                                        "Cases",
+                                        ascending=False,
+                                    )
+                                    .copy()
+                                )
+
+                                display_summary[
+                                    "Burden"
+                                ] = "Low"
+
+                                if not display_summary.empty:
+
+                                    max_cases = int(
+                                        display_summary[
+                                            "Cases"
+                                        ].max()
+                                    )
+
+                                    if max_cases > 0:
+
+                                        display_summary.loc[
+                                            display_summary[
+                                                "Cases"
+                                            ]
+                                            >= max_cases * 0.70,
+                                            "Burden",
+                                        ] = "High"
+
+                                        display_summary.loc[
+                                            (
+                                                display_summary[
+                                                    "Cases"
+                                                ]
+                                                >= max_cases * 0.35
+                                            )
+                                            & (
+                                                display_summary[
+                                                    "Cases"
+                                                ]
+                                                < max_cases * 0.70
+                                            ),
+                                            "Burden",
+                                        ] = "Moderate"
+
+                                st.dataframe(
+                                    display_summary[
+                                        [
+                                            "Ward",
+                                            "Cases",
+                                            "Burden",
+                                        ]
+                                    ],
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    height=260,
+                                )
+
+                                st.markdown(
+                                    "<div style='height:12px'></div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                # ------------------------------------------------
+                # DISPLAYED DATA DOWNLOAD
+                # ------------------------------------------------
 
                 st.markdown(
-                    "### Ward-wise Burden"
+                    "### Download Displayed Ward Choropleth Data"
                 )
 
-                display_summary = (
-                    disease_ward_summary
-                    .sort_values(
-                        "Cases",
-                        ascending=False,
-                    )
-                    .copy()
-                )
+                if selected_choropleth_diseases:
 
-                display_summary[
-                    "Burden"
-                ] = "Low"
-
-                if not display_summary.empty:
-
-                    max_cases = int(
-                        display_summary[
-                            "Cases"
-                        ].max()
+                    choropleth_export = (
+                        download_choropleth_data(
+                            map_df,
+                            selected_choropleth_diseases,
+                        )
                     )
 
-                    if max_cases > 0:
+                    st.download_button(
+                        "Download Displayed Disease Maps Data",
+                        data=choropleth_export,
+                        file_name=(
+                            "ward_choropleth_selected_diseases.xlsx"
+                        ),
+                        mime=(
+                            "application/vnd.openxmlformats-officedocument."
+                            "spreadsheetml.sheet"
+                        ),
+                        key="geo_choropleth_export_excel",
+                    )
 
-                        display_summary.loc[
-                            display_summary[
-                                "Cases"
-                            ]
-                            >= max_cases * 0.70,
-                            "Burden",
-                        ] = "High"
-
-                        display_summary.loc[
-                            (
-                                display_summary[
-                                    "Cases"
-                                ]
-                                >= max_cases * 0.35
-                            )
-                            & (
-                                display_summary[
-                                    "Cases"
-                                ]
-                                < max_cases * 0.70
-                            ),
-                            "Burden",
-                        ] = "Moderate"
-
-                st.dataframe(
-                    display_summary,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                    st.caption(
+                        "Download contains only the diseases currently "
+                        "selected and displayed above."
+                    )
 
     # ========================================================
     # VIEW 4 — COMBINED GEOGRAPHIC VIEW
@@ -2133,10 +2768,6 @@ def render_geographic_map(
             key="geo_combined_map",
         )
 
-        # ----------------------------------------------------
-        # WARD BURDEN
-        # ----------------------------------------------------
-
         st.markdown(
             "### Ward-wise Burden"
         )
@@ -2154,10 +2785,6 @@ def render_geographic_map(
             use_container_width=True,
             hide_index=True,
         )
-
-        # ----------------------------------------------------
-        # DISEASE BURDEN
-        # ----------------------------------------------------
 
         st.markdown(
             "### Disease-wise Burden"
