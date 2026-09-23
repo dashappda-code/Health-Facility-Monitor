@@ -11,3 +11,4 @@ reportlab
 matplotlib
 python-pptx
 pydeck
+matplotlib>=3.8,<4
