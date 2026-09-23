@@ -1,3 +1,5 @@
+import re
+
 import pandas as pd
 import streamlit as st
 
@@ -16,6 +18,7 @@ def _find_column(df, candidates):
     Return the first matching column from candidate names.
     Matching is case-insensitive and whitespace-insensitive.
     """
+
     if df is None or df.empty:
         return None
 
@@ -25,6 +28,7 @@ def _find_column(df, candidates):
     }
 
     for candidate in candidates:
+
         key = str(candidate).strip().lower()
 
         if key in normalized:
@@ -61,6 +65,200 @@ def _valid_value_mask(series):
     )
 
 
+# ============================================================
+# MONTH ORDER
+# ============================================================
+
+MONTH_ORDER = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+]
+
+
+MONTH_LOOKUP = {
+    "jan": "Jan",
+    "january": "Jan",
+
+    "feb": "Feb",
+    "february": "Feb",
+
+    "mar": "Mar",
+    "march": "Mar",
+
+    "apr": "Apr",
+    "april": "Apr",
+
+    "may": "May",
+
+    "jun": "Jun",
+    "june": "Jun",
+
+    "jul": "Jul",
+    "july": "Jul",
+
+    "aug": "Aug",
+    "august": "Aug",
+
+    "sep": "Sep",
+    "sept": "Sep",
+    "september": "Sep",
+
+    "oct": "Oct",
+    "october": "Oct",
+
+    "nov": "Nov",
+    "november": "Nov",
+
+    "dec": "Dec",
+    "december": "Dec",
+}
+
+
+def _normalise_month(value):
+    """
+    Convert month values to standard Jan-Dec labels.
+    """
+
+    if pd.isna(value):
+        return ""
+
+    text = str(value).strip().lower()
+
+    return MONTH_LOOKUP.get(
+        text,
+        str(value).strip(),
+    )
+
+
+def _month_order_value(value):
+    """
+    Return numeric month order for Jan-Dec.
+    """
+
+    if pd.isna(value):
+        return 999
+
+    normalised = _normalise_month(value)
+
+    try:
+        return MONTH_ORDER.index(
+            normalised
+        ) + 1
+    except ValueError:
+        return 999
+
+
+# ============================================================
+# WARD ORDER
+# ============================================================
+
+WARD_ORDER = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+]
+
+
+def _normalise_ward(value):
+    """
+    Standardise ward value for ordering.
+
+    Handles simple ward names such as:
+        A, B, C, ... T
+
+    Also handles values such as:
+        Ward A
+        Ward-A
+        A Ward
+    """
+
+    if pd.isna(value):
+        return ""
+
+    text = str(value).strip()
+
+    if not text:
+        return ""
+
+    upper_text = text.upper()
+
+    # Direct A-T match
+    if upper_text in WARD_ORDER:
+        return upper_text
+
+    # Ward A / Ward-A / Ward A etc.
+    match = re.search(
+        r"\bWARD[\s\-_]*([A-T])\b",
+        upper_text,
+    )
+
+    if match:
+        return match.group(1)
+
+    # A Ward / A-Ward etc.
+    match = re.search(
+        r"\b([A-T])[\s\-_]*WARD\b",
+        upper_text,
+    )
+
+    if match:
+        return match.group(1)
+
+    return text
+
+
+def _ward_order_value(value):
+    """
+    Return numeric ward order A-T.
+
+    Unknown/non-standard ward names are placed
+    after A-T wards.
+    """
+
+    if pd.isna(value):
+        return 999
+
+    normalised = _normalise_ward(value)
+
+    if normalised in WARD_ORDER:
+        return (
+            WARD_ORDER.index(normalised) + 1
+        )
+
+    return 999
+
+
+# ============================================================
+# DATA PREPARATION
+# ============================================================
+
 def _prepare_working_data(df):
     """
     Prepare a safe copy of the filtered dataframe.
@@ -75,6 +273,7 @@ def _prepare_working_data(df):
     work = df.copy()
 
     column_map = {
+
         "test": _find_column(
             work,
             [
@@ -151,9 +350,23 @@ def _prepare_working_data(df):
     return work, column_map
 
 
-def _count_table(df, column, output_name):
+# ============================================================
+# FREQUENCY TABLE
+# ============================================================
+
+def _count_table(
+    df,
+    column,
+    output_name,
+    order_type=None,
+):
     """
     Create a frequency table.
+
+    order_type:
+        None  -> descending record count
+        ward  -> A-T order
+        month -> Jan-Dec order
     """
 
     if (
@@ -184,48 +397,91 @@ def _count_table(df, column, output_name):
         .reset_index(name="Records")
     )
 
-    return result
+    # --------------------------------------------------------
+    # MONTH ORDER
+    # --------------------------------------------------------
+
+    if order_type == "month":
+
+        result["_Month_Order"] = (
+            result[output_name]
+            .map(_month_order_value)
+        )
+
+        result["_Month_Normalised"] = (
+            result[output_name]
+            .map(_normalise_month)
+        )
+
+        result = result.sort_values(
+            [
+                "_Month_Order",
+                output_name,
+            ],
+            ascending=[
+                True,
+                True,
+            ],
+            kind="stable",
+        )
+
+        result[output_name] = (
+            result["_Month_Normalised"]
+        )
+
+        result = result.drop(
+            columns=[
+                "_Month_Order",
+                "_Month_Normalised",
+            ]
+        )
+
+    # --------------------------------------------------------
+    # WARD ORDER
+    # --------------------------------------------------------
+
+    elif order_type == "ward":
+
+        result["_Ward_Order"] = (
+            result[output_name]
+            .map(_ward_order_value)
+        )
+
+        result["_Ward_Normalised"] = (
+            result[output_name]
+            .map(_normalise_ward)
+        )
+
+        result = result.sort_values(
+            [
+                "_Ward_Order",
+                "_Ward_Normalised",
+                output_name,
+            ],
+            ascending=[
+                True,
+                True,
+                True,
+            ],
+            kind="stable",
+        )
+
+        # Keep original display value.
+        result = result.drop(
+            columns=[
+                "_Ward_Order",
+                "_Ward_Normalised",
+            ]
+        )
+
+    return result.reset_index(
+        drop=True
+    )
 
 
-def _month_order_value(value):
-    """
-    Return numeric month order for Jan-Dec.
-    """
-
-    if pd.isna(value):
-        return 999
-
-    text = str(value).strip().lower()
-
-    lookup = {
-        "jan": 1,
-        "january": 1,
-        "feb": 2,
-        "february": 2,
-        "mar": 3,
-        "march": 3,
-        "apr": 4,
-        "april": 4,
-        "may": 5,
-        "jun": 6,
-        "june": 6,
-        "jul": 7,
-        "july": 7,
-        "aug": 8,
-        "august": 8,
-        "sep": 9,
-        "sept": 9,
-        "september": 9,
-        "oct": 10,
-        "october": 10,
-        "nov": 11,
-        "november": 11,
-        "dec": 12,
-        "december": 12,
-    }
-
-    return lookup.get(text, 999)
-
+# ============================================================
+# MONTH-WISE SERIES
+# ============================================================
 
 def _prepare_month_series(
     df,
@@ -234,7 +490,23 @@ def _prepare_month_series(
     selected_category=None,
 ):
     """
-    Prepare month-wise record counts in Jan-Dec order.
+    Prepare month-wise record counts.
+
+    FINAL ORDER:
+        Jan
+        Feb
+        Mar
+        Apr
+        May
+        Jun
+        Jul
+        Aug
+        Sep
+        Oct
+        Nov
+        Dec
+
+    Only months present in the filtered data are displayed.
     """
 
     if (
@@ -247,21 +519,34 @@ def _prepare_month_series(
 
     temp = df.copy()
 
-    temp["_Month"] = _clean_text_series(
+    # --------------------------------------------------------
+    # STANDARDISE MONTH
+    # --------------------------------------------------------
+
+    temp["_Month"] = (
         temp[month_col]
+        .map(_normalise_month)
     )
 
     temp = temp[
-        _valid_value_mask(temp["_Month"])
+        _valid_value_mask(
+            temp["_Month"]
+        )
     ]
+
+    # --------------------------------------------------------
+    # CATEGORY FILTER
+    # --------------------------------------------------------
 
     if category_col is not None:
 
         if category_col not in temp.columns:
             return pd.DataFrame()
 
-        temp["_Category"] = _clean_text_series(
-            temp[category_col]
+        temp["_Category"] = (
+            _clean_text_series(
+                temp[category_col]
+            )
         )
 
         temp = temp[
@@ -271,6 +556,7 @@ def _prepare_month_series(
         ]
 
         if selected_category is not None:
+
             temp = temp[
                 temp["_Category"].eq(
                     selected_category
@@ -280,18 +566,34 @@ def _prepare_month_series(
     if temp.empty:
         return pd.DataFrame()
 
+    # --------------------------------------------------------
+    # COUNT
+    # --------------------------------------------------------
+
     result = (
-        temp.groupby("_Month")
+        temp.groupby(
+            "_Month",
+            sort=False,
+        )
         .size()
-        .reset_index(name="Records")
+        .reset_index(
+            name="Records"
+        )
     )
 
-    result["_Month_Order"] = result[
-        "_Month"
-    ].map(_month_order_value)
+    # --------------------------------------------------------
+    # FORCE JAN-DEC ORDER
+    # --------------------------------------------------------
+
+    result["_Month_Order"] = (
+        result["_Month"]
+        .map(_month_order_value)
+    )
 
     result = result.sort_values(
-        "_Month_Order"
+        "_Month_Order",
+        ascending=True,
+        kind="stable",
     )
 
     result = result[
@@ -307,7 +609,9 @@ def _prepare_month_series(
         }
     )
 
-    return result
+    return result.reset_index(
+        drop=True
+    )
 
 
 # ============================================================
@@ -354,13 +658,29 @@ def render_lab_pathogen(df):
     # PREPARE DATA
     # ========================================================
 
-    work, columns = _prepare_working_data(df)
+    work, columns = _prepare_working_data(
+        df
+    )
 
-    test_col = columns.get("test")
-    pathogen_col = columns.get("pathogen")
-    month_col = columns.get("month")
-    facility_col = columns.get("facility")
-    ward_col = columns.get("ward")
+    test_col = columns.get(
+        "test"
+    )
+
+    pathogen_col = columns.get(
+        "pathogen"
+    )
+
+    month_col = columns.get(
+        "month"
+    )
+
+    facility_col = columns.get(
+        "facility"
+    )
+
+    ward_col = columns.get(
+        "ward"
+    )
 
     # ========================================================
     # CHECK REQUIRED COLUMNS
@@ -369,10 +689,14 @@ def render_lab_pathogen(df):
     missing_core = []
 
     if test_col is None:
-        missing_core.append("Test Performed")
+        missing_core.append(
+            "Test Performed"
+        )
 
     if pathogen_col is None:
-        missing_core.append("Pathogen Name")
+        missing_core.append(
+            "Pathogen Name"
+        )
 
     if missing_core:
 
@@ -435,7 +759,9 @@ def render_lab_pathogen(df):
     ]
 
     test_values = test_values[
-        _valid_value_mask(test_values)
+        _valid_value_mask(
+            test_values
+        )
     ]
 
     pathogen_values = laboratory_records[
@@ -443,10 +769,14 @@ def render_lab_pathogen(df):
     ]
 
     pathogen_values = pathogen_values[
-        _valid_value_mask(pathogen_values)
+        _valid_value_mask(
+            pathogen_values
+        )
     ]
 
-    test_counts = test_values.value_counts()
+    test_counts = (
+        test_values.value_counts()
+    )
 
     pathogen_counts = (
         pathogen_values.value_counts()
@@ -685,15 +1015,27 @@ def render_lab_pathogen(df):
 
         if not month_test.empty:
 
-            chart_data = (
+            # ------------------------------------------------
+            # EXPLICIT JAN-DEC INDEX
+            # ------------------------------------------------
+
+            month_chart_data = (
                 month_test
-                .set_index("Month")[
+                .set_index("Month")
+                .reindex(
+                    [
+                        month
+                        for month in MONTH_ORDER
+                        if month
+                        in month_test["Month"].tolist()
+                    ]
+                )[
                     ["Records"]
                 ]
             )
 
             render_line_chart(
-                chart_data,
+                month_chart_data,
                 height=400,
             )
 
@@ -736,15 +1078,29 @@ def render_lab_pathogen(df):
 
         if not pathogen_month.empty:
 
-            chart_data = (
+            # ------------------------------------------------
+            # EXPLICIT JAN-DEC INDEX
+            # ------------------------------------------------
+
+            pathogen_chart_data = (
                 pathogen_month
-                .set_index("Month")[
+                .set_index("Month")
+                .reindex(
+                    [
+                        month
+                        for month in MONTH_ORDER
+                        if month
+                        in pathogen_month[
+                            "Month"
+                        ].tolist()
+                    ]
+                )[
                     ["Records"]
                 ]
             )
 
             render_line_chart(
-                chart_data,
+                pathogen_chart_data,
                 height=400,
             )
 
@@ -823,15 +1179,29 @@ def render_lab_pathogen(df):
 
             if not selected_month.empty:
 
-                chart_data = (
+                # --------------------------------------------
+                # EXPLICIT JAN-DEC ORDER
+                # --------------------------------------------
+
+                selected_chart_data = (
                     selected_month
-                    .set_index("Month")[
+                    .set_index("Month")
+                    .reindex(
+                        [
+                            month
+                            for month in MONTH_ORDER
+                            if month
+                            in selected_month[
+                                "Month"
+                            ].tolist()
+                        ]
+                    )[
                         ["Records"]
                     ]
                 )
 
                 render_line_chart(
-                    chart_data,
+                    selected_chart_data,
                     height=400,
                 )
 
@@ -857,7 +1227,7 @@ def render_lab_pathogen(df):
     st.divider()
 
     # ========================================================
-    # 7. FACILITY-WISE TEST ANALYSIS
+    # 7. FACILITY-WISE LABORATORY ANALYSIS
     # ========================================================
 
     st.subheader(
@@ -912,7 +1282,7 @@ def render_lab_pathogen(df):
     st.divider()
 
     # ========================================================
-    # 8. WARD-WISE TEST ANALYSIS
+    # 8. WARD-WISE LABORATORY ANALYSIS
     # ========================================================
 
     st.subheader(
@@ -921,10 +1291,15 @@ def render_lab_pathogen(df):
 
     if ward_col is not None:
 
+        # ----------------------------------------------------
+        # A-T ORDER
+        # ----------------------------------------------------
+
         ward_table = _count_table(
             laboratory_records,
             ward_col,
             "Ward Name",
+            order_type="ward",
         )
 
         if not ward_table.empty:
@@ -935,12 +1310,17 @@ def render_lab_pathogen(df):
 
             with left:
 
-                render_bar_chart(
+                ward_chart_data = (
                     ward_table
                     .set_index(
                         "Ward Name"
-                    )["Records"]
-                    .head(20),
+                    )[
+                        ["Records"]
+                    ]
+                )
+
+                render_bar_chart(
+                    ward_chart_data,
                     height=450,
                 )
 
@@ -995,7 +1375,10 @@ def render_lab_pathogen(df):
             and col in laboratory_records.columns
             and col not in display_columns
         ):
-            display_columns.append(col)
+
+            display_columns.append(
+                col
+            )
 
     if display_columns:
 
@@ -1006,27 +1389,34 @@ def render_lab_pathogen(df):
         rename_map = {}
 
         if test_col is not None:
-            rename_map[test_col] = (
-                "Test Performed"
-            )
+
+            rename_map[
+                test_col
+            ] = "Test Performed"
 
         if pathogen_col is not None:
-            rename_map[pathogen_col] = (
-                "Pathogen Name"
-            )
+
+            rename_map[
+                pathogen_col
+            ] = "Pathogen Name"
 
         if month_col is not None:
-            rename_map[month_col] = "Month"
+
+            rename_map[
+                month_col
+            ] = "Month"
 
         if facility_col is not None:
-            rename_map[facility_col] = (
-                "Facility Name"
-            )
+
+            rename_map[
+                facility_col
+            ] = "Facility Name"
 
         if ward_col is not None:
-            rename_map[ward_col] = (
-                "Ward Name"
-            )
+
+            rename_map[
+                ward_col
+            ] = "Ward Name"
 
         disease_col = columns.get(
             "disease"
@@ -1045,15 +1435,25 @@ def render_lab_pathogen(df):
         )
 
         if disease_col is not None:
-            rename_map[disease_col] = "Disease"
+
+            rename_map[
+                disease_col
+            ] = "Disease"
 
         if gender_col is not None:
-            rename_map[gender_col] = "Gender"
+
+            rename_map[
+                gender_col
+            ] = "Gender"
 
         if age_col is not None:
-            rename_map[age_col] = "Age"
+
+            rename_map[
+                age_col
+            ] = "Age"
 
         if reporting_date_col is not None:
+
             rename_map[
                 reporting_date_col
             ] = "Reporting Date"
