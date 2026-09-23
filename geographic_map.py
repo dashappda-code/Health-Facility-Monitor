@@ -1245,23 +1245,69 @@ def render_choropleth_disease_checkboxes(
     )
 
     # --------------------------------------------------------
-    # CREATE CHECKBOXES IN 2-COLUMN GRID
+    # CREATE CHECKBOXES IN SINGLE HORIZONTAL ROW
     # --------------------------------------------------------
 
-    for row_start in range(
-        0,
-        len(available_diseases),
-        2,
-    ):
-        row_diseases = available_diseases[
-            row_start:row_start + 2
-        ]
+    st.markdown(
+        """
+        <style>
+        .geo-choro-checkbox-row {
+            display: flex;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            gap: 18px;
+            width: 100%;
+            padding: 4px 4px 10px 4px;
+            box-sizing: border-box;
+            white-space: nowrap;
+        }
 
-        columns = st.columns(2)
+        .geo-choro-checkbox-item {
+            flex: 0 0 auto;
+            min-width: max-content;
+            white-space: nowrap;
+        }
+
+        .geo-choro-checkbox-row
+        div[data-testid="stCheckbox"] {
+            width: max-content;
+            min-width: max-content;
+        }
+
+        .geo-choro-checkbox-row
+        div[data-testid="stCheckbox"] label {
+            white-space: nowrap;
+            min-width: max-content;
+        }
+
+        .geo-choro-checkbox-row
+        div[data-testid="stCheckbox"] p {
+            white-space: nowrap;
+        }
+
+        .geo-choro-checkbox-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+            width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    checkbox_container = st.container()
+
+    with checkbox_container:
+
+        checkbox_columns = st.columns(
+            len(available_diseases),
+            gap="small",
+        )
 
         for column, disease in zip(
-            columns,
-            row_diseases,
+            checkbox_columns,
+            available_diseases,
         ):
             checkbox_key = (
                 "geo_choro_checkbox_"
@@ -2336,13 +2382,6 @@ def render_geographic_map(
 
             # ------------------------------------------------
             # AVAILABLE DISEASES
-            #
-            # These diseases already respect the existing
-            # Global / Disease Selection filtering because
-            # map_df has already been created above.
-            #
-            # When no disease restriction is applied,
-            # all diseases available in filtered data appear.
             # ------------------------------------------------
 
             comparison_diseases = sorted(
@@ -2366,8 +2405,7 @@ def render_geographic_map(
             else:
 
                 # ------------------------------------------------
-                # If available disease list changed, remove old
-                # selections that are no longer valid.
+                # If available disease list changed
                 # ------------------------------------------------
 
                 previous_available = st.session_state.get(
@@ -2398,8 +2436,6 @@ def render_geographic_map(
                         "geo_choropleth_last_available"
                     ] = comparison_diseases
 
-                    # Clear checkbox states for diseases
-                    # no longer available.
                     for old_disease in previous_available:
 
                         if (
