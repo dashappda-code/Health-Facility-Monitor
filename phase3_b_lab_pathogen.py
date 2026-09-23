@@ -503,12 +503,14 @@ def _render_month_line_chart(
     )
 
     fig.update_traces(
-        hovertemplate=(
-            "Month: %{x}<br>"
-            "Records: %{y:,}"
-            "<extra></extra>"
-        )
+    text=plot_df["Records"].apply(lambda x: f"{int(x):,}"),
+    textposition="top center",
+    hovertemplate=(
+        "Month: %{x}<br>"
+        "Records: %{y:,}"
+        "<extra></extra>"
     )
+)
 
     st.plotly_chart(
         fig,
