@@ -2,10 +2,6 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-from chart_helpers import (
-    render_bar_chart,
-)
-
 
 # ============================================================
 # CONFIGURATION
@@ -124,7 +120,7 @@ def _find_column(df, candidates):
         for col in df.columns
     }
 
-    # Exact match
+    # Exact matching
     for candidate in candidates:
 
         key = str(candidate).strip().lower()
@@ -132,7 +128,7 @@ def _find_column(df, candidates):
         if key in normalized:
             return normalized[key]
 
-    # Partial match
+    # Partial matching
     for col in df.columns:
 
         col_norm = (
@@ -205,17 +201,9 @@ def _valid_value_mask(series):
 # ============================================================
 
 def _normalise_month(value):
-    """
-    Safely normalise month values.
-
-    Supports:
-    - pandas Series
-    - single values
-    """
 
     # --------------------------------------------------------
-    # IMPORTANT:
-    # If a Series is supplied, process each value separately.
+    # Handle complete pandas Series
     # --------------------------------------------------------
 
     if isinstance(value, pd.Series):
@@ -225,10 +213,19 @@ def _normalise_month(value):
         )
 
     # --------------------------------------------------------
-    # Handle missing single value
+    # Handle missing value
     # --------------------------------------------------------
 
-    if pd.isna(value):
+    if value is None:
+        return ""
+
+    try:
+
+        if pd.isna(value):
+            return ""
+
+    except Exception:
+
         return ""
 
     # --------------------------------------------------------
@@ -250,26 +247,32 @@ def _normalise_month(value):
         return MONTH_LOOKUP[lower]
 
     # --------------------------------------------------------
-    # Handle common formats
+    # Remove common separators
     # --------------------------------------------------------
 
-    # January 2026
-    # January-2026
-    # January/2026
-    # Jan 2026
-    # Jan-2026
+    cleaned = (
+        lower
+        .replace("-", " ")
+        .replace("/", " ")
+        .replace("_", " ")
+    )
+
+    # --------------------------------------------------------
+    # Check month names
+    # --------------------------------------------------------
 
     for key, month_name in MONTH_LOOKUP.items():
 
         if len(key) >= 3:
 
-            if lower.startswith(
+            if cleaned.startswith(
                 key[:3]
             ):
+
                 return month_name
 
     # --------------------------------------------------------
-    # Handle date values
+    # Try datetime parsing
     # --------------------------------------------------------
 
     try:
@@ -284,10 +287,11 @@ def _normalise_month(value):
             return parsed.strftime("%b")
 
     except Exception:
+
         pass
 
     # --------------------------------------------------------
-    # Numeric month fallback
+    # Numeric month
     # --------------------------------------------------------
 
     try:
@@ -303,6 +307,7 @@ def _normalise_month(value):
             ]
 
     except Exception:
+
         pass
 
     # --------------------------------------------------------
@@ -384,17 +389,9 @@ def _ordered_month_chart_data(
 # ============================================================
 
 def _normalise_ward(value):
-    """
-    Safely normalise ward values.
-
-    Supports:
-    - pandas Series
-    - single values
-    """
 
     # --------------------------------------------------------
-    # IMPORTANT:
-    # Handle Series safely.
+    # Handle pandas Series
     # --------------------------------------------------------
 
     if isinstance(value, pd.Series):
@@ -407,7 +404,16 @@ def _normalise_ward(value):
     # Missing value
     # --------------------------------------------------------
 
-    if pd.isna(value):
+    if value is None:
+        return ""
+
+    try:
+
+        if pd.isna(value):
+            return ""
+
+    except Exception:
+
         return ""
 
     text = str(value).strip()
@@ -416,7 +422,7 @@ def _normalise_ward(value):
         return ""
 
     # --------------------------------------------------------
-    # Remove common ward prefixes
+    # Remove common prefixes
     # --------------------------------------------------------
 
     cleaned = (
@@ -549,144 +555,118 @@ def _count_table(
 
 
 # ============================================================
-# PREPARE WORKING DATA
+# LOCAL BAR CHART
 # ============================================================
 
-def _prepare_working_data(df):
+def _render_bar_chart(
+    chart_data,
+    x_column,
+    y_column,
+    title,
+    height=450,
+):
 
-    if df is None:
-        return pd.DataFrame()
+    if (
+        chart_data is None
+        or chart_data.empty
+    ):
 
-    if df.empty:
-        return df.copy()
-
-    work_df = df.copy()
-
-    # ========================================================
-    # FIND SOURCE COLUMNS
-    # ========================================================
-
-    month_col = _find_column(
-        work_df,
-        [
-            "Month",
-            "Month Name",
-            "Reporting Month",
-            "Month-Year",
-            "Month Year",
-        ],
-    )
-
-    test_col = _find_column(
-        work_df,
-        [
-            "Test Performed",
-            "Test Performed Name",
-            "Test",
-            "Laboratory Test",
-            "Test Name",
-        ],
-    )
-
-    pathogen_col = _find_column(
-        work_df,
-        [
-            "Pathogen Name",
-            "Pathogen",
-            "Detected Pathogen",
-            "Organism",
-        ],
-    )
-
-    facility_col = _find_column(
-        work_df,
-        [
-            "Facility Name",
-            "Facility",
-            "Health Facility",
-            "Hospital",
-        ],
-    )
-
-    ward_col = _find_column(
-        work_df,
-        [
-            "Ward",
-            "Ward Name",
-            "BMC Ward",
-            "Administrative Ward",
-        ],
-    )
-
-    # ========================================================
-    # CREATE STANDARD INTERNAL COLUMNS
-    # ========================================================
-
-    if month_col is not None:
-
-        work_df["_LAB_MONTH"] = (
-            _normalise_month(
-                work_df[month_col]
-            )
+        st.info(
+            "No data available for this chart."
         )
 
-    else:
+        return
 
-        work_df["_LAB_MONTH"] = ""
+    if (
+        x_column not in chart_data.columns
+        or y_column not in chart_data.columns
+    ):
 
-    if test_col is not None:
-
-        work_df["_LAB_TEST"] = (
-            _clean_text_series(
-                work_df[test_col]
-            )
+        st.info(
+            "Required chart fields are not available."
         )
 
-    else:
+        return
 
-        work_df["_LAB_TEST"] = ""
+    plot_df = chart_data.copy()
 
-    if pathogen_col is not None:
-
-        work_df["_LAB_PATHOGEN"] = (
-            _clean_text_series(
-                work_df[pathogen_col]
-            )
+    plot_df[y_column] = (
+        pd.to_numeric(
+            plot_df[y_column],
+            errors="coerce",
         )
+        .fillna(0)
+    )
 
-    else:
+    # --------------------------------------------------------
+    # Create figure
+    # --------------------------------------------------------
 
-        work_df["_LAB_PATHOGEN"] = ""
+    fig = go.Figure()
 
-    if facility_col is not None:
-
-        work_df["_LAB_FACILITY"] = (
-            _clean_text_series(
-                work_df[facility_col]
-            )
+    labels = (
+        plot_df[y_column]
+        .astype(int)
+        .map(
+            lambda value:
+            f"{value:,}"
         )
+    )
 
-    else:
+    fig.add_trace(
+        go.Bar(
+            x=plot_df[
+                x_column
+            ].astype(str),
 
-        work_df["_LAB_FACILITY"] = ""
+            y=plot_df[
+                y_column
+            ],
 
-    if ward_col is not None:
+            text=labels,
 
-        work_df["_LAB_WARD"] = (
-            _normalise_ward(
-                work_df[ward_col]
-            )
+            textposition="outside",
+
+            cliponaxis=False,
+
+            hovertemplate=(
+                f"{x_column}: %{{x}}<br>"
+                f"{y_column}: %{{y:,}}"
+                "<extra></extra>"
+            ),
         )
+    )
 
-    else:
+    fig.update_xaxes(
+        title=x_column,
+    )
 
-        work_df["_LAB_WARD"] = ""
+    fig.update_yaxes(
+        title=y_column,
+        rangemode="tozero",
+    )
 
-    return work_df
+    fig.update_layout(
+        title=title,
+
+        height=height,
+
+        margin=dict(
+            l=45,
+            r=30,
+            t=70,
+            b=80,
+        ),
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
 
 
 # ============================================================
-# MONTH LINE CHART WITH DATA LABELS
+# MONTH LINE CHART
 # ============================================================
 
 def _render_month_line_chart(
@@ -728,17 +708,9 @@ def _render_month_line_chart(
         .fillna(0)
     )
 
-    # ========================================================
-    # FIGURE
-    # ========================================================
-
     fig = go.Figure()
 
-    # ========================================================
-    # DATA LABELS
-    # ========================================================
-
-    label_values = (
+    labels = (
         plot_df["Records"]
         .astype(int)
         .map(
@@ -761,7 +733,7 @@ def _render_month_line_chart(
                 "lines+markers+text"
             ),
 
-            text=label_values,
+            text=labels,
 
             textposition=(
                 "top center"
@@ -783,10 +755,6 @@ def _render_month_line_chart(
         )
     )
 
-    # ========================================================
-    # AXES
-    # ========================================================
-
     fig.update_xaxes(
         title="Month",
         categoryorder="array",
@@ -797,10 +765,6 @@ def _render_month_line_chart(
         title="Records",
         rangemode="tozero",
     )
-
-    # ========================================================
-    # LAYOUT
-    # ========================================================
 
     fig.update_layout(
         title=title,
@@ -855,7 +819,7 @@ def render_lab_pathogen(df):
         return
 
     # ========================================================
-    # COLUMN AVAILABILITY
+    # CHECK AVAILABLE FIELDS
     # ========================================================
 
     has_test = (
@@ -894,7 +858,7 @@ def render_lab_pathogen(df):
     )
 
     # ========================================================
-    # 1. LABORATORY & PATHOGEN SUMMARY
+    # 1. SUMMARY
     # ========================================================
 
     st.subheader(
@@ -911,7 +875,9 @@ def render_lab_pathogen(df):
 
         pathogen_records = int(
             _valid_value_mask(
-                work_df["_LAB_PATHOGEN"]
+                work_df[
+                    "_LAB_PATHOGEN"
+                ]
             ).sum()
         )
 
@@ -922,7 +888,9 @@ def render_lab_pathogen(df):
         test_types = int(
             work_df.loc[
                 _valid_value_mask(
-                    work_df["_LAB_TEST"]
+                    work_df[
+                        "_LAB_TEST"
+                    ]
                 ),
                 "_LAB_TEST",
             ]
@@ -936,7 +904,9 @@ def render_lab_pathogen(df):
         pathogen_types = int(
             work_df.loc[
                 _valid_value_mask(
-                    work_df["_LAB_PATHOGEN"]
+                    work_df[
+                        "_LAB_PATHOGEN"
+                    ]
                 ),
                 "_LAB_PATHOGEN",
             ]
@@ -1037,10 +1007,10 @@ def render_lab_pathogen(df):
 
         if not test_table.empty:
 
-            render_bar_chart(
+            _render_bar_chart(
                 test_table,
-                x_col="Test Performed",
-                y_col="Records",
+                x_column="Test Performed",
+                y_column="Records",
                 title=(
                     "Laboratory Tests by Test Performed"
                 ),
@@ -1084,10 +1054,10 @@ def render_lab_pathogen(df):
 
         if not pathogen_table.empty:
 
-            render_bar_chart(
+            _render_bar_chart(
                 pathogen_table,
-                x_col="Pathogen Name",
-                y_col="Records",
+                x_column="Pathogen Name",
+                y_column="Records",
                 title=(
                     "Pathogen Distribution"
                 ),
@@ -1125,11 +1095,15 @@ def render_lab_pathogen(df):
 
         cross_df = work_df[
             _valid_value_mask(
-                work_df["_LAB_TEST"]
+                work_df[
+                    "_LAB_TEST"
+                ]
             )
             &
             _valid_value_mask(
-                work_df["_LAB_PATHOGEN"]
+                work_df[
+                    "_LAB_PATHOGEN"
+                ]
             )
         ].copy()
 
@@ -1199,11 +1173,15 @@ def render_lab_pathogen(df):
 
         month_test_df = work_df[
             _valid_value_mask(
-                work_df["_LAB_MONTH"]
+                work_df[
+                    "_LAB_MONTH"
+                ]
             )
             &
             _valid_value_mask(
-                work_df["_LAB_TEST"]
+                work_df[
+                    "_LAB_TEST"
+                ]
             )
         ].copy()
 
@@ -1258,11 +1236,15 @@ def render_lab_pathogen(df):
 
         month_pathogen_df = work_df[
             _valid_value_mask(
-                work_df["_LAB_MONTH"]
+                work_df[
+                    "_LAB_MONTH"
+                ]
             )
             &
             _valid_value_mask(
-                work_df["_LAB_PATHOGEN"]
+                work_df[
+                    "_LAB_PATHOGEN"
+                ]
             )
         ].copy()
 
@@ -1359,7 +1341,9 @@ def render_lab_pathogen(df):
         selected_items = (
             work_df.loc[
                 _valid_value_mask(
-                    work_df[source_column]
+                    work_df[
+                        source_column
+                    ]
                 ),
                 source_column,
             ]
@@ -1380,14 +1364,10 @@ def render_lab_pathogen(df):
 
         if selected_items:
 
-            default_items = selected_items[
-                :5
-            ]
-
             selected_values = st.multiselect(
                 f"Select {selected_label}",
                 selected_items,
-                default=default_items,
+                default=selected_items[:5],
                 key="lab_selected_items",
             )
 
@@ -1395,7 +1375,9 @@ def render_lab_pathogen(df):
 
                 selected_df = work_df[
                     _valid_value_mask(
-                        work_df["_LAB_MONTH"]
+                        work_df[
+                            "_LAB_MONTH"
+                        ]
                     )
                     &
                     work_df[
@@ -1450,9 +1432,9 @@ def render_lab_pathogen(df):
                         )
                     )
 
-                    # ====================================================
-                    # MULTI-TRACE FIGURE
-                    # ====================================================
+                    # --------------------------------------------
+                    # MULTI-TRACE LINE CHART
+                    # --------------------------------------------
 
                     fig = go.Figure()
 
@@ -1468,9 +1450,9 @@ def render_lab_pathogen(df):
                         if item_df.empty:
                             continue
 
-                        # ----------------------------------------------
-                        # Reindex all months
-                        # ----------------------------------------------
+                        # ----------------------------------------
+                        # Force complete Jan-Dec sequence
+                        # ----------------------------------------
 
                         item_df = (
                             item_df
@@ -1499,12 +1481,9 @@ def render_lab_pathogen(df):
                             .fillna(0)
                         )
 
-                        # ----------------------------------------------
+                        # ----------------------------------------
                         # Visible labels
-                        #
-                        # Zero values intentionally have blank labels
-                        # to prevent unnecessary chart clutter.
-                        # ----------------------------------------------
+                        # ----------------------------------------
 
                         label_values = (
                             item_df[
@@ -1558,10 +1537,6 @@ def render_lab_pathogen(df):
                             )
                         )
 
-                    # ====================================================
-                    # AXES
-                    # ====================================================
-
                     fig.update_xaxes(
                         title="Month",
                         categoryorder="array",
@@ -1572,10 +1547,6 @@ def render_lab_pathogen(df):
                         title="Records",
                         rangemode="tozero",
                     )
-
-                    # ====================================================
-                    # LAYOUT
-                    # ====================================================
 
                     fig.update_layout(
                         title=(
@@ -1644,11 +1615,15 @@ def render_lab_pathogen(df):
 
         facility_test_df = work_df[
             _valid_value_mask(
-                work_df["_LAB_FACILITY"]
+                work_df[
+                    "_LAB_FACILITY"
+                ]
             )
             &
             _valid_value_mask(
-                work_df["_LAB_TEST"]
+                work_df[
+                    "_LAB_TEST"
+                ]
             )
         ].copy()
 
@@ -1679,10 +1654,10 @@ def render_lab_pathogen(df):
                 )
             )
 
-            render_bar_chart(
+            _render_bar_chart(
                 facility_table,
-                x_col="Facility Name",
-                y_col="Records",
+                x_column="Facility Name",
+                y_column="Records",
                 title=(
                     "Laboratory Records by Facility"
                 ),
@@ -1721,11 +1696,15 @@ def render_lab_pathogen(df):
 
         ward_test_df = work_df[
             _valid_value_mask(
-                work_df["_LAB_WARD"]
+                work_df[
+                    "_LAB_WARD"
+                ]
             )
             &
             _valid_value_mask(
-                work_df["_LAB_TEST"]
+                work_df[
+                    "_LAB_TEST"
+                ]
             )
         ].copy()
 
@@ -1775,10 +1754,10 @@ def render_lab_pathogen(df):
                 )
             )
 
-            render_bar_chart(
+            _render_bar_chart(
                 ward_table,
-                x_col="Ward",
-                y_col="Records",
+                x_column="Ward",
+                y_column="Records",
                 title=(
                     "Laboratory Records by Ward"
                 ),
