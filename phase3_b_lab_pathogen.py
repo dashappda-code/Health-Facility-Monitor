@@ -26,57 +26,42 @@ MONTH_ORDER = [
     "Dec",
 ]
 
+CHART_MONTH_LABELS = {
+    "Jan": "01-Jan",
+    "Feb": "02-Feb",
+    "Mar": "03-Mar",
+    "Apr": "04-Apr",
+    "May": "05-May",
+    "Jun": "06-Jun",
+    "Jul": "07-Jul",
+    "Aug": "08-Aug",
+    "Sep": "09-Sep",
+    "Oct": "10-Oct",
+    "Nov": "11-Nov",
+    "Dec": "12-Dec",
+}
+
 MONTH_LOOKUP = {
-    "jan": "Jan",
-    "january": "Jan",
-    "feb": "Feb",
-    "february": "Feb",
-    "mar": "Mar",
-    "march": "Mar",
-    "apr": "Apr",
-    "april": "Apr",
+    "jan": "Jan", "january": "Jan",
+    "feb": "Feb", "february": "Feb",
+    "mar": "Mar", "march": "Mar",
+    "apr": "Apr", "april": "Apr",
     "may": "May",
-    "jun": "Jun",
-    "june": "Jun",
-    "jul": "Jul",
-    "july": "Jul",
-    "aug": "Aug",
-    "august": "Aug",
-    "sep": "Sep",
-    "sept": "Sep",
-    "september": "Sep",
-    "oct": "Oct",
-    "october": "Oct",
-    "nov": "Nov",
-    "november": "Nov",
-    "dec": "Dec",
-    "december": "Dec",
+    "jun": "Jun", "june": "Jun",
+    "jul": "Jul", "july": "Jul",
+    "aug": "Aug", "august": "Aug",
+    "sep": "Sep", "sept": "Sep", "september": "Sep",
+    "oct": "Oct", "october": "Oct",
+    "nov": "Nov", "november": "Nov",
+    "dec": "Dec", "december": "Dec",
 }
 
 
 # IMPORTANT:
 # Keep Ward ordering exactly as currently working.
 WARD_ORDER = [
-    "A",
-    "B",
-    "C",
-    "D",
-    "E",
-    "F",
-    "G",
-    "H",
-    "I",
-    "J",
-    "K",
-    "L",
-    "M",
-    "N",
-    "O",
-    "P",
-    "Q",
-    "R",
-    "S",
-    "T",
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+    "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
 ]
 
 
@@ -125,7 +110,6 @@ def _valid_value_mask(series):
     Identify valid non-empty values.
     """
     cleaned = _clean_text_series(series)
-
     return (
         cleaned.ne("")
         & cleaned.ne("nan")
@@ -145,9 +129,12 @@ def _prepare_working_data(df):
 
     working = df.copy()
 
-    # Standardise commonly used columns
-    for col in ["Test Performed", "Pathogen Name", "Month", "Year", 
-                "Facility Name", "Facility Name Lform", "Ward Name", "Ward"]:
+    columns_to_clean = [
+        "Test Performed", "Pathogen Name", "Month", "Year",
+        "Facility Name", "Facility Name Lform", "Ward Name", "Ward"
+    ]
+    
+    for col in columns_to_clean:
         if col in working.columns:
             working[col] = _clean_text_series(working[col])
 
@@ -199,27 +186,9 @@ def _month_order_value(value):
         return 999
 
 
-def _prepare_month_series(df):
-    if df is None or df.empty or "Month" not in df.columns:
-        return pd.DataFrame()
-
-    temp = df.copy()
-    temp["Month"] = temp["Month"].map(_normalise_month)
-    temp = temp[temp["Month"].ne("")].copy()
-
-    if temp.empty:
-        return pd.DataFrame()
-
-    monthly = temp["Month"].value_counts().rename_axis("Month").reset_index(name="Records")
-    monthly["_Month_Order"] = monthly["Month"].map(_month_order_value)
-    monthly = monthly.sort_values("_Month_Order", ascending=True, kind="stable").drop(columns=["_Month_Order"]).reset_index(drop=True)
-
-    return monthly
-
-
 def _ordered_month_chart_data(month_df):
     """
-    Final hard-fix for month charts to strictly show Jan-Dec order on X-axis.
+    Prepare explicitly ordered Jan-Dec data.
     """
     if (
         month_df is None
@@ -230,18 +199,15 @@ def _ordered_month_chart_data(month_df):
         return pd.DataFrame()
 
     temp = month_df.copy()
-
     temp["Month"] = temp["Month"].map(_normalise_month)
     temp = temp[temp["Month"].ne("")].copy()
 
     if temp.empty:
         return pd.DataFrame()
 
-    # Explicit Jan-Dec numeric order
     temp["_Month_Order"] = temp["Month"].map(_month_order_value)
     temp = temp.sort_values("_Month_Order", ascending=True, kind="stable").reset_index(drop=True)
 
-    # Convert to explicit Categorical ordered type
     temp["Month"] = pd.Categorical(
         temp["Month"],
         categories=MONTH_ORDER,
@@ -249,17 +215,7 @@ def _ordered_month_chart_data(month_df):
     )
     
     temp = temp.sort_values("Month", ascending=True, kind="stable").reset_index(drop=True)
-
-    # Set index
     chart_data = temp[["Month", "Records"]].set_index("Month")
-
-    # IMPORTANT: Ensure the index itself is a CategoricalIndex for Streamlit/Altair
-    chart_data.index = pd.CategoricalIndex(
-        chart_data.index,
-        categories=MONTH_ORDER,
-        ordered=True,
-        name="Month"
-    )
 
     return chart_data
 
@@ -446,7 +402,7 @@ def render_lab_pathogen(filtered_df):
     st.divider()
 
     # ========================================================
-    # 5. MONTH-WISE LABORATORY TEST TREND
+    # 5. MONTH-WISE LABORATORY TEST TREND (CHART ORDER FIXED)
     # ========================================================
     st.markdown("### 4. Month-wise Laboratory Test Trend")
     if test_col is not None and month_col is not None:
@@ -460,8 +416,15 @@ def render_lab_pathogen(filtered_df):
             chart_data = _ordered_month_chart_data(month_test)
 
             if not chart_data.empty:
-                render_line_chart(chart_data, height=400, use_container_width=True)
-                st.dataframe(chart_data.reset_index(), use_container_width=True, hide_index=True)
+                # IMPORTANT: Map index to "01-Jan" purely for the chart to guarantee alphabetical = chronological sort
+                plot_data = chart_data.copy()
+                plot_data.index = plot_data.index.astype(str).map(lambda m: CHART_MONTH_LABELS.get(m, m))
+                
+                render_line_chart(plot_data, height=400, use_container_width=True)
+                
+                # Table continues to use the clean standard names
+                display_table = chart_data.reset_index()
+                st.dataframe(display_table, use_container_width=True, hide_index=True)
         else:
             st.info("Month-wise laboratory test data is not available.")
     else:
@@ -470,7 +433,7 @@ def render_lab_pathogen(filtered_df):
     st.divider()
 
     # ========================================================
-    # 6. MONTH-WISE PATHOGEN TREND
+    # 6. MONTH-WISE PATHOGEN TREND (CHART ORDER FIXED)
     # ========================================================
     st.markdown("### 5. Month-wise Pathogen Trend")
     if pathogen_col is not None and month_col is not None:
@@ -484,8 +447,15 @@ def render_lab_pathogen(filtered_df):
             chart_data = _ordered_month_chart_data(pathogen_month)
 
             if not chart_data.empty:
-                render_line_chart(chart_data, height=400, use_container_width=True)
-                st.dataframe(chart_data.reset_index(), use_container_width=True, hide_index=True)
+                # IMPORTANT: Map index to "01-Jan" purely for the chart 
+                plot_data = chart_data.copy()
+                plot_data.index = plot_data.index.astype(str).map(lambda m: CHART_MONTH_LABELS.get(m, m))
+
+                render_line_chart(plot_data, height=400, use_container_width=True)
+                
+                # Table continues to use the clean standard names
+                display_table = chart_data.reset_index()
+                st.dataframe(display_table, use_container_width=True, hide_index=True)
         else:
             st.info("Month-wise pathogen data is not available.")
     else:
@@ -494,7 +464,7 @@ def render_lab_pathogen(filtered_df):
     st.divider()
 
     # ========================================================
-    # 7. SELECTED LABORATORY ITEM TREND
+    # 7. SELECTED LABORATORY ITEM TREND (CHART ORDER FIXED)
     # ========================================================
     st.markdown("### 6. Selected Laboratory Item Trend")
     available_items = []
@@ -524,7 +494,6 @@ def render_lab_pathogen(filtered_df):
                 .reset_index()
             )
 
-            # Categorical ordering
             item_month["Month"] = pd.Categorical(
                 item_month["Month"],
                 categories=MONTH_ORDER,
@@ -538,15 +507,11 @@ def render_lab_pathogen(filtered_df):
             valid_months = [month for month in MONTH_ORDER if month in pivot_data.index]
             pivot_data = pivot_data.reindex(valid_months)
 
-            # IMPORTANT: Force Categorical Index explicitly
-            pivot_data.index = pd.CategoricalIndex(
-                pivot_data.index,
-                categories=MONTH_ORDER,
-                ordered=True,
-                name="Month",
-            )
+            # IMPORTANT: Map index to "01-Jan" purely for the chart 
+            plot_data = pivot_data.copy()
+            plot_data.index = plot_data.index.astype(str).map(lambda m: CHART_MONTH_LABELS.get(m, m))
 
-            render_line_chart(pivot_data, height=450, use_container_width=True)
+            render_line_chart(plot_data, height=450, use_container_width=True)
             st.caption(f"Showing monthly trend for the selected {selected_label.lower()} values.")
         else:
             st.info("No trend data is available for the selected laboratory item.")
