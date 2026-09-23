@@ -27,27 +27,25 @@ def _clean_series(df, column):
 # MONTH ORDER
 # ============================================================
 
-# Added numeric prefixes to guarantee chronological rendering 
-# regardless of the underlying chart library's default sorting.
 CALENDAR_MONTHS = [
-    "01-Jan",
-    "02-Feb",
-    "03-Mar",
-    "04-Apr",
-    "05-May",
-    "06-Jun",
-    "07-Jul",
-    "08-Aug",
-    "09-Sep",
-    "10-Oct",
-    "11-Nov",
-    "12-Dec",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
 ]
 
 
 def _normalize_month(value):
     """
-    Convert different month formats into standard chronologically sorted labels.
+    Convert different month formats into standard Jan-Dec labels.
     """
 
     if pd.isna(value):
@@ -56,28 +54,28 @@ def _normalize_month(value):
     text = str(value).strip().lower()
 
     if text in {"january", "jan", "1", "01"}:
-        return "01-Jan"
+        return "Jan"
 
     if text in {"february", "feb", "2", "02"}:
-        return "02-Feb"
+        return "Feb"
 
     if text in {"march", "mar", "3", "03"}:
-        return "03-Mar"
+        return "Mar"
 
     if text in {"april", "apr", "4", "04"}:
-        return "04-Apr"
+        return "Apr"
 
     if text in {"may", "5", "05"}:
-        return "05-May"
+        return "May"
 
     if text in {"june", "jun", "6", "06"}:
-        return "06-Jun"
+        return "Jun"
 
     if text in {"july", "jul", "7", "07"}:
-        return "07-Jul"
+        return "Jul"
 
     if text in {"august", "aug", "8", "08"}:
-        return "08-Aug"
+        return "Aug"
 
     if text in {
         "september",
@@ -86,16 +84,16 @@ def _normalize_month(value):
         "9",
         "09",
     }:
-        return "09-Sep"
+        return "Sep"
 
     if text in {"october", "oct", "10"}:
-        return "10-Oct"
+        return "Oct"
 
     if text in {"november", "nov", "11"}:
-        return "11-Nov"
+        return "Nov"
 
     if text in {"december", "dec", "12"}:
-        return "12-Dec"
+        return "Dec"
 
     return text
 
@@ -181,12 +179,10 @@ def render_charts(df):
 
         if not month_series.empty:
 
-            # Normalize all month formats
             normalized_months = month_series.apply(
                 _normalize_month
             )
 
-            # Create month counts as DataFrame
             month_counts = (
                 normalized_months
                 .value_counts()
@@ -196,10 +192,7 @@ def render_charts(df):
                 )
             )
 
-            # ------------------------------------------------
-            # FORCE JAN -> DEC ORDER
-            # ------------------------------------------------
-
+            # Force calendar order
             month_counts["Month"] = pd.Categorical(
                 month_counts["Month"],
                 categories=CALENDAR_MONTHS,
@@ -219,7 +212,6 @@ def render_charts(df):
                 )
             )
 
-            # Keep categorical index while sending to helper
             chart_series = (
                 month_counts
                 .set_index("Month")["Records"]
@@ -230,7 +222,6 @@ def render_charts(df):
                 use_container_width=True,
             )
 
-            # Display supporting table
             display_month_counts = (
                 month_counts.copy()
             )
@@ -296,23 +287,18 @@ def render_charts(df):
 
         if not temp.empty:
 
-            # Normalize month names
             temp["Month"] = temp[
                 "Month"
             ].apply(
                 _normalize_month
             )
 
-            # Create disease x month table
             cross_tab = pd.crosstab(
                 temp["Month"],
                 temp["Disease"],
             )
 
-            # ------------------------------------------------
-            # FORCE JAN -> DEC ORDER
-            # ------------------------------------------------
-
+            # Force complete Jan-Dec index
             cross_tab = (
                 cross_tab
                 .reindex(
@@ -321,7 +307,6 @@ def render_charts(df):
                 )
             )
 
-            # Make the index explicitly categorical
             cross_tab.index = pd.CategoricalIndex(
                 cross_tab.index,
                 categories=CALENDAR_MONTHS,
@@ -329,15 +314,10 @@ def render_charts(df):
                 name="Month",
             )
 
-            # Explicitly sort categorical index
             cross_tab = (
                 cross_tab
                 .sort_index()
             )
-
-            # ------------------------------------------------
-            # TOP 10 DISEASES
-            # ------------------------------------------------
 
             disease_totals = (
                 cross_tab
@@ -354,22 +334,20 @@ def render_charts(df):
                 .tolist()
             )
 
-            chart_data = (
-                cross_tab[
-                    selected_diseases
-                ]
-            )
+            chart_data = cross_tab[
+                selected_diseases
+            ]
 
             render_line_chart(
                 chart_data,
                 use_container_width=True,
+                height=450,
             )
 
             st.caption(
                 "Chart displays the top 10 diseases by total "
                 "records within the selected filters. "
-                "Months are shown in calendar order from "
-                "January to December."
+                "Months are shown in calendar order from January to December."
             )
 
         else:
@@ -455,13 +433,8 @@ def render_charts(df):
     for column in possible_pathogen_columns:
 
         if column in df.columns:
-
             pathogen_column = column
             break
-
-    # --------------------------------------------------------
-    # CASE 1: Combined field already available
-    # --------------------------------------------------------
 
     if pathogen_column is not None:
 
@@ -509,10 +482,6 @@ def render_charts(df):
                 "Test performed / pathogen information "
                 "is not available for the selected records."
             )
-
-    # --------------------------------------------------------
-    # CASE 2: Separate Test Performed + Pathogen Name
-    # --------------------------------------------------------
 
     elif (
         "Test Performed" in df.columns
@@ -766,11 +735,9 @@ def render_charts(df):
             ["Reporting Date"]
         ].copy()
 
-        date_df["Reporting Date"] = (
-            pd.to_datetime(
-                date_df["Reporting Date"],
-                errors="coerce",
-            )
+        date_df["Reporting Date"] = pd.to_datetime(
+            date_df["Reporting Date"],
+            errors="coerce",
         )
 
         date_df = date_df.dropna(
@@ -813,20 +780,12 @@ def render_charts(df):
 
     summary_columns = st.columns(4)
 
-    # --------------------------------------------------------
-    # RECORDS
-    # --------------------------------------------------------
-
     with summary_columns[0]:
 
         st.metric(
             "Records Analysed",
             f"{len(df):,}",
         )
-
-    # --------------------------------------------------------
-    # DISEASES
-    # --------------------------------------------------------
 
     with summary_columns[1]:
 
@@ -855,10 +814,6 @@ def render_charts(df):
                 "0",
             )
 
-    # --------------------------------------------------------
-    # FACILITIES
-    # --------------------------------------------------------
-
     with summary_columns[2]:
 
         if "Facility Name" in df.columns:
@@ -885,10 +840,6 @@ def render_charts(df):
                 "Facilities",
                 "0",
             )
-
-    # --------------------------------------------------------
-    # WARDS
-    # --------------------------------------------------------
 
     with summary_columns[3]:
 
