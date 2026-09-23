@@ -5,6 +5,7 @@ import plotly.express as px
 from chart_helpers import (
     render_bar_chart,
     render_line_chart,
+    data_labels_enabled,
 )
 
 
@@ -598,7 +599,7 @@ def _count_table(
 
 
 # ============================================================
-# MONTH LINE CHART WITH ACTIVE DATA LABELS
+# MONTH LINE CHART
 # ============================================================
 
 def _render_month_line_chart(
@@ -609,9 +610,8 @@ def _render_month_line_chart(
     """
     Render monthly line chart.
 
-    IMPORTANT:
-    Data labels are explicitly enabled using
-    text + textposition.
+    Data labels follow the global
+    Show Data Labels switch.
     """
 
     if (
@@ -641,46 +641,78 @@ def _render_month_line_chart(
     )
 
     # --------------------------------------------------------
-    # IMPORTANT:
-    # Build labels as a real column.
+    # GLOBAL DATA LABEL CONTROL
     # --------------------------------------------------------
 
-    plot_df["Data Label"] = (
-        plot_df["Records"]
-        .fillna(0)
-        .astype(int)
-        .astype(str)
-    )
+    if data_labels_enabled():
 
-    fig = px.line(
-        plot_df,
-        x="Month",
-        y="Records",
-        markers=True,
-        text="Data Label",
-        title=title,
-        category_orders={
-            "Month": MONTH_ORDER
-        },
-    )
+        plot_df["Data Label"] = (
+            plot_df["Records"]
+            .fillna(0)
+            .astype(int)
+            .astype(str)
+        )
 
-    fig.update_traces(
-        texttemplate="%{text}",
-        textposition="top center",
-        cliponaxis=False,
-        mode="lines+markers+text",
-        marker=dict(
-            size=8
-        ),
-        line=dict(
-            width=2
-        ),
-        hovertemplate=(
-            "Month: %{x}<br>"
-            "Records: %{y:,}"
-            "<extra></extra>"
-        ),
-    )
+        fig = px.line(
+            plot_df,
+            x="Month",
+            y="Records",
+            markers=True,
+            text="Data Label",
+            title=title,
+            category_orders={
+                "Month": MONTH_ORDER
+            },
+        )
+
+        fig.update_traces(
+            texttemplate="%{text}",
+            textposition="top center",
+            cliponaxis=False,
+            mode="lines+markers+text",
+            marker=dict(
+                size=8
+            ),
+            line=dict(
+                width=2
+            ),
+            textfont=dict(
+                size=12
+            ),
+            hovertemplate=(
+                "Month: %{x}<br>"
+                "Records: %{y:,}"
+                "<extra></extra>"
+            ),
+        )
+
+    else:
+
+        fig = px.line(
+            plot_df,
+            x="Month",
+            y="Records",
+            markers=True,
+            title=title,
+            category_orders={
+                "Month": MONTH_ORDER
+            },
+        )
+
+        fig.update_traces(
+            mode="lines+markers",
+            marker=dict(
+                size=8
+            ),
+            line=dict(
+                width=2
+            ),
+            hovertemplate=(
+                "Month: %{x}<br>"
+                "Records: %{y:,}"
+                "<extra></extra>"
+            ),
+        )
 
     fig.update_xaxes(
         categoryorder="array",
@@ -720,9 +752,8 @@ def _render_selected_item_chart(
     """
     Render selected laboratory item trend.
 
-    One Plotly trace is created per item so that
-    data labels are correctly attached to the
-    corresponding line.
+    Data labels follow the global
+    Show Data Labels switch.
     """
 
     if (
@@ -732,34 +763,81 @@ def _render_selected_item_chart(
 
         return
 
-    fig = px.line(
-        plot_df,
-        x="Month",
-        y="Records",
-        color="Selected Item",
-        markers=True,
-        text="Data Label",
-        title=title,
-        category_orders={
-            "Month": MONTH_ORDER
-        },
-    )
+    # --------------------------------------------------------
+    # DATA LABELS ONLY WHEN GLOBAL SWITCH IS ON
+    # --------------------------------------------------------
 
-    fig.update_traces(
-        texttemplate="%{text}",
-        textposition="top center",
-        cliponaxis=False,
-        mode="lines+markers+text",
-        marker=dict(
-            size=7
-        ),
-        hovertemplate=(
-            "Month: %{x}<br>"
-            "Records: %{y:,}<br>"
-            "Item: %{fullData.name}"
-            "<extra></extra>"
-        ),
-    )
+    if data_labels_enabled():
+
+        plot_df = plot_df.copy()
+
+        if "Data Label" not in plot_df.columns:
+
+            plot_df["Data Label"] = (
+                plot_df["Records"]
+                .fillna(0)
+                .astype(int)
+                .astype(str)
+            )
+
+        fig = px.line(
+            plot_df,
+            x="Month",
+            y="Records",
+            color="Selected Item",
+            markers=True,
+            text="Data Label",
+            title=title,
+            category_orders={
+                "Month": MONTH_ORDER
+            },
+        )
+
+        fig.update_traces(
+            texttemplate="%{text}",
+            textposition="top center",
+            cliponaxis=False,
+            mode="lines+markers+text",
+            marker=dict(
+                size=7
+            ),
+            textfont=dict(
+                size=12
+            ),
+            hovertemplate=(
+                "Month: %{x}<br>"
+                "Records: %{y:,}<br>"
+                "Item: %{fullData.name}"
+                "<extra></extra>"
+            ),
+        )
+
+    else:
+
+        fig = px.line(
+            plot_df,
+            x="Month",
+            y="Records",
+            color="Selected Item",
+            markers=True,
+            title=title,
+            category_orders={
+                "Month": MONTH_ORDER
+            },
+        )
+
+        fig.update_traces(
+            mode="lines+markers",
+            marker=dict(
+                size=7
+            ),
+            hovertemplate=(
+                "Month: %{x}<br>"
+                "Records: %{y:,}<br>"
+                "Item: %{fullData.name}"
+                "<extra></extra>"
+            ),
+        )
 
     fig.update_xaxes(
         categoryorder="array",
@@ -1039,6 +1117,7 @@ def render_lab_pathogen(filtered_df):
                     "Test Performed"
                 )["Records"],
                 use_container_width=True,
+                height=400,
             )
 
             st.dataframe(
@@ -1095,6 +1174,7 @@ def render_lab_pathogen(filtered_df):
                     "Pathogen Name"
                 )["Records"],
                 use_container_width=True,
+                height=400,
             )
 
             st.dataframe(
@@ -1651,6 +1731,7 @@ def render_lab_pathogen(filtered_df):
                     "Facility Name"
                 )["Records"],
                 use_container_width=True,
+                height=400,
             )
 
             st.dataframe(
@@ -1700,6 +1781,7 @@ def render_lab_pathogen(filtered_df):
                     "Ward Name"
                 )["Records"],
                 use_container_width=True,
+                height=400,
             )
 
             st.dataframe(
