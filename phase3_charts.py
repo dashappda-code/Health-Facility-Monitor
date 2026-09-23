@@ -27,25 +27,27 @@ def _clean_series(df, column):
 # MONTH ORDER
 # ============================================================
 
+# Added numeric prefixes to guarantee chronological rendering 
+# regardless of the underlying chart library's default sorting.
 CALENDAR_MONTHS = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
+    "01-Jan",
+    "02-Feb",
+    "03-Mar",
+    "04-Apr",
+    "05-May",
+    "06-Jun",
+    "07-Jul",
+    "08-Aug",
+    "09-Sep",
+    "10-Oct",
+    "11-Nov",
+    "12-Dec",
 ]
 
 
 def _normalize_month(value):
     """
-    Convert different month formats into standard Jan-Dec labels.
+    Convert different month formats into standard chronologically sorted labels.
     """
 
     if pd.isna(value):
@@ -54,28 +56,28 @@ def _normalize_month(value):
     text = str(value).strip().lower()
 
     if text in {"january", "jan", "1", "01"}:
-        return "Jan"
+        return "01-Jan"
 
     if text in {"february", "feb", "2", "02"}:
-        return "Feb"
+        return "02-Feb"
 
     if text in {"march", "mar", "3", "03"}:
-        return "Mar"
+        return "03-Mar"
 
     if text in {"april", "apr", "4", "04"}:
-        return "Apr"
+        return "04-Apr"
 
     if text in {"may", "5", "05"}:
-        return "May"
+        return "05-May"
 
     if text in {"june", "jun", "6", "06"}:
-        return "Jun"
+        return "06-Jun"
 
     if text in {"july", "jul", "7", "07"}:
-        return "Jul"
+        return "07-Jul"
 
     if text in {"august", "aug", "8", "08"}:
-        return "Aug"
+        return "08-Aug"
 
     if text in {
         "september",
@@ -84,16 +86,16 @@ def _normalize_month(value):
         "9",
         "09",
     }:
-        return "Sep"
+        return "09-Sep"
 
     if text in {"october", "oct", "10"}:
-        return "Oct"
+        return "10-Oct"
 
     if text in {"november", "nov", "11"}:
-        return "Nov"
+        return "11-Nov"
 
     if text in {"december", "dec", "12"}:
-        return "Dec"
+        return "12-Dec"
 
     return text
 
