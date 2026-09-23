@@ -1,5 +1,6 @@
 import io
 import re
+import zipfile
 
 import pandas as pd
 import requests
@@ -1035,7 +1036,6 @@ def reset_geo_disease_selection():
 
 # ============================================================
 # DISEASE SELECTION
-# Existing Geographic Disease Selection
 # ============================================================
 
 def disease_selection_control(diseases):
@@ -1096,7 +1096,6 @@ def disease_selection_control(diseases):
 
 # ============================================================
 # WARD CHOROPLETH CHECKBOX CONTROL
-# Maximum 6 diseases
 # ============================================================
 
 def reset_choropleth_selection():
@@ -1247,10 +1246,6 @@ def render_choropleth_disease_checkboxes(
             "geo_choropleth_clear_requested"
         ] = False
 
-    # --------------------------------------------------------
-    # CURRENT SELECTION
-    # --------------------------------------------------------
-
     if (
         "geo_choropleth_selection"
         not in st.session_state
@@ -1284,10 +1279,6 @@ def render_choropleth_disease_checkboxes(
         "Each selected disease will be displayed "
         "as a ward choropleth map with its ward-wise table."
     )
-
-    # --------------------------------------------------------
-    # CREATE CHECKBOXES IN SINGLE HORIZONTAL ROW
-    # --------------------------------------------------------
 
     st.markdown(
         """
@@ -1395,23 +1386,8 @@ def render_choropleth_disease_checkboxes(
         ):
             selected.append(disease)
 
-    # Safety limit
     if len(selected) > 6:
         selected = selected[:6]
-
-        for disease in available_diseases:
-            checkbox_key = (
-                "geo_choro_checkbox_"
-                + re.sub(
-                    r"[^A-Za-z0-9]+",
-                    "_",
-                    disease,
-                )
-            )
-
-            st.session_state[
-                checkbox_key
-            ] = disease in selected
 
     st.session_state[
         "geo_choropleth_selection"
@@ -1462,10 +1438,6 @@ def calculate_view(
             72.8777,
             10.3,
         )
-
-    # --------------------------------------------------------
-    # SUPPORT BOTH RAW CASE DATA AND HOTSPOT DATA
-    # --------------------------------------------------------
 
     if (
         LAT_COL in case_points.columns
@@ -1873,7 +1845,7 @@ def get_disease_map_data(
 
 
 # ============================================================
-# EXPORT
+# EXCEL EXPORT
 # ============================================================
 
 def download_hotspot_data(
@@ -1913,10 +1885,6 @@ def download_hotspot_data(
 
     return output
 
-
-# ============================================================
-# NEW — WARD CHOROPLETH DISPLAY EXPORT
-# ============================================================
 
 def download_choropleth_data(
     map_df,
@@ -2053,6 +2021,1145 @@ def download_choropleth_data(
     output.seek(0)
 
     return output
+
+
+# ============================================================
+# NEW — STATIC MAP EXPORT HELPERS
+# PNG + PDF
+# ============================================================
+
+def get_matplotlib_modules():
+    """
+    Lazy-load matplotlib so the dashboard does not unnecessarily
+    load matplotlib when geographic maps are not being exported.
+    """
+
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_pdf import PdfPages
+        from matplotlib.patches import PathPatch, Patch
+        from matplotlib.path import Path
+
+        return (
+            plt,
+            PdfPages,
+            PathPatch,
+            Patch,
+            Path,
+        )
+
+    except Exception:
+        return None
+
+
+def safe_map_filename(value):
+    text = clean_text(value)
+
+    text = re.sub(
+        r"[^A-Za-z0-9]+",
+        "_",
+        text,
+    )
+
+    text = text.strip("_")
+
+    if not text:
+        return "map"
+
+    return text
+
+
+def iter_geojson_positions(coords):
+    if isinstance(
+        coords,
+        (list, tuple),
+    ):
+
+        if (
+            len(coords) >= 2
+            and isinstance(
+                coords[0],
+                (int, float),
+            )
+            and isinstance(
+                coords[1],
+                (int, float),
+            )
+        ):
+            yield (
+                float(coords[0]),
+                float(coords[1]),
+            )
+
+        else:
+
+            for item in coords:
+                yield from iter_geojson_positions(
+                    item
+                )
+
+
+def get_geojson_bounds(geojson):
+    if not isinstance(
+        geojson,
+        dict,
+    ):
+        return None
+
+    lons = []
+    lats = []
+
+    for feature in geojson.get(
+        "features",
+        [],
+    ):
+
+        geometry = feature.get(
+            "geometry"
+        )
+
+        if not isinstance(
+            geometry,
+            dict,
+        ):
+            continue
+
+        coords = geometry.get(
+            "coordinates"
+        )
+
+        for lon, lat in iter_geojson_positions(
+            coords
+        ):
+            lons.append(lon)
+            lats.append(lat)
+
+    if not lons or not lats:
+        return None
+
+    return (
+        min(lons),
+        max(lons),
+        min(lats),
+        max(lats),
+    )
+
+
+def get_dataframe_bounds(
+    dataframe,
+):
+    if (
+        dataframe is None
+        or not isinstance(
+            dataframe,
+            pd.DataFrame,
+        )
+        or dataframe.empty
+    ):
+        return None
+
+    if (
+        LAT_COL in dataframe.columns
+        and LON_COL in dataframe.columns
+    ):
+        lat_col = LAT_COL
+        lon_col = LON_COL
+
+    elif (
+        "Latitude" in dataframe.columns
+        and "Longitude" in dataframe.columns
+    ):
+        lat_col = "Latitude"
+        lon_col = "Longitude"
+
+    else:
+        return None
+
+    lat = pd.to_numeric(
+        dataframe[lat_col],
+        errors="coerce",
+    ).dropna()
+
+    lon = pd.to_numeric(
+        dataframe[lon_col],
+        errors="coerce",
+    ).dropna()
+
+    if lat.empty or lon.empty:
+        return None
+
+    return (
+        float(lon.min()),
+        float(lon.max()),
+        float(lat.min()),
+        float(lat.max()),
+    )
+
+
+def geometry_to_path(
+    geometry,
+    Path,
+):
+    if not isinstance(
+        geometry,
+        dict,
+    ):
+        return None
+
+    geometry_type = geometry.get(
+        "type"
+    )
+
+    coordinates = geometry.get(
+        "coordinates"
+    )
+
+    if not coordinates:
+        return None
+
+    polygons = []
+
+    if geometry_type == "Polygon":
+        polygons = [
+            coordinates
+        ]
+
+    elif geometry_type == "MultiPolygon":
+        polygons = coordinates
+
+    else:
+        return None
+
+    vertices = []
+    codes = []
+
+    for polygon in polygons:
+
+        if not polygon:
+            continue
+
+        for ring in polygon:
+
+            if not ring:
+                continue
+
+            first_point = ring[0]
+
+            vertices.append(
+                (
+                    float(first_point[0]),
+                    float(first_point[1]),
+                )
+            )
+
+            codes.append(
+                Path.MOVETO
+            )
+
+            for point in ring[1:]:
+
+                vertices.append(
+                    (
+                        float(point[0]),
+                        float(point[1]),
+                    )
+                )
+
+                codes.append(
+                    Path.LINETO
+                )
+
+            vertices.append(
+                (
+                    float(first_point[0]),
+                    float(first_point[1]),
+                )
+            )
+
+            codes.append(
+                Path.CLOSEPOLY
+            )
+
+    if not vertices:
+        return None
+
+    return Path(
+        vertices,
+        codes,
+    )
+
+
+def rgba255_to_mpl(
+    value,
+    default=(0.15, 0.15, 0.15, 0.75),
+):
+    if not isinstance(
+        value,
+        (list, tuple),
+    ):
+        return default
+
+    if len(value) < 4:
+        return default
+
+    return (
+        max(
+            0,
+            min(255, int(value[0])),
+        ) / 255,
+        max(
+            0,
+            min(255, int(value[1])),
+        ) / 255,
+        max(
+            0,
+            min(255, int(value[2])),
+        ) / 255,
+        max(
+            0,
+            min(255, int(value[3])),
+        ) / 255,
+    )
+
+
+def get_feature_center(
+    geometry,
+):
+    if not isinstance(
+        geometry,
+        dict,
+    ):
+        return None
+
+    positions = list(
+        iter_geojson_positions(
+            geometry.get(
+                "coordinates"
+            )
+        )
+    )
+
+    if not positions:
+        return None
+
+    lon = sum(
+        point[0]
+        for point in positions
+    ) / len(positions)
+
+    lat = sum(
+        point[1]
+        for point in positions
+    ) / len(positions)
+
+    return (
+        lon,
+        lat,
+    )
+
+
+def draw_geojson_features(
+    ax,
+    geojson,
+    PathPatch,
+    Path,
+    show_labels=False,
+):
+    if not isinstance(
+        geojson,
+        dict,
+    ):
+        return
+
+    for feature in geojson.get(
+        "features",
+        [],
+    ):
+
+        geometry = feature.get(
+            "geometry"
+        )
+
+        properties = feature.get(
+            "properties",
+            {},
+        )
+
+        path = geometry_to_path(
+            geometry,
+            Path,
+        )
+
+        if path is None:
+            continue
+
+        fill_color = rgba255_to_mpl(
+            properties.get(
+                "fill_color"
+            ),
+            default=(
+                0.08,
+                0.08,
+                0.08,
+                0.25,
+            ),
+        )
+
+        line_color = rgba255_to_mpl(
+            properties.get(
+                "line_color"
+            ),
+            default=(
+                0.45,
+                0.45,
+                0.45,
+                0.80,
+            ),
+        )
+
+        patch = PathPatch(
+            path,
+            facecolor=fill_color,
+            edgecolor=line_color,
+            linewidth=0.75,
+        )
+
+        ax.add_patch(patch)
+
+        if show_labels:
+
+            center = get_feature_center(
+                geometry
+            )
+
+            if center is not None:
+
+                ward = clean_text(
+                    properties.get(
+                        "ProgrammeWard",
+                        "",
+                    )
+                )
+
+                cases = int(
+                    properties.get(
+                        "ProgrammeCases",
+                        0,
+                    )
+                    or 0
+                )
+
+                if ward:
+
+                    ax.text(
+                        center[0],
+                        center[1],
+                        f"{ward}\n{cases:,}",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        color="white",
+                        fontweight="bold",
+                        bbox={
+                            "boxstyle": "round,pad=0.15",
+                            "facecolor": "#111111",
+                            "edgecolor": "none",
+                            "alpha": 0.65,
+                        },
+                    )
+
+
+def set_static_map_extent(
+    ax,
+    geojson=None,
+    dataframe=None,
+    extent="BMC Focus",
+):
+    geo_bounds = get_geojson_bounds(
+        geojson
+    )
+
+    data_bounds = get_dataframe_bounds(
+        dataframe
+    )
+
+    if (
+        extent == "BMC Focus"
+        and geo_bounds is not None
+    ):
+        bounds = geo_bounds
+
+    elif data_bounds is not None:
+        bounds = data_bounds
+
+    elif geo_bounds is not None:
+        bounds = geo_bounds
+
+    else:
+        bounds = (
+            72.75,
+            73.05,
+            18.88,
+            19.30,
+        )
+
+    min_lon, max_lon, min_lat, max_lat = bounds
+
+    lon_range = max_lon - min_lon
+    lat_range = max_lat - min_lat
+
+    lon_padding = max(
+        lon_range * 0.06,
+        0.01,
+    )
+
+    lat_padding = max(
+        lat_range * 0.06,
+        0.01,
+    )
+
+    ax.set_xlim(
+        min_lon - lon_padding,
+        max_lon + lon_padding,
+    )
+
+    ax.set_ylim(
+        min_lat - lat_padding,
+        max_lat + lat_padding,
+    )
+
+    ax.set_aspect(
+        "equal",
+        adjustable="box",
+    )
+
+
+def style_static_map_axis(
+    ax,
+):
+    ax.set_facecolor(
+        "#111111"
+    )
+
+    ax.tick_params(
+        colors="#d0d0d0",
+        labelsize=8,
+    )
+
+    for spine in ax.spines.values():
+        spine.set_color(
+            "#555555"
+        )
+
+    ax.grid(
+        True,
+        color="#444444",
+        alpha=0.25,
+        linewidth=0.5,
+    )
+
+    ax.set_xlabel(
+        "Longitude",
+        color="#d0d0d0",
+    )
+
+    ax.set_ylabel(
+        "Latitude",
+        color="#d0d0d0",
+    )
+
+
+def create_static_hotspot_figure(
+    hotspots,
+    ward_geojson,
+    extent,
+):
+    modules = get_matplotlib_modules()
+
+    if modules is None:
+        return None
+
+    (
+        plt,
+        _,
+        PathPatch,
+        _,
+        Path,
+    ) = modules
+
+    fig, ax = plt.subplots(
+        figsize=(11, 7),
+        dpi=160,
+    )
+
+    fig.patch.set_facecolor(
+        "#111111"
+    )
+
+    ax.set_facecolor(
+        "#111111"
+    )
+
+    if isinstance(
+        ward_geojson,
+        dict,
+    ):
+
+        boundary_geojson = {
+            "type": "FeatureCollection",
+            "features": [],
+        }
+
+        for feature in ward_geojson.get(
+            "features",
+            [],
+        ):
+
+            boundary_geojson[
+                "features"
+            ].append(
+                {
+                    "type": "Feature",
+                    "geometry": feature.get(
+                        "geometry"
+                    ),
+                    "properties": {},
+                }
+            )
+
+        draw_geojson_features(
+            ax,
+            boundary_geojson,
+            PathPatch,
+            Path,
+            show_labels=False,
+        )
+
+    if (
+        hotspots is not None
+        and isinstance(
+            hotspots,
+            pd.DataFrame,
+        )
+        and not hotspots.empty
+    ):
+
+        plot_data = hotspots.copy()
+
+        sizes = (
+            pd.to_numeric(
+                plot_data[
+                    "Display_Radius"
+                ],
+                errors="coerce",
+            )
+            .fillna(50)
+            * 2.2
+        )
+
+        ax.scatter(
+            plot_data["Longitude"],
+            plot_data["Latitude"],
+            s=sizes,
+            c="#eb3232",
+            alpha=0.40,
+            edgecolors="#ff6060",
+            linewidths=0.8,
+        )
+
+    set_static_map_extent(
+        ax,
+        geojson=ward_geojson,
+        dataframe=hotspots,
+        extent=extent,
+    )
+
+    ax.set_title(
+        "Geographic Hotspot Map",
+        color="white",
+        fontsize=16,
+        fontweight="bold",
+        pad=14,
+    )
+
+    total_clusters = (
+        len(hotspots)
+        if isinstance(
+            hotspots,
+            pd.DataFrame,
+        )
+        else 0
+    )
+
+    total_cases = (
+        int(
+            hotspots[
+                "Cluster_Cases"
+            ].sum()
+        )
+        if (
+            isinstance(
+                hotspots,
+                pd.DataFrame,
+            )
+            and not hotspots.empty
+        )
+        else 0
+    )
+
+    ax.text(
+        0.01,
+        0.01,
+        (
+            f"Geographic clusters: {total_clusters:,} | "
+            f"Cluster cases: {total_cases:,}"
+        ),
+        transform=ax.transAxes,
+        color="#d0d0d0",
+        fontsize=9,
+    )
+
+    style_static_map_axis(
+        ax
+    )
+
+    fig.tight_layout()
+
+    return fig
+
+
+def create_static_choropleth_figure(
+    choropleth_geojson,
+    disease_name,
+    total_cases=None,
+):
+    modules = get_matplotlib_modules()
+
+    if modules is None:
+        return None
+
+    (
+        plt,
+        _,
+        PathPatch,
+        Patch,
+        Path,
+    ) = modules
+
+    fig, ax = plt.subplots(
+        figsize=(11, 7),
+        dpi=160,
+    )
+
+    fig.patch.set_facecolor(
+        "#111111"
+    )
+
+    ax.set_facecolor(
+        "#111111"
+    )
+
+    draw_geojson_features(
+        ax,
+        choropleth_geojson,
+        PathPatch,
+        Path,
+        show_labels=True,
+    )
+
+    set_static_map_extent(
+        ax,
+        geojson=choropleth_geojson,
+        dataframe=None,
+        extent="BMC Focus",
+    )
+
+    title = (
+        f"Ward Choropleth — {clean_text(disease_name)}"
+    )
+
+    ax.set_title(
+        title,
+        color="white",
+        fontsize=16,
+        fontweight="bold",
+        pad=14,
+    )
+
+    if total_cases is None:
+        total_cases = 0
+
+    ax.text(
+        0.01,
+        0.01,
+        f"Total mapped cases: {int(total_cases):,}",
+        transform=ax.transAxes,
+        color="#d0d0d0",
+        fontsize=9,
+    )
+
+    palette = get_disease_palette(
+        disease_name
+    )
+
+    legend_handles = [
+        Patch(
+            facecolor=rgba255_to_mpl(
+                [25, 25, 25, 215]
+            ),
+            edgecolor="none",
+            label="No cases",
+        ),
+        Patch(
+            facecolor=rgba255_to_mpl(
+                palette["light"] + [215]
+            ),
+            edgecolor="none",
+            label="Low",
+        ),
+        Patch(
+            facecolor=rgba255_to_mpl(
+                palette["mid"] + [215]
+            ),
+            edgecolor="none",
+            label="Moderate",
+        ),
+        Patch(
+            facecolor=rgba255_to_mpl(
+                palette["dark"] + [215]
+            ),
+            edgecolor="none",
+            label="High",
+        ),
+    ]
+
+    legend = ax.legend(
+        handles=legend_handles,
+        loc="upper right",
+        frameon=True,
+        facecolor="#171717",
+        edgecolor="#555555",
+        fontsize=8,
+    )
+
+    for text in legend.get_texts():
+        text.set_color("white")
+
+    style_static_map_axis(
+        ax
+    )
+
+    fig.tight_layout()
+
+    return fig
+
+
+def create_static_combined_figure(
+    choropleth_geojson,
+    hotspots,
+    extent,
+):
+    modules = get_matplotlib_modules()
+
+    if modules is None:
+        return None
+
+    (
+        plt,
+        _,
+        PathPatch,
+        _,
+        Path,
+    ) = modules
+
+    fig, ax = plt.subplots(
+        figsize=(11, 7),
+        dpi=160,
+    )
+
+    fig.patch.set_facecolor(
+        "#111111"
+    )
+
+    ax.set_facecolor(
+        "#111111"
+    )
+
+    if isinstance(
+        choropleth_geojson,
+        dict,
+    ):
+
+        draw_geojson_features(
+            ax,
+            choropleth_geojson,
+            PathPatch,
+            Path,
+            show_labels=True,
+        )
+
+    if (
+        hotspots is not None
+        and isinstance(
+            hotspots,
+            pd.DataFrame,
+        )
+        and not hotspots.empty
+    ):
+
+        plot_data = hotspots.copy()
+
+        sizes = (
+            pd.to_numeric(
+                plot_data[
+                    "Display_Radius"
+                ],
+                errors="coerce",
+            )
+            .fillna(50)
+            * 2.0
+        )
+
+        ax.scatter(
+            plot_data["Longitude"],
+            plot_data["Latitude"],
+            s=sizes,
+            c="#eb3232",
+            alpha=0.42,
+            edgecolors="#ff6060",
+            linewidths=0.8,
+        )
+
+    set_static_map_extent(
+        ax,
+        geojson=choropleth_geojson,
+        dataframe=hotspots,
+        extent=extent,
+    )
+
+    ax.set_title(
+        "Combined Geographic Management View",
+        color="white",
+        fontsize=16,
+        fontweight="bold",
+        pad=14,
+    )
+
+    total_clusters = (
+        len(hotspots)
+        if isinstance(
+            hotspots,
+            pd.DataFrame,
+        )
+        else 0
+    )
+
+    ax.text(
+        0.01,
+        0.01,
+        f"Geographic clusters: {total_clusters:,}",
+        transform=ax.transAxes,
+        color="#d0d0d0",
+        fontsize=9,
+    )
+
+    style_static_map_axis(
+        ax
+    )
+
+    fig.tight_layout()
+
+    return fig
+
+
+def create_map_export_files(
+    map_items,
+):
+    """
+    map_items:
+        [
+            (
+                "filename_without_extension",
+                matplotlib_figure
+            ),
+            ...
+        ]
+
+    Returns:
+        pdf_bytes,
+        zip_bytes
+    """
+
+    modules = get_matplotlib_modules()
+
+    if modules is None:
+        return None, None
+
+    (
+        plt,
+        PdfPages,
+        _,
+        _,
+        _,
+    ) = modules
+
+    if not map_items:
+        return None, None
+
+    pdf_output = io.BytesIO()
+    zip_output = io.BytesIO()
+
+    try:
+
+        with PdfPages(
+            pdf_output
+        ) as pdf:
+
+            with zipfile.ZipFile(
+                zip_output,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as zip_file:
+
+                for filename, figure in map_items:
+
+                    if figure is None:
+                        continue
+
+                    safe_name = safe_map_filename(
+                        filename
+                    )
+
+                    png_output = io.BytesIO()
+
+                    figure.savefig(
+                        png_output,
+                        format="png",
+                        dpi=180,
+                        bbox_inches="tight",
+                        facecolor=figure.get_facecolor(),
+                    )
+
+                    png_output.seek(0)
+
+                    zip_file.writestr(
+                        f"{safe_name}.png",
+                        png_output.getvalue(),
+                    )
+
+                    pdf.savefig(
+                        figure,
+                        bbox_inches="tight",
+                        facecolor=figure.get_facecolor(),
+                    )
+
+                    plt.close(
+                        figure
+                    )
+
+        pdf_output.seek(0)
+        zip_output.seek(0)
+
+        return (
+            pdf_output.getvalue(),
+            zip_output.getvalue(),
+        )
+
+    except Exception:
+
+        try:
+            for _, figure in map_items:
+                if figure is not None:
+                    plt.close(figure)
+        except Exception:
+            pass
+
+        return None, None
+
+
+def render_map_download_controls(
+    map_items,
+    base_filename,
+    key_prefix,
+):
+    """
+    Displays PDF and PNG-ZIP download buttons
+    for the maps currently displayed in the active view.
+    """
+
+    if not map_items:
+        return
+
+    modules = get_matplotlib_modules()
+
+    if modules is None:
+
+        st.warning(
+            "Map image/PDF export requires matplotlib. "
+            "Please add 'matplotlib' to requirements.txt "
+            "and redeploy the application."
+        )
+
+        return
+
+    st.markdown(
+        "### Download Displayed Maps"
+    )
+
+    st.caption(
+        "The PDF contains all maps currently displayed "
+        "in this view. The ZIP contains one PNG image "
+        "for each displayed map."
+    )
+
+    pdf_bytes, zip_bytes = (
+        create_map_export_files(
+            map_items
+        )
+    )
+
+    if (
+        pdf_bytes is None
+        or zip_bytes is None
+    ):
+
+        st.warning(
+            "Map export could not be generated."
+        )
+
+        return
+
+    download_col1, download_col2 = (
+        st.columns(2)
+    )
+
+    with download_col1:
+
+        st.download_button(
+            "Download Displayed Maps PDF",
+            data=pdf_bytes,
+            file_name=(
+                f"{base_filename}.pdf"
+            ),
+            mime="application/pdf",
+            key=(
+                f"{key_prefix}_pdf"
+            ),
+        )
+
+    with download_col2:
+
+        st.download_button(
+            "Download Displayed Maps PNG Images",
+            data=zip_bytes,
+            file_name=(
+                f"{base_filename}_PNG.zip"
+            ),
+            mime="application/zip",
+            key=(
+                f"{key_prefix}_png"
+            ),
+        )
 
 
 # ============================================================
@@ -2376,6 +3483,33 @@ def render_geographic_map(
                 hide_index=True,
             )
 
+            # ------------------------------------------------
+            # MAP IMAGE / PDF DOWNLOAD
+            # ------------------------------------------------
+
+            hotspot_static_figure = (
+                create_static_hotspot_figure(
+                    hotspots=hotspots,
+                    ward_geojson=bmc_geojson,
+                    extent=extent,
+                )
+            )
+
+            render_map_download_controls(
+                map_items=[
+                    (
+                        "geographic_hotspots",
+                        hotspot_static_figure,
+                    )
+                ],
+                base_filename=(
+                    "geographic_hotspots_map"
+                ),
+                key_prefix=(
+                    "geo_hotspot_map_download"
+                ),
+            )
+
     # ========================================================
     # VIEW 2 — DISEASE COMPARISON
     # ========================================================
@@ -2445,10 +3579,6 @@ def render_geographic_map(
 
         else:
 
-            # ------------------------------------------------
-            # AVAILABLE DISEASES
-            # ------------------------------------------------
-
             comparison_diseases = sorted(
                 [
                     clean_text(value)
@@ -2468,10 +3598,6 @@ def render_geographic_map(
                 )
 
             else:
-
-                # ------------------------------------------------
-                # If available disease list changed
-                # ------------------------------------------------
 
                 previous_available = st.session_state.get(
                     "geo_choropleth_last_available",
@@ -2522,19 +3648,11 @@ def render_geographic_map(
                                     old_key
                                 ] = False
 
-                # ------------------------------------------------
-                # DISEASE CHECKBOXES
-                # ------------------------------------------------
-
                 selected_choropleth_diseases = (
                     render_choropleth_disease_checkboxes(
                         comparison_diseases
                     )
                 )
-
-                # ------------------------------------------------
-                # RESET BUTTON
-                # ------------------------------------------------
 
                 reset_col, info_col = st.columns(
                     [1, 4]
@@ -2546,13 +3664,6 @@ def render_geographic_map(
                         "Clear Selection",
                         key="geo_choropleth_clear",
                     ):
-
-                        # ------------------------------------------------
-                        # IMPORTANT:
-                        # Do not directly modify checkbox widget state
-                        # after the widgets have been instantiated.
-                        # Store a reset request and rerun instead.
-                        # ------------------------------------------------
 
                         st.session_state[
                             "geo_choropleth_clear_requested"
@@ -2576,15 +3687,13 @@ def render_geographic_map(
                             "to display ward choropleth maps."
                         )
 
-                # ------------------------------------------------
-                # 2-COLUMN MAP GRID
-                # ------------------------------------------------
-
                 if selected_choropleth_diseases:
 
                     st.markdown(
                         "### Selected Disease Maps"
                     )
+
+                    choropleth_download_items = []
 
                     for row_start in range(
                         0,
@@ -2652,10 +3761,6 @@ def render_geographic_map(
                                     )
                                 )
 
-                                # --------------------------------
-                                # DISEASE TITLE
-                                # --------------------------------
-
                                 st.markdown(
                                     f"#### {disease}"
                                 )
@@ -2664,10 +3769,6 @@ def render_geographic_map(
                                     f"{disease_cases:,} cases | "
                                     f"{palette['name']} burden palette"
                                 )
-
-                                # --------------------------------
-                                # MAP
-                                # --------------------------------
 
                                 if disease_choropleth:
 
@@ -2695,15 +3796,36 @@ def render_geographic_map(
                                         ),
                                     )
 
+                                    # --------------------------------
+                                    # ADD CURRENT DISPLAYED MAP
+                                    # TO IMAGE/PDF EXPORT
+                                    # --------------------------------
+
+                                    static_disease_figure = (
+                                        create_static_choropleth_figure(
+                                            choropleth_geojson=(
+                                                disease_choropleth
+                                            ),
+                                            disease_name=disease,
+                                            total_cases=disease_cases,
+                                        )
+                                    )
+
+                                    choropleth_download_items.append(
+                                        (
+                                            (
+                                                "ward_choropleth_"
+                                                + safe_disease_key
+                                            ),
+                                            static_disease_figure,
+                                        )
+                                    )
+
                                 else:
 
                                     st.warning(
                                         "Ward map could not be prepared."
                                     )
-
-                                # --------------------------------
-                                # WARD TABLE
-                                # --------------------------------
 
                                 st.markdown(
                                     "**Ward-wise Burden**"
@@ -2773,6 +3895,22 @@ def render_geographic_map(
                                     "<div style='height:12px'></div>",
                                     unsafe_allow_html=True,
                                 )
+
+                    # ------------------------------------------------
+                    # MAP IMAGE / PDF DOWNLOAD
+                    # ------------------------------------------------
+
+                    render_map_download_controls(
+                        map_items=(
+                            choropleth_download_items
+                        ),
+                        base_filename=(
+                            "selected_ward_choropleth_maps"
+                        ),
+                        key_prefix=(
+                            "geo_choropleth_map_download"
+                        ),
+                    )
 
                 # ------------------------------------------------
                 # DISPLAYED DATA DOWNLOAD
@@ -2885,8 +4023,37 @@ def render_geographic_map(
             hide_index=True,
         )
 
+        # --------------------------------------------------------
+        # MAP IMAGE / PDF DOWNLOAD
+        # --------------------------------------------------------
+
+        combined_static_figure = (
+            create_static_combined_figure(
+                choropleth_geojson=(
+                    combined_choropleth
+                ),
+                hotspots=hotspots,
+                extent=extent,
+            )
+        )
+
+        render_map_download_controls(
+            map_items=[
+                (
+                    "combined_geographic_management_map",
+                    combined_static_figure,
+                )
+            ],
+            base_filename=(
+                "combined_geographic_management_map"
+            ),
+            key_prefix=(
+                "geo_combined_map_download"
+            ),
+        )
+
     # ========================================================
-    # EXPORT
+    # GENERAL GEOGRAPHIC DATA EXPORT
     # ========================================================
 
     st.markdown(
