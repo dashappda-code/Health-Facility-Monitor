@@ -1767,3 +1767,4 @@ def generate_complete_dashboard_pdf(
     buffer.seek(0)
 
     return buffer.getvalue()
+    
