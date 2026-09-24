@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -26,6 +25,73 @@ def _clean_series(df, column):
 
 
 # ============================================================
+# PHASE 3 SESSION STATE
+# ============================================================
+
+PHASE3_SELECTED_DISEASES_KEY = "phase3_selected_diseases"
+
+
+def _set_selected_diseases(selected_diseases):
+    """
+    Store the currently selected diseases in Streamlit session state.
+
+    This is intentionally shared with the PDF/report layer so that
+    the report can represent the same disease selection visible
+    on the dashboard.
+    """
+    cleaned = []
+
+    if selected_diseases is not None:
+        for disease in selected_diseases:
+            text = str(disease).strip()
+
+            if (
+                text
+                and text.lower() not in {
+                    "nan",
+                    "none",
+                    "nat",
+                }
+            ):
+                cleaned.append(text)
+
+    st.session_state[
+        PHASE3_SELECTED_DISEASES_KEY
+    ] = cleaned
+
+
+def get_selected_diseases():
+    """
+    Return the disease selection currently stored for Phase 3.
+
+    This function can also be imported by the PDF/report layer
+    if required.
+    """
+    selected = st.session_state.get(
+        PHASE3_SELECTED_DISEASES_KEY,
+        [],
+    )
+
+    if selected is None:
+        return []
+
+    return [
+        str(value).strip()
+        for value in selected
+        if str(value).strip()
+    ]
+
+
+def clear_selected_diseases():
+    """
+    Clear Phase 3 disease selection.
+    """
+    st.session_state[
+        PHASE3_SELECTED_DISEASES_KEY
+    ] = []
+
+
+# ============================================================
 # MONTH ORDER
 # ============================================================
 
@@ -43,6 +109,7 @@ CALENDAR_MONTHS = [
     "Nov",
     "Dec",
 ]
+
 
 MONTH_NUMBER_MAP = {
     month: index
@@ -62,18 +129,47 @@ def _normalize_month(value):
 
     text = str(value).strip().lower()
 
-    if text in {"january", "jan", "1", "01"}: return "Jan"
-    if text in {"february", "feb", "2", "02"}: return "Feb"
-    if text in {"march", "mar", "3", "03"}: return "Mar"
-    if text in {"april", "apr", "4", "04"}: return "Apr"
-    if text in {"may", "5", "05"}: return "May"
-    if text in {"june", "jun", "6", "06"}: return "Jun"
-    if text in {"july", "jul", "7", "07"}: return "Jul"
-    if text in {"august", "aug", "8", "08"}: return "Aug"
-    if text in {"september", "sep", "sept", "9", "09"}: return "Sep"
-    if text in {"october", "oct", "10"}: return "Oct"
-    if text in {"november", "nov", "11"}: return "Nov"
-    if text in {"december", "dec", "12"}: return "Dec"
+    if text in {"january", "jan", "1", "01"}:
+        return "Jan"
+
+    if text in {"february", "feb", "2", "02"}:
+        return "Feb"
+
+    if text in {"march", "mar", "3", "03"}:
+        return "Mar"
+
+    if text in {"april", "apr", "4", "04"}:
+        return "Apr"
+
+    if text in {"may", "5", "05"}:
+        return "May"
+
+    if text in {"june", "jun", "6", "06"}:
+        return "Jun"
+
+    if text in {"july", "jul", "7", "07"}:
+        return "Jul"
+
+    if text in {"august", "aug", "8", "08"}:
+        return "Aug"
+
+    if text in {
+        "september",
+        "sep",
+        "sept",
+        "9",
+        "09",
+    }:
+        return "Sep"
+
+    if text in {"october", "oct", "10"}:
+        return "Oct"
+
+    if text in {"november", "nov", "11"}:
+        return "Nov"
+
+    if text in {"december", "dec", "12"}:
+        return "Dec"
 
     return text
 
@@ -103,20 +199,29 @@ def _normalize_year(value):
     # Direct numeric year
     try:
         numeric = float(text)
+
         if numeric.is_integer():
             year = int(numeric)
+
             if 1900 <= year <= 2100:
                 return year
+
     except Exception:
         pass
 
     # Date-like year values
     try:
-        parsed = pd.to_datetime(value, errors="coerce")
+        parsed = pd.to_datetime(
+            value,
+            errors="coerce",
+        )
+
         if not pd.isna(parsed):
             year = int(parsed.year)
+
             if 1900 <= year <= 2100:
                 return year
+
     except Exception:
         pass
 
@@ -137,6 +242,7 @@ def _build_year_month_timeline(
     Create a complete chronological Year-Month timeline.
     Missing months are retained with zero records.
     """
+
     if (
         data is None
         or data.empty
@@ -148,8 +254,14 @@ def _build_year_month_timeline(
 
     temp = data.copy()
 
-    temp["Month"] = temp[month_column].apply(_normalize_month)
-    temp["Year"] = temp[year_column].apply(_normalize_year)
+    temp["Month"] = temp[
+        month_column
+    ].apply(_normalize_month)
+
+    temp["Year"] = temp[
+        year_column
+    ].apply(_normalize_year)
+
     temp["Year"] = pd.to_numeric(
         temp["Year"],
         errors="coerce",
@@ -170,14 +282,18 @@ def _build_year_month_timeline(
         errors="coerce",
     ).fillna(0)
 
-    temp["Month Number"] = temp["Month"].map(
-        MONTH_NUMBER_MAP
-    )
+    temp["Month Number"] = temp[
+        "Month"
+    ].map(MONTH_NUMBER_MAP)
 
     temp = (
         temp
         .groupby(
-            ["Year", "Month", "Month Number"],
+            [
+                "Year",
+                "Month",
+                "Month Number",
+            ],
             as_index=False,
         )[value_column]
         .sum()
@@ -222,9 +338,9 @@ def _build_year_month_timeline(
         .reset_index()
     )
 
-    temp["Month Number"] = temp["Month"].map(
-        MONTH_NUMBER_MAP
-    )
+    temp["Month Number"] = temp[
+        "Month"
+    ].map(MONTH_NUMBER_MAP)
 
     temp[value_column] = (
         pd.to_numeric(
@@ -278,7 +394,7 @@ def _build_year_month_timeline(
 def _apply_chronological_zwsp(label_list):
     """
     Adds increasing Zero-Width Spaces to force Streamlit's
-    alphabetical sorting to match our perfect chronological order.
+    alphabetical sorting to match chronological order.
     """
     return [
         ("\u200b" * (i + 1)) + str(lbl)
@@ -326,6 +442,117 @@ def _sort_ward_dataframe(
 
 
 # ============================================================
+# DISEASE LIST HELPER
+# ============================================================
+
+def _get_available_diseases(series):
+    """
+    Return clean, unique, alphabetically sorted disease names.
+    """
+    if series is None:
+        return []
+
+    values = (
+        series
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+
+    values = values[
+        values.ne("")
+        & values.str.lower().ne("nan")
+        & values.str.lower().ne("none")
+        & values.str.lower().ne("nat")
+    ]
+
+    return (
+        values
+        .drop_duplicates()
+        .sort_values(
+            key=lambda x: x.str.lower()
+        )
+        .tolist()
+    )
+
+
+# ============================================================
+# DISEASE CHECKBOX RENDERER
+# ============================================================
+
+def _render_disease_checkboxes(
+    available_diseases,
+    key_prefix="phase3_disease",
+):
+    """
+    Render the disease checkbox selector.
+
+    All diseases are selected by default.
+
+    The final selection is stored in:
+        st.session_state["phase3_selected_diseases"]
+
+    This shared state is used by the PDF/report layer.
+    """
+
+    if not available_diseases:
+        _set_selected_diseases([])
+        return []
+
+    st.markdown(
+        "**Select diseases to display in the chart:**"
+    )
+
+    checkbox_columns = st.columns(4)
+
+    selected_diseases = []
+
+    for index, disease in enumerate(
+        available_diseases
+    ):
+
+        checkbox_column = (
+            checkbox_columns[
+                index % 4
+            ]
+        )
+
+        checkbox_key = (
+            key_prefix
+            + "_"
+            + str(index)
+            + "_"
+            + str(disease)
+        )
+
+        # Preserve existing checkbox state if available.
+        # Otherwise default to True.
+        existing_value = st.session_state.get(
+            checkbox_key,
+            True,
+        )
+
+        with checkbox_column:
+
+            is_selected = st.checkbox(
+                disease,
+                value=existing_value,
+                key=checkbox_key,
+            )
+
+        if is_selected:
+            selected_diseases.append(
+                disease
+            )
+
+    _set_selected_diseases(
+        selected_diseases
+    )
+
+    return selected_diseases
+
+
+# ============================================================
 # MAIN CHART RENDERER
 # ============================================================
 
@@ -334,9 +561,13 @@ def render_charts(df):
     st.subheader("📈 Charts & Trends")
 
     if df is None or df.empty:
+
+        _set_selected_diseases([])
+
         st.warning(
             "No records available for the selected filters."
         )
+
         return
 
     st.caption(
@@ -357,7 +588,9 @@ def render_charts(df):
     ]
 
     for column in possible_year_columns:
+
         if column in df.columns:
+
             year_column = column
             break
 
@@ -459,7 +692,9 @@ def render_charts(df):
                         hide_index=True,
                     )
 
+            # ====================================================
             # FALLBACK: MONTH-ONLY ANALYSIS
+            # ====================================================
 
             if not use_year_month:
 
@@ -501,9 +736,14 @@ def render_charts(df):
                 )
 
                 chart_labels = [
-                    ("\u200b" * MONTH_NUMBER_MAP[m])
+                    (
+                        "\u200b"
+                        * MONTH_NUMBER_MAP[m]
+                    )
                     + m
-                    for m in month_counts["Month"]
+                    for m in month_counts[
+                        "Month"
+                    ]
                 ]
 
                 chart_series = pd.Series(
@@ -645,25 +885,11 @@ def render_charts(df):
                         # ------------------------------------------------
 
                         available_diseases = (
-                            valid_year_temp[
-                                "Disease"
-                            ]
-                            .dropna()
-                            .astype(str)
-                            .str.strip()
-                        )
-
-                        available_diseases = (
-                            available_diseases[
-                                available_diseases.ne("")
-                                & available_diseases.str.lower().ne("nan")
-                                & available_diseases.str.lower().ne("none")
-                            ]
-                            .drop_duplicates()
-                            .sort_values(
-                                key=lambda x: x.str.lower()
+                            _get_available_diseases(
+                                valid_year_temp[
+                                    "Disease"
+                                ]
                             )
-                            .tolist()
                         )
 
                         if available_diseases:
@@ -672,46 +898,14 @@ def render_charts(df):
                             # DISEASE CHECKBOXES
                             # ------------------------------------------------
 
-                            st.markdown(
-                                "**Select diseases to display in the chart:**"
-                            )
-
-                            checkbox_columns = st.columns(
-                                4
-                            )
-
-                            selected_diseases = []
-
-                            for index, disease in enumerate(
-                                available_diseases
-                            ):
-
-                                checkbox_column = (
-                                    checkbox_columns[
-                                        index
-                                        % 4
-                                    ]
+                            selected_diseases = (
+                                _render_disease_checkboxes(
+                                    available_diseases,
+                                    key_prefix=(
+                                        "phase3_disease"
+                                    ),
                                 )
-
-                                checkbox_key = (
-                                    "phase3_disease_"
-                                    + str(index)
-                                    + "_"
-                                    + str(disease)
-                                )
-
-                                with checkbox_column:
-
-                                    is_selected = st.checkbox(
-                                        disease,
-                                        value=True,
-                                        key=checkbox_key,
-                                    )
-
-                                if is_selected:
-                                    selected_diseases.append(
-                                        disease
-                                    )
+                            )
 
                             # ------------------------------------------------
                             # BUILD DISEASE MONTH DATA
@@ -727,7 +921,9 @@ def render_charts(df):
                                     ]
                                 )
                                 .size()
-                                .rename("Records")
+                                .rename(
+                                    "Records"
+                                )
                                 .reset_index()
                             )
 
@@ -781,7 +977,9 @@ def render_charts(df):
                                 .astype(int)
                             )
 
-                            disease_month["Month Number"] = (
+                            disease_month[
+                                "Month Number"
+                            ] = (
                                 disease_month[
                                     "Month"
                                 ].map(
@@ -789,27 +987,31 @@ def render_charts(df):
                                 )
                             )
 
-                            disease_month["Sort Date"] = (
-                                pd.to_datetime(
-                                    dict(
-                                        year=disease_month[
-                                            "Year"
-                                        ],
-                                        month=disease_month[
-                                            "Month Number"
-                                        ],
-                                        day=1,
-                                    ),
-                                    errors="coerce",
-                                )
+                            disease_month[
+                                "Sort Date"
+                            ] = pd.to_datetime(
+                                dict(
+                                    year=disease_month[
+                                        "Year"
+                                    ],
+                                    month=disease_month[
+                                        "Month Number"
+                                    ],
+                                    day=1,
+                                ),
+                                errors="coerce",
                             )
 
-                            disease_month["Month-Year"] = (
+                            disease_month[
+                                "Month-Year"
+                            ] = (
                                 disease_month[
                                     "Sort Date"
                                 ]
                                 .dt
-                                .strftime("%b-%y")
+                                .strftime(
+                                    "%b-%y"
+                                )
                             )
 
                             disease_month = (
@@ -821,7 +1023,9 @@ def render_charts(df):
                                     ],
                                     kind="stable",
                                 )
-                                .reset_index(drop=True)
+                                .reset_index(
+                                    drop=True
+                                )
                             )
 
                             # ------------------------------------------------
@@ -896,17 +1100,15 @@ def render_charts(df):
                                             "Records:Q",
                                             title="Records",
                                         ),
-                                        
-                                       color=alt.Color(
-    "Disease:N",
-    legend=alt.Legend(
-        orient="bottom",
-        title="Disease",
-        labelLimit=0,
-        columns=4,
-    ),
-),
-                                        
+                                        color=alt.Color(
+                                            "Disease:N",
+                                            legend=alt.Legend(
+                                                orient="bottom",
+                                                title="Disease",
+                                                labelLimit=0,
+                                                columns=4,
+                                            ),
+                                        ),
                                     )
                                 )
 
@@ -972,69 +1174,21 @@ def render_charts(df):
                 if not use_year_month_disease:
 
                     available_diseases = (
-                        temp[
-                            "Disease"
-                        ]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                    )
-
-                    available_diseases = (
-                        available_diseases[
-                            available_diseases.ne("")
-                            & available_diseases.str.lower().ne("nan")
-                            & available_diseases.str.lower().ne("none")
-                        ]
-                        .drop_duplicates()
-                        .sort_values(
-                            key=lambda x: x.str.lower()
+                        _get_available_diseases(
+                            temp["Disease"]
                         )
-                        .tolist()
                     )
 
                     if available_diseases:
 
-                        st.markdown(
-                            "**Select diseases to display in the chart:**"
-                        )
-
-                        checkbox_columns = st.columns(
-                            4
-                        )
-
-                        selected_diseases = []
-
-                        for index, disease in enumerate(
-                            available_diseases
-                        ):
-
-                            checkbox_column = (
-                                checkbox_columns[
-                                    index
-                                    % 4
-                                ]
+                        selected_diseases = (
+                            _render_disease_checkboxes(
+                                available_diseases,
+                                key_prefix=(
+                                    "phase3_disease_month"
+                                ),
                             )
-
-                            checkbox_key = (
-                                "phase3_disease_month_"
-                                + str(index)
-                                + "_"
-                                + str(disease)
-                            )
-
-                            with checkbox_column:
-
-                                is_selected = st.checkbox(
-                                    disease,
-                                    value=True,
-                                    key=checkbox_key,
-                                )
-
-                            if is_selected:
-                                selected_diseases.append(
-                                    disease
-                                )
+                        )
 
                         # --------------------------------------------
                         # MONTH-ONLY DATA
@@ -1059,17 +1213,23 @@ def render_charts(df):
                             if disease in selected_diseases
                         ]
 
-                        long_df = (
-                            cross_tab[
-                                chart_diseases
-                            ]
-                            .reset_index()
-                            .melt(
-                                id_vars="Month",
-                                var_name="Disease",
-                                value_name="Records",
+                        if chart_diseases:
+
+                            long_df = (
+                                cross_tab[
+                                    chart_diseases
+                                ]
+                                .reset_index()
+                                .melt(
+                                    id_vars="Month",
+                                    var_name="Disease",
+                                    value_name="Records",
+                                )
                             )
-                        )
+
+                        else:
+
+                            long_df = pd.DataFrame()
 
                         show_labels_m = st.toggle(
                             "Show Data Labels",
@@ -1096,17 +1256,15 @@ def render_charts(df):
                                         "Records:Q",
                                         title="Records",
                                     ),
-                                    
-                                 color=alt.Color(
-    "Disease:N",
-    legend=alt.Legend(
-        orient="bottom",
-        title="Disease",
-        labelLimit=0,
-        columns=4,
-    ),
-),
-                                    
+                                    color=alt.Color(
+                                        "Disease:N",
+                                        legend=alt.Legend(
+                                            orient="bottom",
+                                            title="Disease",
+                                            labelLimit=0,
+                                            columns=4,
+                                        ),
+                                    ),
                                 )
                             )
 
@@ -1165,8 +1323,8 @@ def render_charts(df):
 
                     st.caption(
                         "Chart displays all available diseases "
-                        "selected below the chart. Months are shown "
-                        "in calendar order from January to December."
+                        "selected above. Months are shown in "
+                        "calendar order from January to December."
                     )
 
             else:
@@ -1182,6 +1340,13 @@ def render_charts(df):
                 "Disease/month information is not available "
                 "for the selected records."
             )
+
+    else:
+
+        st.info(
+            "Disease/month information is not available "
+            "for the selected records."
+        )
 
     # ========================================================
     # 3. DISEASE-WISE BURDEN
@@ -1259,6 +1424,7 @@ def render_charts(df):
     for column in possible_pathogen_columns:
 
         if column in df.columns:
+
             pathogen_column = column
             break
 
@@ -1697,4 +1863,3 @@ def render_charts(df):
                 "Wards",
                 "0",
             )
-
