@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -6,6 +5,8 @@ import altair as alt
 from chart_helpers import (
     render_bar_chart,
     render_line_chart,
+    register_displayed_chart,
+    reset_displayed_chart_registry,
 )
 
 
@@ -62,18 +63,30 @@ def _normalize_month(value):
 
     text = str(value).strip().lower()
 
-    if text in {"january", "jan", "1", "01"}: return "Jan"
-    if text in {"february", "feb", "2", "02"}: return "Feb"
-    if text in {"march", "mar", "3", "03"}: return "Mar"
-    if text in {"april", "apr", "4", "04"}: return "Apr"
-    if text in {"may", "5", "05"}: return "May"
-    if text in {"june", "jun", "6", "06"}: return "Jun"
-    if text in {"july", "jul", "7", "07"}: return "Jul"
-    if text in {"august", "aug", "8", "08"}: return "Aug"
-    if text in {"september", "sep", "sept", "9", "09"}: return "Sep"
-    if text in {"october", "oct", "10"}: return "Oct"
-    if text in {"november", "nov", "11"}: return "Nov"
-    if text in {"december", "dec", "12"}: return "Dec"
+    if text in {"january", "jan", "1", "01"}:
+        return "Jan"
+    if text in {"february", "feb", "2", "02"}:
+        return "Feb"
+    if text in {"march", "mar", "3", "03"}:
+        return "Mar"
+    if text in {"april", "apr", "4", "04"}:
+        return "Apr"
+    if text in {"may", "5", "05"}:
+        return "May"
+    if text in {"june", "jun", "6", "06"}:
+        return "Jun"
+    if text in {"july", "jul", "7", "07"}:
+        return "Jul"
+    if text in {"august", "aug", "8", "08"}:
+        return "Aug"
+    if text in {"september", "sep", "sept", "9", "09"}:
+        return "Sep"
+    if text in {"october", "oct", "10"}:
+        return "Oct"
+    if text in {"november", "nov", "11"}:
+        return "Nov"
+    if text in {"december", "dec", "12"}:
+        return "Dec"
 
     return text
 
@@ -103,20 +116,29 @@ def _normalize_year(value):
     # Direct numeric year
     try:
         numeric = float(text)
+
         if numeric.is_integer():
             year = int(numeric)
+
             if 1900 <= year <= 2100:
                 return year
+
     except Exception:
         pass
 
     # Date-like year values
     try:
-        parsed = pd.to_datetime(value, errors="coerce")
+        parsed = pd.to_datetime(
+            value,
+            errors="coerce",
+        )
+
         if not pd.isna(parsed):
             year = int(parsed.year)
+
             if 1900 <= year <= 2100:
                 return year
+
     except Exception:
         pass
 
@@ -137,6 +159,7 @@ def _build_year_month_timeline(
     Create a complete chronological Year-Month timeline.
     Missing months are retained with zero records.
     """
+
     if (
         data is None
         or data.empty
@@ -148,8 +171,14 @@ def _build_year_month_timeline(
 
     temp = data.copy()
 
-    temp["Month"] = temp[month_column].apply(_normalize_month)
-    temp["Year"] = temp[year_column].apply(_normalize_year)
+    temp["Month"] = temp[month_column].apply(
+        _normalize_month
+    )
+
+    temp["Year"] = temp[year_column].apply(
+        _normalize_year
+    )
+
     temp["Year"] = pd.to_numeric(
         temp["Year"],
         errors="coerce",
@@ -177,7 +206,11 @@ def _build_year_month_timeline(
     temp = (
         temp
         .groupby(
-            ["Year", "Month", "Month Number"],
+            [
+                "Year",
+                "Month",
+                "Month Number",
+            ],
             as_index=False,
         )[value_column]
         .sum()
@@ -278,8 +311,9 @@ def _build_year_month_timeline(
 def _apply_chronological_zwsp(label_list):
     """
     Adds increasing Zero-Width Spaces to force Streamlit's
-    alphabetical sorting to match our perfect chronological order.
+    alphabetical sorting to match our chronological order.
     """
+
     return [
         ("\u200b" * (i + 1)) + str(lbl)
         for i, lbl in enumerate(label_list)
@@ -331,12 +365,19 @@ def _sort_ward_dataframe(
 
 def render_charts(df):
 
+    # --------------------------------------------------------
+    # Reset displayed chart registry
+    # --------------------------------------------------------
+    reset_displayed_chart_registry()
+
     st.subheader("📈 Charts & Trends")
 
     if df is None or df.empty:
+
         st.warning(
             "No records available for the selected filters."
         )
+
         return
 
     st.caption(
@@ -357,7 +398,9 @@ def render_charts(df):
     ]
 
     for column in possible_year_columns:
+
         if column in df.columns:
+
             year_column = column
             break
 
@@ -389,10 +432,12 @@ def render_charts(df):
 
             if year_column is not None:
 
-                timeline_source = pd.DataFrame({
-                    "Year": df[year_column],
-                    "Month": df["Month"],
-                })
+                timeline_source = pd.DataFrame(
+                    {
+                        "Year": df[year_column],
+                        "Month": df["Month"],
+                    }
+                )
 
                 timeline_source["Records"] = 1
 
@@ -442,6 +487,8 @@ def render_charts(df):
                     render_bar_chart(
                         chart_series,
                         use_container_width=True,
+                        export_title="Month-wise Programme Trend",
+                        export_filename="month_wise_programme_trend",
                     )
 
                     display_month_counts = (
@@ -459,7 +506,9 @@ def render_charts(df):
                         hide_index=True,
                     )
 
+            # =================================================
             # FALLBACK: MONTH-ONLY ANALYSIS
+            # =================================================
 
             if not use_year_month:
 
@@ -522,6 +571,8 @@ def render_charts(df):
                 render_bar_chart(
                     chart_series,
                     use_container_width=True,
+                    export_title="Month-wise Programme Trend",
+                    export_filename="month_wise_programme_trend",
                 )
 
                 display_month_counts = (
@@ -640,9 +691,9 @@ def render_charts(df):
                             ].astype(int)
                         )
 
-                        # ------------------------------------------------
+                        # --------------------------------------------
                         # ALL AVAILABLE DISEASES
-                        # ------------------------------------------------
+                        # --------------------------------------------
 
                         available_diseases = (
                             valid_year_temp[
@@ -668,9 +719,9 @@ def render_charts(df):
 
                         if available_diseases:
 
-                            # ------------------------------------------------
+                            # ----------------------------------------
                             # DISEASE CHECKBOXES
-                            # ------------------------------------------------
+                            # ----------------------------------------
 
                             st.markdown(
                                 "**Select diseases to display in the chart:**"
@@ -688,8 +739,7 @@ def render_charts(df):
 
                                 checkbox_column = (
                                     checkbox_columns[
-                                        index
-                                        % 4
+                                        index % 4
                                     ]
                                 )
 
@@ -713,9 +763,9 @@ def render_charts(df):
                                         disease
                                     )
 
-                            # ------------------------------------------------
+                            # ----------------------------------------
                             # BUILD DISEASE MONTH DATA
-                            # ------------------------------------------------
+                            # ----------------------------------------
 
                             disease_month = (
                                 valid_year_temp
@@ -824,9 +874,9 @@ def render_charts(df):
                                 .reset_index(drop=True)
                             )
 
-                            # ------------------------------------------------
+                            # ----------------------------------------
                             # CHRONOLOGICAL TIMELINE
-                            # ------------------------------------------------
+                            # ----------------------------------------
 
                             timeline_order = (
                                 disease_month[
@@ -849,9 +899,9 @@ def render_charts(df):
                                 .tolist()
                             )
 
-                            # ------------------------------------------------
+                            # ----------------------------------------
                             # FILTER CHART BY SELECTED DISEASES
-                            # ------------------------------------------------
+                            # ----------------------------------------
 
                             chart_disease_month = (
                                 disease_month[
@@ -863,9 +913,9 @@ def render_charts(df):
                                 ].copy()
                             )
 
-                            # ------------------------------------------------
+                            # ----------------------------------------
                             # DATA LABEL TOGGLE
-                            # ------------------------------------------------
+                            # ----------------------------------------
 
                             show_labels_ym = st.toggle(
                                 "Show Data Labels",
@@ -873,9 +923,9 @@ def render_charts(df):
                                 key="toggle_labels_ym",
                             )
 
-                            # ------------------------------------------------
+                            # ----------------------------------------
                             # CHART
-                            # ------------------------------------------------
+                            # ----------------------------------------
 
                             if not chart_disease_month.empty:
 
@@ -896,17 +946,15 @@ def render_charts(df):
                                             "Records:Q",
                                             title="Records",
                                         ),
-                                        
-                                       color=alt.Color(
-    "Disease:N",
-    legend=alt.Legend(
-        orient="bottom",
-        title="Disease",
-        labelLimit=0,
-        columns=4,
-    ),
-),
-                                        
+                                        color=alt.Color(
+                                            "Disease:N",
+                                            legend=alt.Legend(
+                                                orient="bottom",
+                                                title="Disease",
+                                                labelLimit=0,
+                                                columns=4,
+                                            ),
+                                        ),
                                     )
                                 )
 
@@ -949,6 +997,12 @@ def render_charts(df):
                                             height=450
                                         )
                                     )
+
+                                register_displayed_chart(
+                                    final_chart,
+                                    title="Monthly Disease Comparison",
+                                    filename="monthly_disease_comparison",
+                                )
 
                                 st.altair_chart(
                                     final_chart,
@@ -1011,8 +1065,7 @@ def render_charts(df):
 
                             checkbox_column = (
                                 checkbox_columns[
-                                    index
-                                    % 4
+                                    index % 4
                                 ]
                             )
 
@@ -1096,17 +1149,15 @@ def render_charts(df):
                                         "Records:Q",
                                         title="Records",
                                     ),
-                                    
-                                 color=alt.Color(
-    "Disease:N",
-    legend=alt.Legend(
-        orient="bottom",
-        title="Disease",
-        labelLimit=0,
-        columns=4,
-    ),
-),
-                                    
+                                    color=alt.Color(
+                                        "Disease:N",
+                                        legend=alt.Legend(
+                                            orient="bottom",
+                                            title="Disease",
+                                            labelLimit=0,
+                                            columns=4,
+                                        ),
+                                    ),
                                 )
                             )
 
@@ -1149,6 +1200,12 @@ def render_charts(df):
                                         height=450
                                     )
                                 )
+
+                            register_displayed_chart(
+                                final_chart,
+                                title="Monthly Disease Comparison",
+                                filename="monthly_disease_comparison",
+                            )
 
                             st.altair_chart(
                                 final_chart,
@@ -1223,6 +1280,8 @@ def render_charts(df):
                     "Disease"
                 )["Records"],
                 use_container_width=True,
+                export_title="Disease-wise Burden",
+                export_filename="disease_wise_burden",
             )
 
             st.dataframe(
@@ -1259,6 +1318,7 @@ def render_charts(df):
     for column in possible_pathogen_columns:
 
         if column in df.columns:
+
             pathogen_column = column
             break
 
@@ -1294,6 +1354,8 @@ def render_charts(df):
                     "Test Performed Pathogen Name"
                 )["Records"],
                 use_container_width=True,
+                export_title="Test Performed / Pathogen Name-wise Analysis",
+                export_filename="test_performed_pathogen_analysis",
             )
 
             st.dataframe(
@@ -1358,6 +1420,8 @@ def render_charts(df):
                     "Test Performed Pathogen Name"
                 )["Records"],
                 use_container_width=True,
+                export_title="Test Performed / Pathogen Name-wise Analysis",
+                export_filename="test_performed_pathogen_analysis",
             )
 
             st.dataframe(
@@ -1420,6 +1484,8 @@ def render_charts(df):
                     "Facility"
                 )["Records"],
                 use_container_width=True,
+                export_title="Facility-wise Burden",
+                export_filename="facility_wise_burden",
             )
 
             st.dataframe(
@@ -1478,6 +1544,8 @@ def render_charts(df):
                     "Ward"
                 )["Records"],
                 use_container_width=True,
+                export_title="Ward-wise Burden",
+                export_filename="ward_wise_burden",
             )
 
             st.dataframe(
@@ -1531,6 +1599,8 @@ def render_charts(df):
                     "OPD/IPD"
                 )["Records"],
                 use_container_width=True,
+                export_title="OPD / IPD Distribution",
+                export_filename="opd_ipd_distribution",
             )
 
             st.dataframe(
@@ -1590,6 +1660,8 @@ def render_charts(df):
             render_line_chart(
                 daily_counts,
                 use_container_width=True,
+                export_title="Reporting Date Trend",
+                export_filename="reporting_date_trend",
             )
 
         else:
@@ -1697,4 +1769,3 @@ def render_charts(df):
                 "Wards",
                 "0",
             )
-
