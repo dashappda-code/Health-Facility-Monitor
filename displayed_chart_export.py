@@ -1,4 +1,4 @@
-```python
+
 import io
 import hashlib
 import zipfile
@@ -1653,4 +1653,5 @@ def render_displayed_chart_download_controls(
 
             title = (
                 item.get("ti
-```
+
+                         
