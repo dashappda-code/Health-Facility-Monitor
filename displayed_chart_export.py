@@ -1,6 +1,8 @@
+```python
 import io
 import hashlib
 import zipfile
+import html
 from contextlib import contextmanager
 
 import pandas as pd
@@ -12,7 +14,16 @@ import streamlit as st
 # ============================================================
 
 DISPLAYED_CHARTS_KEY = "displayed_chart_exports"
+
 CAPTURE_ACTIVE_KEY = "displayed_chart_capture_active"
+
+MAX_TABLE_ROWS = 300
+
+MAX_TABLE_COLUMNS = 14
+
+PDF_MARGIN_MM = 12
+
+MAX_CHART_HEIGHT_MM = 88
 
 
 # ============================================================
@@ -54,16 +65,21 @@ def _safe_dataframe(data):
 
     if isinstance(data, pd.Series):
 
-        result = data.reset_index()
+        try:
 
-        if len(result.columns) >= 2:
+            result = data.reset_index()
 
-            result.columns = [
-                str(result.columns[0]),
-                "Records",
-            ]
+            if len(result.columns) >= 2:
 
-        return result
+                result.columns = [
+                    str(result.columns[0]),
+                    "Records",
+                ]
+
+            return result
+
+        except Exception:
+            return pd.DataFrame()
 
     if isinstance(data, dict):
 
@@ -83,10 +99,21 @@ def _safe_dataframe(data):
 
 
 # ============================================================
-# EXTRACT CHART DATA
+# CHART DATA EXTRACTION
 # ============================================================
 
 def _extract_chart_dataframe(chart):
+
+    """
+    Extract underlying data from an Altair chart.
+
+    Handles:
+    - normal Altair charts
+    - charts with inline values
+    - charts using datasets
+    - layered charts
+    - concatenated charts
+    """
 
     if chart is None:
         return pd.DataFrame()
@@ -97,11 +124,7 @@ def _extract_chart_dataframe(chart):
 
     try:
 
-        data = getattr(
-            chart,
-            "data",
-            None,
-        )
+        data = getattr(chart, "data", None)
 
         result = _safe_dataframe(data)
 
@@ -123,35 +146,27 @@ def _extract_chart_dataframe(chart):
 
         return pd.DataFrame()
 
+    if not isinstance(spec, dict):
+        return pd.DataFrame()
+
     # --------------------------------------------------------
-    # Direct values
+    # Direct data block
     # --------------------------------------------------------
 
     try:
 
-        if isinstance(spec, dict):
+        data_block = spec.get("data")
 
-            data_block = spec.get(
-                "data"
-            )
+        if isinstance(data_block, dict):
 
-            if isinstance(
-                data_block,
-                dict,
-            ):
+            values = data_block.get("values")
 
-                values = data_block.get(
-                    "values"
-                )
+            if values is not None:
 
-                if values is not None:
+                result = _safe_dataframe(values)
 
-                    result = _safe_dataframe(
-                        values
-                    )
-
-                    if not result.empty:
-                        return result
+                if not result.empty:
+                    return result
 
     except Exception:
         pass
@@ -162,20 +177,15 @@ def _extract_chart_dataframe(chart):
 
     try:
 
-        datasets = spec.get(
-            "datasets",
-            {},
-        )
+        datasets = spec.get("datasets", {})
 
-        if datasets:
+        if isinstance(datasets, dict) and datasets:
 
             frames = []
 
             for values in datasets.values():
 
-                frame = _safe_dataframe(
-                    values
-                )
+                frame = _safe_dataframe(values)
 
                 if not frame.empty:
                     frames.append(frame)
@@ -205,36 +215,34 @@ def _extract_chart_dataframe(chart):
 
     try:
 
-        layers = spec.get(
-            "layer",
-            [],
-        )
+        layers = spec.get("layer", [])
 
-        for layer in layers:
+        if isinstance(layers, list):
 
-            if not isinstance(
-                layer,
-                dict,
-            ):
-                continue
+            for layer in layers:
 
-            layer_data = layer.get(
-                "data"
-            )
+                if not isinstance(layer, dict):
+                    continue
 
-            if isinstance(
-                layer_data,
-                dict,
-            ):
+                layer_data = layer.get("data")
 
-                values = layer_data.get(
-                    "values"
-                )
+                if isinstance(layer_data, dict):
 
-                if values is not None:
+                    values = layer_data.get("values")
 
-                    result = _safe_dataframe(
-                        values
+                    if values is not None:
+
+                        result = _safe_dataframe(values)
+
+                        if not result.empty:
+                            return result
+
+                layer_chart = layer.get("chart")
+
+                if layer_chart is not None:
+
+                    result = _extract_chart_dataframe(
+                        layer_chart
                     )
 
                     if not result.empty:
@@ -243,11 +251,66 @@ def _extract_chart_dataframe(chart):
     except Exception:
         pass
 
+    # --------------------------------------------------------
+    # HConcat / VConcat / Concat
+    # --------------------------------------------------------
+
+    for key in (
+        "hconcat",
+        "vconcat",
+        "concat",
+    ):
+
+        try:
+
+            children = spec.get(key, [])
+
+            if isinstance(children, list):
+
+                for child in children:
+
+                    if not isinstance(child, dict):
+                        continue
+
+                    child_data = child.get("data")
+
+                    if isinstance(child_data, dict):
+
+                        values = child_data.get("values")
+
+                        if values is not None:
+
+                            result = _safe_dataframe(
+                                values
+                            )
+
+                            if not result.empty:
+                                return result
+
+                    child_datasets = child.get(
+                        "datasets",
+                        {},
+                    )
+
+                    if child_datasets:
+
+                        for values in child_datasets.values():
+
+                            result = _safe_dataframe(
+                                values
+                            )
+
+                            if not result.empty:
+                                return result
+
+        except Exception:
+            pass
+
     return pd.DataFrame()
 
 
 # ============================================================
-# PREPARE REPORT TABLE
+# REPORT TABLE PREPARATION
 # ============================================================
 
 def _prepare_report_table(data):
@@ -260,7 +323,7 @@ def _prepare_report_table(data):
     result = df.copy()
 
     # --------------------------------------------------------
-    # Remove unwanted index columns
+    # Remove artificial index columns
     # --------------------------------------------------------
 
     remove_columns = []
@@ -274,9 +337,7 @@ def _prepare_report_table(data):
             or text == "index"
         ):
 
-            remove_columns.append(
-                column
-            )
+            remove_columns.append(column)
 
     if remove_columns:
 
@@ -286,7 +347,7 @@ def _prepare_report_table(data):
         )
 
     # --------------------------------------------------------
-    # Datetime formatting
+    # Convert datetime values
     # --------------------------------------------------------
 
     for column in result.columns:
@@ -297,19 +358,20 @@ def _prepare_report_table(data):
                 result[column]
             ):
 
-                result[column] = (
-                    result[column]
-                    .dt.strftime("%d-%m-%Y")
+                result[column] = result[column].dt.strftime(
+                    "%d-%m-%Y"
                 )
 
         except Exception:
             pass
 
     # --------------------------------------------------------
-    # Replace NaN
+    # Reset index
     # --------------------------------------------------------
 
-    result = result.fillna("")
+    result = result.reset_index(
+        drop=True
+    )
 
     return result
 
@@ -338,7 +400,7 @@ def capture_displayed_charts():
             title = None
 
             # ------------------------------------------------
-            # Extract title
+            # Read chart title
             # ------------------------------------------------
 
             try:
@@ -369,7 +431,7 @@ def capture_displayed_charts():
                 pass
 
             # ------------------------------------------------
-            # Extract table
+            # Extract table data
             # ------------------------------------------------
 
             table_df = _extract_chart_dataframe(
@@ -433,7 +495,7 @@ def capture_displayed_charts():
 
 
 # ============================================================
-# ALTAIR → PNG
+# ALTair -> PNG
 # ============================================================
 
 def _chart_to_png(chart):
@@ -451,18 +513,10 @@ def _chart_to_png(chart):
 
     spec = chart.to_dict()
 
-    # --------------------------------------------------------
-    # Render using Vega-Lite's native dimensions.
-    #
-    # DO NOT force a fixed width/height here.
-    # --------------------------------------------------------
-
-    png_bytes = vlc.vegalite_to_png(
+    return vlc.vegalite_to_png(
         spec,
         scale=2,
     )
-
-    return png_bytes
 
 
 # ============================================================
@@ -480,9 +534,7 @@ def _make_fingerprint(
 
     for item in charts:
 
-        chart = item.get(
-            "chart"
-        )
+        chart = item.get("chart")
 
         try:
 
@@ -498,9 +550,7 @@ def _make_fingerprint(
                 str(chart)
             )
 
-        table = item.get(
-            "table"
-        )
+        table = item.get("table")
 
         if isinstance(
             table,
@@ -531,66 +581,7 @@ def _make_fingerprint(
 
 
 # ============================================================
-# REPORTLAB IMPORTS
-# ============================================================
-
-def _get_reportlab():
-
-    try:
-
-        from reportlab.lib import colors
-        from reportlab.lib.enums import (
-            TA_CENTER,
-            TA_LEFT,
-        )
-        from reportlab.lib.pagesizes import (
-            A4,
-            landscape,
-        )
-        from reportlab.lib.styles import (
-            ParagraphStyle,
-            getSampleStyleSheet,
-        )
-        from reportlab.lib.units import mm
-        from reportlab.platypus import (
-            Image,
-            KeepTogether,
-            PageBreak,
-            Paragraph,
-            SimpleDocTemplate,
-            Spacer,
-            Table,
-            TableStyle,
-        )
-
-        return {
-            "colors": colors,
-            "TA_CENTER": TA_CENTER,
-            "TA_LEFT": TA_LEFT,
-            "A4": A4,
-            "landscape": landscape,
-            "ParagraphStyle": ParagraphStyle,
-            "getSampleStyleSheet": getSampleStyleSheet,
-            "mm": mm,
-            "Image": Image,
-            "KeepTogether": KeepTogether,
-            "PageBreak": PageBreak,
-            "Paragraph": Paragraph,
-            "SimpleDocTemplate": SimpleDocTemplate,
-            "Spacer": Spacer,
-            "Table": Table,
-            "TableStyle": TableStyle,
-        }
-
-    except ImportError as e:
-
-        raise ImportError(
-            "reportlab is required for PDF export."
-        ) from e
-
-
-# ============================================================
-# FORMAT TABLE VALUE
+# VALUE FORMATTER
 # ============================================================
 
 def _format_table_value(value):
@@ -606,12 +597,9 @@ def _format_table_value(value):
     except Exception:
         pass
 
-    if isinstance(
-        value,
-        bool,
-    ):
-
-        return "Yes" if value else "No"
+    # --------------------------------------------------------
+    # Integer
+    # --------------------------------------------------------
 
     if isinstance(
         value,
@@ -619,6 +607,10 @@ def _format_table_value(value):
     ):
 
         return f"{value:,}"
+
+    # --------------------------------------------------------
+    # Float
+    # --------------------------------------------------------
 
     if isinstance(
         value,
@@ -635,243 +627,208 @@ def _format_table_value(value):
 
 
 # ============================================================
-# TABLE COLUMN WIDTH CALCULATION
-# ============================================================
-
-def _calculate_column_widths(
-    display_df,
-    available_width,
-):
-
-    column_count = len(
-        display_df.columns
-    )
-
-    if column_count == 0:
-        return []
-
-    # --------------------------------------------------------
-    # Estimate width from content
-    # --------------------------------------------------------
-
-    estimated = []
-
-    for column in display_df.columns:
-
-        header_length = len(
-            str(column)
-        )
-
-        sample_values = (
-            display_df[column]
-            .astype(str)
-            .head(80)
-            .tolist()
-        )
-
-        max_value_length = 0
-
-        for value in sample_values:
-
-            max_value_length = max(
-                max_value_length,
-                len(value),
-            )
-
-        estimated_length = max(
-            header_length,
-            min(
-                max_value_length,
-                40,
-            ),
-        )
-
-        estimated.append(
-            max(
-                estimated_length,
-                8,
-            )
-        )
-
-    total_estimated = sum(
-        estimated
-    )
-
-    if total_estimated <= 0:
-        return [
-            available_width / column_count
-        ] * column_count
-
-    # --------------------------------------------------------
-    # Convert estimated characters
-    # into physical width
-    # --------------------------------------------------------
-
-    widths = []
-
-    for value in estimated:
-
-        width = (
-            available_width
-            * value
-            / total_estimated
-        )
-
-        widths.append(width)
-
-    # --------------------------------------------------------
-    # Minimum and maximum widths
-    # --------------------------------------------------------
-
-    min_width = 18 * mm
-    max_width = 70 * mm
-
-    widths = [
-        max(
-            min_width,
-            min(
-                width,
-                max_width,
-            ),
-        )
-        for width in widths
-    ]
-
-    # --------------------------------------------------------
-    # Re-normalize to available width
-    # --------------------------------------------------------
-
-    total_width = sum(
-        widths
-    )
-
-    if total_width > 0:
-
-        factor = (
-            available_width
-            / total_width
-        )
-
-        widths = [
-            width * factor
-            for width in widths
-        ]
-
-    return widths
-
-
-# ============================================================
-# BUILD REPORT TABLE
+# REPORTLAB TABLE BUILDER
 # ============================================================
 
 def _build_report_table(
-    display_df,
-    reportlab,
+    dataframe,
     available_width,
+    colors,
+    Paragraph,
+    Table,
+    TableStyle,
+    body_style,
+    header_style,
 ):
 
-    colors = reportlab["colors"]
-    Paragraph = reportlab["Paragraph"]
-    ParagraphStyle = reportlab[
-        "ParagraphStyle"
-    ]
-    Table = reportlab["Table"]
-    TableStyle = reportlab[
-        "TableStyle"
-    ]
+    if not isinstance(
+        dataframe,
+        pd.DataFrame,
+    ):
 
-    if display_df.empty:
         return None
 
-    # --------------------------------------------------------
-    # Styles
-    # --------------------------------------------------------
+    if dataframe.empty:
+        return None
 
-    header_style = ParagraphStyle(
-        "ReportTableHeader",
-        fontName="Helvetica-Bold",
-        fontSize=7.5,
-        leading=9,
-        alignment=reportlab["TA_CENTER"],
-        textColor=colors.white,
-        spaceAfter=0,
-        spaceBefore=0,
-    )
-
-    cell_style = ParagraphStyle(
-        "ReportTableCell",
-        fontName="Helvetica",
-        fontSize=7,
-        leading=8.5,
-        alignment=reportlab["TA_LEFT"],
-        spaceAfter=0,
-        spaceBefore=0,
-    )
+    df = dataframe.copy()
 
     # --------------------------------------------------------
-    # Headers
+    # Limit extremely large tables
     # --------------------------------------------------------
 
-    table_data = [
-        [
-            Paragraph(
-                str(column),
-                header_style,
-            )
-            for column in display_df.columns
+    if len(df) > MAX_TABLE_ROWS:
+
+        df = df.head(
+            MAX_TABLE_ROWS
+        )
+
+    # --------------------------------------------------------
+    # Limit extremely wide tables
+    # --------------------------------------------------------
+
+    if len(df.columns) > MAX_TABLE_COLUMNS:
+
+        df = df.iloc[
+            :,
+            :MAX_TABLE_COLUMNS,
         ]
+
+    # --------------------------------------------------------
+    # Convert values
+    # --------------------------------------------------------
+
+    columns = [
+        str(column)
+        for column in df.columns
     ]
 
-    # --------------------------------------------------------
-    # Rows
-    # --------------------------------------------------------
+    table_data = []
 
-    for _, row in display_df.iterrows():
+    header_row = []
 
-        row_data = []
+    for column in columns:
+
+        header_row.append(
+            Paragraph(
+                html.escape(column),
+                header_style,
+            )
+        )
+
+    table_data.append(
+        header_row
+    )
+
+    for _, row in df.iterrows():
+
+        table_row = []
 
         for value in row:
 
-            formatted = _format_table_value(
+            text = _format_table_value(
                 value
             )
 
-            row_data.append(
+            table_row.append(
                 Paragraph(
-                    formatted,
-                    cell_style,
+                    html.escape(text),
+                    body_style,
                 )
             )
 
         table_data.append(
-            row_data
+            table_row
         )
 
     # --------------------------------------------------------
-    # Widths
+    # Calculate intelligent column widths
     # --------------------------------------------------------
 
-    column_widths = (
-        _calculate_column_widths(
-            display_df,
-            available_width,
+    column_widths = []
+
+    for column in df.columns:
+
+        column_name = str(column)
+
+        values = df[column].head(50).tolist()
+
+        lengths = [
+            len(str(value))
+            for value in values
+            if value is not None
+        ]
+
+        max_value_length = (
+            max(lengths)
+            if lengths
+            else 5
         )
+
+        estimated_length = max(
+            len(column_name),
+            min(
+                max_value_length,
+                30,
+            ),
+        )
+
+        column_widths.append(
+            float(estimated_length)
+        )
+
+    total_weight = sum(
+        column_widths
     )
 
+    if total_weight <= 0:
+
+        total_weight = len(
+            column_widths
+        )
+
+        column_widths = [
+            1.0
+            for _ in column_widths
+        ]
+
+    calculated_widths = [
+        available_width
+        * (
+            weight
+            / total_weight
+        )
+        for weight in column_widths
+    ]
+
     # --------------------------------------------------------
-    # Table
+    # Minimum / maximum width controls
     # --------------------------------------------------------
+
+    min_width = (
+        available_width
+        / max(
+            len(calculated_widths),
+            1,
+        )
+    ) * 0.55
+
+    max_width = available_width * 0.35
+
+    calculated_widths = [
+        min(
+            max(
+                width,
+                min_width,
+            ),
+            max_width,
+        )
+        for width in calculated_widths
+    ]
+
+    # --------------------------------------------------------
+    # Re-normalize to exact available width
+    # --------------------------------------------------------
+
+    width_total = sum(
+        calculated_widths
+    )
+
+    if width_total > 0:
+
+        calculated_widths = [
+            width
+            * available_width
+            / width_total
+            for width in calculated_widths
+        ]
 
     report_table = Table(
         table_data,
-        colWidths=column_widths,
+        colWidths=calculated_widths,
         repeatRows=1,
         hAlign="LEFT",
     )
-
-    # --------------------------------------------------------
-    # Style
-    # --------------------------------------------------------
 
     report_table.setStyle(
         TableStyle(
@@ -881,14 +838,14 @@ def _build_report_table(
                     (0, 0),
                     (-1, 0),
                     colors.HexColor(
-                        "#355C7D"
+                        "#E8EEF5"
                     ),
                 ),
                 (
                     "TEXTCOLOR",
                     (0, 0),
                     (-1, 0),
-                    colors.white,
+                    colors.black,
                 ),
                 (
                     "FONTNAME",
@@ -897,42 +854,41 @@ def _build_report_table(
                     "Helvetica-Bold",
                 ),
                 (
-                    "VALIGN",
+                    "FONTSIZE",
                     (0, 0),
+                    (-1, 0),
+                    7,
+                ),
+                (
+                    "FONTSIZE",
+                    (0, 1),
                     (-1, -1),
-                    "MIDDLE",
+                    6.5,
                 ),
                 (
                     "GRID",
                     (0, 0),
                     (-1, -1),
                     0.35,
-                    colors.HexColor(
-                        "#AAB4BE"
-                    ),
+                    colors.grey,
                 ),
                 (
-                    "ROWBACKGROUNDS",
-                    (0, 1),
+                    "VALIGN",
+                    (0, 0),
                     (-1, -1),
-                    [
-                        colors.white,
-                        colors.HexColor(
-                            "#F5F7F9"
-                        ),
-                    ],
+                    "TOP",
                 ),
                 (
                     "LEFTPADDING",
                     (0, 0),
                     (-1, -1),
-                    4,
+                    3,
                 ),
                 (
                     "RIGHTPADDING",
                     (0, 0),
                     (-1, -1),
-                    4,
+                    3,
                 ),
                 (
                     "TOPPADDING",
@@ -946,6 +902,17 @@ def _build_report_table(
                     (-1, -1),
                     3,
                 ),
+                (
+                    "ROWBACKGROUNDS",
+                    (0, 1),
+                    (-1, -1),
+                    [
+                        colors.white,
+                        colors.HexColor(
+                            "#F7F9FB"
+                        ),
+                    ],
+                ),
             ]
         )
     )
@@ -954,7 +921,82 @@ def _build_report_table(
 
 
 # ============================================================
-# BUILD PDF
+# CHART IMAGE SIZE
+# ============================================================
+
+def _get_chart_image_size(
+    png_bytes,
+    max_width,
+    max_height,
+):
+
+    """
+    Preserve original chart aspect ratio.
+
+    Returns:
+        width, height
+    """
+
+    try:
+
+        from PIL import Image as PILImage
+
+        image = PILImage.open(
+            io.BytesIO(
+                png_bytes
+            )
+        )
+
+        pixel_width, pixel_height = (
+            image.size
+        )
+
+        if (
+            not pixel_width
+            or not pixel_height
+        ):
+
+            return (
+                max_width,
+                max_height,
+            )
+
+        ratio = (
+            pixel_height
+            / pixel_width
+        )
+
+        width = max_width
+
+        height = (
+            width
+            * ratio
+        )
+
+        if height > max_height:
+
+            height = max_height
+
+            width = (
+                height
+                / ratio
+            )
+
+        return (
+            width,
+            height,
+        )
+
+    except Exception:
+
+        return (
+            max_width,
+            max_height,
+        )
+
+
+# ============================================================
+# PDF BUILDER
 # ============================================================
 
 def _build_pdf(
@@ -962,134 +1004,139 @@ def _build_pdf(
     filter_summary="",
 ):
 
-    reportlab = _get_reportlab()
+    try:
 
-    colors = reportlab["colors"]
-    A4 = reportlab["A4"]
-    landscape = reportlab["landscape"]
-    ParagraphStyle = reportlab[
-        "ParagraphStyle"
-    ]
-    getSampleStyleSheet = reportlab[
-        "getSampleStyleSheet"
-    ]
-    mm = reportlab["mm"]
-    Image = reportlab["Image"]
-    PageBreak = reportlab["PageBreak"]
-    Paragraph = reportlab["Paragraph"]
-    SimpleDocTemplate = reportlab[
-        "SimpleDocTemplate"
-    ]
-    Spacer = reportlab["Spacer"]
+        from reportlab.lib import colors
+
+        from reportlab.lib.enums import (
+            TA_CENTER,
+        )
+
+        from reportlab.lib.pagesizes import (
+            A4,
+        )
+
+        from reportlab.lib.styles import (
+            getSampleStyleSheet,
+            ParagraphStyle,
+        )
+
+        # IMPORTANT:
+        # Imported at module/function level so mm
+        # is always available where required.
+        from reportlab.lib.units import (
+            mm,
+        )
+
+        from reportlab.platypus import (
+            Image,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            PageBreak,
+        )
+
+    except ImportError as e:
+
+        raise ImportError(
+            "reportlab is required for PDF export."
+        ) from e
+
+    # --------------------------------------------------------
+    # PDF setup
+    # --------------------------------------------------------
 
     buffer = io.BytesIO()
 
-    # ========================================================
-    # LANDSCAPE A4
-    # ========================================================
+    page_width, page_height = A4
 
-    page_width, page_height = landscape(
-        A4
+    horizontal_margin = (
+        PDF_MARGIN_MM
+        * mm
     )
 
-    left_margin = 10 * mm
-    right_margin = 10 * mm
-    top_margin = 10 * mm
-    bottom_margin = 10 * mm
+    vertical_margin = (
+        PDF_MARGIN_MM
+        * mm
+    )
 
     available_width = (
         page_width
-        - left_margin
-        - right_margin
-    )
-
-    available_height = (
-        page_height
-        - top_margin
-        - bottom_margin
+        - (
+            2
+            * horizontal_margin
+        )
     )
 
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=landscape(A4),
-        rightMargin=right_margin,
-        leftMargin=left_margin,
-        topMargin=top_margin,
-        bottomMargin=bottom_margin,
+        pagesize=A4,
+        rightMargin=horizontal_margin,
+        leftMargin=horizontal_margin,
+        topMargin=vertical_margin,
+        bottomMargin=vertical_margin,
         title=(
             "MSU Mumbai "
             "Displayed Charts Report"
         ),
-        author="MSU Mumbai Public Health Surveillance Dashboard",
+        author=(
+            "MSU Mumbai "
+            "Public Health Surveillance Dashboard"
+        ),
     )
-
-    # ========================================================
-    # STYLES
-    # ========================================================
 
     styles = getSampleStyleSheet()
 
+    # --------------------------------------------------------
+    # Styles
+    # --------------------------------------------------------
+
     title_style = ParagraphStyle(
-        "ReportTitle",
+        "DisplayedChartTitle",
         parent=styles["Title"],
+        alignment=TA_CENTER,
         fontName="Helvetica-Bold",
-        fontSize=18,
-        leading=22,
-        alignment=reportlab["TA_CENTER"],
+        fontSize=16,
+        leading=19,
         spaceAfter=5 * mm,
     )
 
-    subtitle_style = ParagraphStyle(
-        "ReportSubtitle",
+    heading_style = ParagraphStyle(
+        "DisplayedChartHeading",
         parent=styles["Heading2"],
         fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=15,
-        alignment=reportlab["TA_LEFT"],
-        textColor=colors.HexColor(
-            "#355C7D"
-        ),
-        spaceAfter=3 * mm,
-    )
-
-    chart_heading_style = ParagraphStyle(
-        "ChartHeading",
-        parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
-        fontSize=13,
-        leading=16,
-        alignment=reportlab["TA_LEFT"],
-        textColor=colors.HexColor(
-            "#243746"
-        ),
-        spaceAfter=3 * mm,
-    )
-
-    body_style = ParagraphStyle(
-        "ReportBody",
-        parent=styles["BodyText"],
-        fontName="Helvetica",
-        fontSize=8.5,
-        leading=11,
-        alignment=reportlab["TA_LEFT"],
-    )
-
-    table_heading_style = ParagraphStyle(
-        "TableHeading",
-        parent=styles["Heading3"],
-        fontName="Helvetica-Bold",
-        fontSize=9,
-        leading=11,
-        textColor=colors.HexColor(
-            "#355C7D"
-        ),
-        spaceBefore=2 * mm,
+        fontSize=11,
+        leading=14,
         spaceAfter=2 * mm,
     )
 
-    # ========================================================
-    # STORY
-    # ========================================================
+    body_style = ParagraphStyle(
+        "DisplayedChartBody",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+    )
+
+    table_body_style = ParagraphStyle(
+        "DisplayedChartTableBody",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=6.5,
+        leading=8,
+    )
+
+    table_header_style = ParagraphStyle(
+        "DisplayedChartTableHeader",
+        parent=styles["BodyText"],
+        fontName="Helvetica-Bold",
+        fontSize=7,
+        leading=8.5,
+    )
+
+    # --------------------------------------------------------
+    # Story
+    # --------------------------------------------------------
 
     story = []
 
@@ -1107,39 +1154,37 @@ def _build_pdf(
     story.append(
         Paragraph(
             "Charts & Trends — Displayed Charts Report",
-            subtitle_style,
+            heading_style,
         )
     )
 
     if filter_summary:
 
         story.append(
+            Spacer(
+                1,
+                2 * mm,
+            )
+        )
+
+        safe_filter_summary = html.escape(
+            str(filter_summary)
+        )
+
+        story.append(
             Paragraph(
-                f"<b>Applied Filters:</b> "
-                f"{filter_summary}",
+                (
+                    f"<b>Filters:</b> "
+                    f"{safe_filter_summary}"
+                ),
                 body_style,
             )
         )
 
-        story.append(
-            Spacer(
-                1,
-                4 * mm,
-            )
-        )
-
-    story.append(
-        Paragraph(
-            f"<b>Total Charts:</b> "
-            f"{len(charts)}",
-            body_style,
-        )
-    )
-
     story.append(
         Spacer(
             1,
-            7 * mm,
+            6 * mm,
         )
     )
 
@@ -1161,19 +1206,33 @@ def _build_pdf(
             or f"Chart {index}"
         )
 
+        safe_title = html.escape(
+            str(title)
+        )
+
         # ----------------------------------------------------
         # Chart heading
         # ----------------------------------------------------
 
         story.append(
             Paragraph(
-                f"{index}. {title}",
-                chart_heading_style,
+                (
+                    f"{index}. "
+                    f"{safe_title}"
+                ),
+                heading_style,
+            )
+        )
+
+        story.append(
+            Spacer(
+                1,
+                2 * mm,
             )
         )
 
         # ----------------------------------------------------
-        # Render chart
+        # Chart image
         # ----------------------------------------------------
 
         try:
@@ -1186,94 +1245,24 @@ def _build_pdf(
                 png_bytes
             )
 
+            image_width, image_height = (
+                _get_chart_image_size(
+                    png_bytes,
+                    available_width,
+                    MAX_CHART_HEIGHT_MM * mm,
+                )
+            )
+
             image = Image(
-                image_buffer
+                image_buffer,
+                width=image_width,
+                height=image_height,
             )
 
-            # ------------------------------------------------
-            # Preserve original aspect ratio
-            # ------------------------------------------------
-
-            from PIL import Image as PILImage
-
-            pil_image = PILImage.open(
-                io.BytesIO(
-                    png_bytes
-                )
-            )
-
-            original_width, original_height = (
-                pil_image.size
-            )
-
-            if original_width <= 0:
-                original_width = 1200
-
-            if original_height <= 0:
-                original_height = 600
-
-            aspect_ratio = (
-                original_height
-                / original_width
-            )
-
-            # Maximum chart dimensions
-            max_width = available_width
-            max_height = 88 * mm
-
-            # Calculate width from height
-            target_height = (
-                max_width
-                * aspect_ratio
-            )
-
-            target_width = max_width
-
-            if target_height > max_height:
-
-                target_height = max_height
-
-                target_width = (
-                    target_height
-                    / aspect_ratio
-                )
-
-            # Prevent tiny charts
-            if target_width < 100 * mm:
-
-                target_width = (
-                    100 * mm
-                )
-
-                target_height = (
-                    target_width
-                    * aspect_ratio
-                )
-
-            image.drawWidth = target_width
-            image.drawHeight = target_height
+            image.hAlign = "CENTER"
 
             story.append(
                 image
-            )
-
-            story.append(
-                Spacer(
-                    1,
-                    5 * mm,
-                )
-            )
-
-        except Exception as e:
-
-            story.append(
-                Paragraph(
-                    (
-                        "<b>Chart rendering error:</b> "
-                        f"{str(e)}"
-                    ),
-                    body_style,
-                )
             )
 
             story.append(
@@ -1283,8 +1272,32 @@ def _build_pdf(
                 )
             )
 
+        except Exception as e:
+
+            error_text = html.escape(
+                str(e)
+            )
+
+            story.append(
+                Paragraph(
+                    (
+                        "Chart image could not "
+                        "be rendered: "
+                        f"{error_text}"
+                    ),
+                    body_style,
+                )
+            )
+
+            story.append(
+                Spacer(
+                    1,
+                    3 * mm,
+                )
+            )
+
         # ----------------------------------------------------
-        # Table
+        # Data table
         # ----------------------------------------------------
 
         table_df = item.get(
@@ -1299,53 +1312,35 @@ def _build_pdf(
             and not table_df.empty
         ):
 
-            display_df = table_df.copy()
-
-            # ------------------------------------------------
-            # Keep all columns where possible.
-            # If extremely wide, use a readable maximum.
-            # ------------------------------------------------
-
-            if len(
-                display_df.columns
-            ) > 14:
-
-                display_df = display_df.iloc[
-                    :,
-                    :14,
-                ]
-
-            # ------------------------------------------------
-            # Very large tables
-            # ------------------------------------------------
-
-            total_rows = len(
-                display_df
-            )
-
-            if total_rows > 300:
-
-                display_df = display_df.head(
-                    300
-                )
-
-                truncated = True
-
-            else:
-
-                truncated = False
-
             story.append(
                 Paragraph(
-                    "Data Table",
-                    table_heading_style,
+                    "<b>Data Table</b>",
+                    body_style,
+                )
+            )
+
+            story.append(
+                Spacer(
+                    1,
+                    2 * mm,
                 )
             )
 
             report_table = _build_report_table(
-                display_df,
-                reportlab,
+                table_df,
                 available_width,
+                colors,
+                Paragraph,
+                __import__(
+                    "reportlab.platypus",
+                    fromlist=["Table"],
+                ).Table,
+                __import__(
+                    "reportlab.platypus",
+                    fromlist=["TableStyle"],
+                ).TableStyle,
+                table_body_style,
+                table_header_style,
             )
 
             if report_table is not None:
@@ -1354,7 +1349,7 @@ def _build_pdf(
                     report_table
                 )
 
-                if truncated:
+                if len(table_df) > MAX_TABLE_ROWS:
 
                     story.append(
                         Spacer(
@@ -1367,8 +1362,10 @@ def _build_pdf(
                         Paragraph(
                             (
                                 f"Showing first "
-                                f"{len(display_df):,} "
-                                f"of {total_rows:,} rows."
+                                f"{MAX_TABLE_ROWS:,} "
+                                f"rows of "
+                                f"{len(table_df):,} "
+                                "available rows."
                             ),
                             body_style,
                         )
@@ -1377,7 +1374,7 @@ def _build_pdf(
             story.append(
                 Spacer(
                     1,
-                    5 * mm,
+                    6 * mm,
                 )
             )
 
@@ -1385,13 +1382,24 @@ def _build_pdf(
 
             story.append(
                 Paragraph(
-                    "No underlying table data available for this chart.",
+                    (
+                        "No underlying table "
+                        "data available "
+                        "for this chart."
+                    ),
                     body_style,
                 )
             )
 
+            story.append(
+                Spacer(
+                    1,
+                    6 * mm,
+                )
+            )
+
         # ----------------------------------------------------
-        # New page
+        # New page for next chart
         # ----------------------------------------------------
 
         if index < len(charts):
@@ -1439,6 +1447,10 @@ def _build_png_zip(charts):
                 or f"Chart {index}"
             )
 
+            # ------------------------------------------------
+            # Safe filename
+            # ------------------------------------------------
+
             safe_title = (
                 str(title)
                 .strip()
@@ -1455,10 +1467,40 @@ def _build_png_zip(charts):
                     "_",
                 )
                 .replace(
+                    "*",
+                    "_",
+                )
+                .replace(
+                    "?",
+                    "_",
+                )
+                .replace(
+                    '"',
+                    "_",
+                )
+                .replace(
+                    "<",
+                    "_",
+                )
+                .replace(
+                    ">",
+                    "_",
+                )
+                .replace(
+                    "|",
+                    "_",
+                )
+                .replace(
                     " ",
                     "_",
                 )
             )
+
+            if not safe_title:
+
+                safe_title = (
+                    f"Chart_{index}"
+                )
 
             try:
 
@@ -1506,10 +1548,12 @@ def render_displayed_chart_download_controls(
 
     st.caption(
         f"{len(charts)} displayed chart(s) captured. "
-        "The PDF uses landscape A4 format and preserves "
-        "the chart aspect ratio. Each chart is followed "
-        "by its data table."
+        "The PDF includes each chart followed by its data table."
     )
+
+    # ========================================================
+    # FINGERPRINT
+    # ========================================================
 
     fingerprint = _make_fingerprint(
         charts,
@@ -1517,12 +1561,12 @@ def render_displayed_chart_download_controls(
     )
 
     cache_key = (
-        "displayed_chart_export_cache_v2_"
+        "displayed_chart_export_cache_v3_"
         f"{fingerprint}"
     )
 
     # ========================================================
-    # BUILD ONLY WHEN NEEDED
+    # BUILD EXPORTS
     # ========================================================
 
     if cache_key not in st.session_state:
@@ -1555,9 +1599,7 @@ def render_displayed_chart_download_controls(
     # DOWNLOAD BUTTONS
     # ========================================================
 
-    col1, col2 = st.columns(
-        2
-    )
+    col1, col2 = st.columns(2)
 
     with col1:
 
@@ -1596,7 +1638,7 @@ def render_displayed_chart_download_controls(
         )
 
     # ========================================================
-    # CONTENT SUMMARY
+    # REPORT CONTENTS
     # ========================================================
 
     with st.expander(
@@ -1610,31 +1652,5 @@ def render_displayed_chart_download_controls(
         ):
 
             title = (
-                item.get("title")
-                or f"Chart {index}"
-            )
-
-            table_df = item.get(
-                "table"
-            )
-
-            if (
-                isinstance(
-                    table_df,
-                    pd.DataFrame,
-                )
-                and not table_df.empty
-            ):
-
-                st.write(
-                    f"**{index}. {title}** "
-                    f"— Chart + Table "
-                    f"({len(table_df):,} rows)"
-                )
-
-            else:
-
-                st.write(
-                    f"**{index}. {title}** "
-                    "— Chart"
-                )
+                item.get("ti
+```
