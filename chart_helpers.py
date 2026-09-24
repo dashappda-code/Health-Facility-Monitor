@@ -1,4 +1,3 @@
-
 import io
 
 import streamlit as st
@@ -16,7 +15,7 @@ DISPLAYED_CHARTS_KEY = "displayed_chart_exports"
 def _ensure_chart_registry():
     """
     Creates the session-state registry used by the displayed
-    chart export system.
+    chart + table export system.
     """
 
     if DISPLAYED_CHARTS_KEY not in st.session_state:
@@ -40,13 +39,29 @@ def register_displayed_chart(
     chart,
     title="Chart",
     filename=None,
+    table_data=None,
 ):
     """
     Register an Altair chart for displayed-chart export.
 
-    The SAME Altair chart object that is displayed on the
-    dashboard is registered. This avoids recreating a
-    different chart for the PDF.
+    Parameters
+    ----------
+    chart:
+        Exact Altair chart object displayed on dashboard.
+
+    title:
+        Chart title used in exported PDF.
+
+    filename:
+        Safe filename used for exported image.
+
+    table_data:
+        Optional pandas DataFrame containing the exact
+        table associated with this chart.
+
+    The table_data is copied into the registry so that
+    later dataframe modifications do not affect the
+    already registered export data.
     """
 
     if chart is None:
@@ -67,11 +82,35 @@ def register_displayed_chart(
         .replace(":", "_")
     )
 
+    # --------------------------------------------------------
+    # Prepare table safely
+    # --------------------------------------------------------
+
+    if isinstance(table_data, pd.DataFrame):
+
+        table_copy = table_data.copy()
+
+        # Remove pandas index from exported table.
+        table_copy = table_copy.reset_index(drop=True)
+
+    elif isinstance(table_data, pd.Series):
+
+        table_copy = (
+            table_data
+            .reset_index()
+            .copy()
+        )
+
+    else:
+
+        table_copy = None
+
     registry.append(
         {
             "title": str(title),
             "filename": safe_filename,
             "chart": chart,
+            "table": table_copy,
         }
     )
 
@@ -79,6 +118,13 @@ def register_displayed_chart(
 def get_displayed_charts():
     """
     Return currently registered displayed charts.
+
+    Each registry item can contain:
+
+        title
+        filename
+        chart
+        table
     """
 
     return list(
@@ -94,6 +140,10 @@ def get_displayed_charts():
 # ============================================================
 
 def data_labels_enabled():
+    """
+    Returns the global dashboard data-label setting.
+    """
+
     return bool(
         st.session_state.get(
             "show_data_labels",
@@ -112,6 +162,10 @@ def _prepare_chart_data(data):
     without changing the underlying values.
     """
 
+    # --------------------------------------------------------
+    # Series
+    # --------------------------------------------------------
+
     if isinstance(data, pd.Series):
 
         result = data.reset_index()
@@ -125,19 +179,19 @@ def _prepare_chart_data(data):
 
         return result
 
+    # --------------------------------------------------------
+    # DataFrame
+    # --------------------------------------------------------
+
     if isinstance(data, pd.DataFrame):
 
-        result = data.reset_index()
+        result = data.copy()
 
-        if len(result.columns) > 0:
-
-            result = result.rename(
-                columns={
-                    result.columns[0]: str(
-                        result.columns[0]
-                    )
-                }
-            )
+        # Preserve existing columns.
+        result.columns = [
+            str(column)
+            for column in result.columns
+        ]
 
         return result
 
@@ -145,6 +199,9 @@ def _prepare_chart_data(data):
 
 
 def _field_type(series):
+    """
+    Return Altair field type.
+    """
 
     if pd.api.types.is_numeric_dtype(series):
         return "Q"
@@ -163,16 +220,21 @@ def _register_and_display(
     chart,
     title,
     filename,
+    table_data=None,
     use_container_width=True,
 ):
     """
     Register the exact chart object and then display it.
+
+    table_data is the exact dataframe associated with
+    the chart and is used by the PDF export.
     """
 
     register_displayed_chart(
         chart=chart,
         title=title,
         filename=filename,
+        table_data=table_data,
     )
 
     st.altair_chart(
@@ -191,6 +253,7 @@ def render_bar_chart(
     height=400,
     export_title=None,
     export_filename=None,
+    export_table=None,
 ):
     """
     Global bar-chart renderer.
@@ -199,6 +262,12 @@ def render_bar_chart(
 
     The exact Altair chart displayed on the dashboard is
     registered for PDF/PNG export.
+
+    export_table:
+        Optional exact dataframe to be shown below the
+        chart in the exported PDF.
+
+        If not supplied, the chart dataframe itself is used.
     """
 
     chart_df = _prepare_chart_data(data)
@@ -381,10 +450,23 @@ def render_bar_chart(
     if export_filename is None:
         export_filename = export_title
 
+    # ========================================================
+    # EXPORT TABLE
+    # ========================================================
+
+    if export_table is None:
+
+        export_table = chart_df.copy()
+
+    # ========================================================
+    # REGISTER + DISPLAY
+    # ========================================================
+
     _register_and_display(
         chart=chart,
         title=export_title,
         filename=export_filename,
+        table_data=export_table,
         use_container_width=use_container_width,
     )
 
@@ -401,6 +483,7 @@ def render_line_chart(
     height=400,
     export_title=None,
     export_filename=None,
+    export_table=None,
 ):
     """
     Global line-chart renderer.
@@ -409,6 +492,12 @@ def render_line_chart(
 
     The exact Altair chart displayed on the dashboard is
     registered for PDF/PNG export.
+
+    export_table:
+        Optional exact dataframe to be shown below the
+        chart in the exported PDF.
+
+        If not supplied, the chart dataframe itself is used.
     """
 
     chart_df = _prepare_chart_data(data)
@@ -473,9 +562,9 @@ def render_line_chart(
         )
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # DATA LABELS
-    # --------------------------------------------------------
+    # ========================================================
 
     if data_labels_enabled():
 
@@ -515,12 +604,24 @@ def render_line_chart(
     if export_filename is None:
         export_filename = export_title
 
+    # ========================================================
+    # EXPORT TABLE
+    # ========================================================
+
+    if export_table is None:
+
+        export_table = chart_df.copy()
+
+    # ========================================================
+    # REGISTER + DISPLAY
+    # ========================================================
+
     _register_and_display(
         chart=chart,
         title=export_title,
         filename=export_filename,
+        table_data=export_table,
         use_container_width=use_container_width,
     )
 
     return chart
-
