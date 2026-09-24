@@ -1,22 +1,20 @@
-import io
-
-import streamlit as st
 import pandas as pd
+import streamlit as st
 import altair as alt
 
 
 # ============================================================
-# GLOBAL CHART EXPORT REGISTRY
+# DISPLAYED CHART REGISTRY
 # ============================================================
 
 DISPLAYED_CHARTS_KEY = "displayed_chart_exports"
 
 
+# ============================================================
+# REGISTRY HELPERS
+# ============================================================
+
 def _ensure_chart_registry():
-    """
-    Creates the session-state registry used by the displayed
-    chart + table export system.
-    """
 
     if DISPLAYED_CHARTS_KEY not in st.session_state:
         st.session_state[DISPLAYED_CHARTS_KEY] = []
@@ -25,14 +23,10 @@ def _ensure_chart_registry():
 
 
 def reset_displayed_chart_registry():
-    """
-    Clears the displayed-chart registry.
 
-    This should be called once before rendering a dashboard
-    section whose displayed charts need to be exported.
-    """
-
-    st.session_state[DISPLAYED_CHARTS_KEY] = []
+    st.session_state[
+        DISPLAYED_CHARTS_KEY
+    ] = []
 
 
 def register_displayed_chart(
@@ -41,28 +35,6 @@ def register_displayed_chart(
     filename=None,
     table_data=None,
 ):
-    """
-    Register an Altair chart for displayed-chart export.
-
-    Parameters
-    ----------
-    chart:
-        Exact Altair chart object displayed on dashboard.
-
-    title:
-        Chart title used in exported PDF.
-
-    filename:
-        Safe filename used for exported image.
-
-    table_data:
-        Optional pandas DataFrame containing the exact
-        table associated with this chart.
-
-    The table_data is copied into the registry so that
-    later dataframe modifications do not affect the
-    already registered export data.
-    """
 
     if chart is None:
         return
@@ -83,49 +55,52 @@ def register_displayed_chart(
     )
 
     # --------------------------------------------------------
-    # Prepare table safely
+    # Prepare exact table data
     # --------------------------------------------------------
 
-    if isinstance(table_data, pd.DataFrame):
+    table = None
 
-        table_copy = table_data.copy()
+    if isinstance(
+        table_data,
+        pd.DataFrame,
+    ):
 
-        # Remove pandas index from exported table.
-        table_copy = table_copy.reset_index(drop=True)
+        table = table_data.copy()
 
-    elif isinstance(table_data, pd.Series):
+    elif isinstance(
+        table_data,
+        pd.Series,
+    ):
 
-        table_copy = (
-            table_data
-            .reset_index()
-            .copy()
-        )
+        table = table_data.reset_index()
 
-    else:
+        if len(table.columns) >= 2:
 
-        table_copy = None
+            table.columns = [
+                str(table.columns[0]),
+                "Records",
+            ]
+
+    elif table_data is not None:
+
+        try:
+            table = pd.DataFrame(
+                table_data
+            )
+        except Exception:
+            table = None
 
     registry.append(
         {
             "title": str(title),
             "filename": safe_filename,
             "chart": chart,
-            "table": table_copy,
+            "table": table,
         }
     )
 
 
 def get_displayed_charts():
-    """
-    Return currently registered displayed charts.
-
-    Each registry item can contain:
-
-        title
-        filename
-        chart
-        table
-    """
 
     return list(
         st.session_state.get(
@@ -140,9 +115,6 @@ def get_displayed_charts():
 # ============================================================
 
 def data_labels_enabled():
-    """
-    Returns the global dashboard data-label setting.
-    """
 
     return bool(
         st.session_state.get(
@@ -153,20 +125,15 @@ def data_labels_enabled():
 
 
 # ============================================================
-# DATA PREPARATION
+# CHART DATA PREPARATION
 # ============================================================
 
 def _prepare_chart_data(data):
-    """
-    Convert Series/DataFrame into a standard dataframe
-    without changing the underlying values.
-    """
 
-    # --------------------------------------------------------
-    # Series
-    # --------------------------------------------------------
-
-    if isinstance(data, pd.Series):
+    if isinstance(
+        data,
+        pd.Series,
+    ):
 
         result = data.reset_index()
 
@@ -179,62 +146,56 @@ def _prepare_chart_data(data):
 
         return result
 
-    # --------------------------------------------------------
-    # DataFrame
-    # --------------------------------------------------------
-
-    if isinstance(data, pd.DataFrame):
+    if isinstance(
+        data,
+        pd.DataFrame,
+    ):
 
         result = data.copy()
-
-        # Preserve existing columns.
-        result.columns = [
-            str(column)
-            for column in result.columns
-        ]
 
         return result
 
     return pd.DataFrame()
 
 
-def _field_type(series):
-    """
-    Return Altair field type.
-    """
+# ============================================================
+# FIELD TYPE
+# ============================================================
 
-    if pd.api.types.is_numeric_dtype(series):
+def _field_type(series):
+
+    if pd.api.types.is_numeric_dtype(
+        series
+    ):
+
         return "Q"
 
-    if pd.api.types.is_datetime64_any_dtype(series):
+    if pd.api.types.is_datetime64_any_dtype(
+        series
+    ):
+
         return "T"
 
     return "N"
 
 
 # ============================================================
-# SAFE CHART EXPORT REGISTRATION
+# REGISTER + DISPLAY
 # ============================================================
 
 def _register_and_display(
     chart,
     title,
     filename,
-    table_data=None,
+    export_table=None,
     use_container_width=True,
 ):
-    """
-    Register the exact chart object and then display it.
-
-    table_data is the exact dataframe associated with
-    the chart and is used by the PDF export.
-    """
 
     register_displayed_chart(
         chart=chart,
         title=title,
         filename=filename,
-        table_data=table_data,
+        table_data=export_table,
     )
 
     st.altair_chart(
@@ -249,224 +210,252 @@ def _register_and_display(
 
 def render_bar_chart(
     data,
+    title=None,
+    x_title=None,
+    y_title="Records",
+    horizontal=False,
     use_container_width=True,
-    height=400,
+    show_values=None,
     export_title=None,
     export_filename=None,
     export_table=None,
 ):
-    """
-    Global bar-chart renderer.
 
-    Existing data and calculations are preserved.
-
-    The exact Altair chart displayed on the dashboard is
-    registered for PDF/PNG export.
-
-    export_table:
-        Optional exact dataframe to be shown below the
-        chart in the exported PDF.
-
-        If not supplied, the chart dataframe itself is used.
-    """
-
-    chart_df = _prepare_chart_data(data)
+    chart_df = _prepare_chart_data(
+        data
+    )
 
     if chart_df.empty:
+        st.info(
+            "No data available for this chart."
+        )
         return None
 
-    x_column = chart_df.columns[0]
+    # --------------------------------------------------------
+    # Determine columns
+    # --------------------------------------------------------
 
-    value_columns = list(
-        chart_df.columns[1:]
+    columns = list(
+        chart_df.columns
     )
 
-    if not value_columns:
+    if len(columns) < 2:
+
+        st.info(
+            "Insufficient data for chart."
+        )
         return None
 
-    x_type = _field_type(
-        chart_df[x_column]
+    x_column = columns[0]
+    y_column = columns[1]
+
+    # --------------------------------------------------------
+    # If x_title / y_title are not supplied
+    # --------------------------------------------------------
+
+    x_axis_title = (
+        x_title
+        if x_title
+        else str(x_column)
     )
 
-    # ========================================================
-    # SINGLE SERIES BAR CHART
-    # ========================================================
+    y_axis_title = (
+        y_title
+        if y_title
+        else str(y_column)
+    )
 
-    if len(value_columns) == 1:
+    # --------------------------------------------------------
+    # Horizontal chart
+    # --------------------------------------------------------
 
-        value_column = value_columns[0]
+    if horizontal:
+
+        chart = (
+            alt.Chart(chart_df)
+            .mark_bar()
+            .encode(
+                y=alt.Y(
+                    f"{x_column}:N",
+                    sort="-x",
+                    title=x_axis_title,
+                ),
+                x=alt.X(
+                    f"{y_column}:Q",
+                    title=y_axis_title,
+                ),
+                tooltip=[
+                    alt.Tooltip(
+                        f"{x_column}:N",
+                        title=x_axis_title,
+                    ),
+                    alt.Tooltip(
+                        f"{y_column}:Q",
+                        title=y_axis_title,
+                        format=",",
+                    ),
+                ],
+            )
+        )
+
+        if show_values:
+
+            text = (
+                alt.Chart(chart_df)
+                .mark_text(
+                    align="left",
+                    dx=4,
+                )
+                .encode(
+                    y=alt.Y(
+                        f"{x_column}:N",
+                        sort="-x",
+                    ),
+                    x=alt.X(
+                        f"{y_column}:Q"
+                    ),
+                    text=alt.Text(
+                        f"{y_column}:Q",
+                        format=",",
+                    ),
+                )
+            )
+
+            chart = (
+                chart
+                + text
+            )
+
+    # --------------------------------------------------------
+    # Vertical chart
+    # --------------------------------------------------------
+
+    else:
 
         chart = (
             alt.Chart(chart_df)
             .mark_bar()
             .encode(
                 x=alt.X(
-                    f"{x_column}:{x_type}",
-                    title=x_column,
+                    f"{x_column}:N",
+                    title=x_axis_title,
+                    sort=None,
+                    axis=alt.Axis(
+                        labelAngle=-45,
+                    ),
                 ),
                 y=alt.Y(
-                    f"{value_column}:Q",
-                    title=value_column,
-                ),
-                color=alt.Color(
-                    f"{x_column}:N",
-                    legend=None,
+                    f"{y_column}:Q",
+                    title=y_axis_title,
                 ),
                 tooltip=[
                     alt.Tooltip(
-                        f"{x_column}:{x_type}",
-                        title=x_column,
+                        f"{x_column}:N",
+                        title=x_axis_title,
                     ),
                     alt.Tooltip(
-                        f"{value_column}:Q",
-                        title=value_column,
+                        f"{y_column}:Q",
+                        title=y_axis_title,
+                        format=",",
                     ),
                 ],
             )
-            .properties(
-                height=height,
-            )
         )
 
-        # ----------------------------------------------------
-        # DATA LABELS
-        # ----------------------------------------------------
+        if show_values:
 
-        if data_labels_enabled():
-
-            labels = (
+            text = (
                 alt.Chart(chart_df)
                 .mark_text(
-                    dy=-8,
-                    fontWeight="bold",
-                    fontSize=13,
+                    dy=-6,
                 )
                 .encode(
                     x=alt.X(
-                        f"{x_column}:{x_type}"
+                        f"{x_column}:N",
+                        sort=None,
                     ),
                     y=alt.Y(
-                        f"{value_column}:Q"
-                    ),
-                    color=alt.Color(
-                        f"{x_column}:N",
-                        legend=None,
+                        f"{y_column}:Q"
                     ),
                     text=alt.Text(
-                        f"{value_column}:Q"
+                        f"{y_column}:Q",
+                        format=",",
                     ),
                 )
             )
 
-            chart = chart + labels
+            chart = (
+                chart
+                + text
+            )
 
-    # ========================================================
-    # MULTI SERIES BAR CHART
-    # ========================================================
+    # --------------------------------------------------------
+    # Title
+    # --------------------------------------------------------
+
+    if title:
+
+        chart = chart.properties(
+            title=alt.TitleParams(
+                text=title,
+                fontSize=18,
+                anchor="start",
+            )
+        )
+
+    # --------------------------------------------------------
+    # Size
+    # --------------------------------------------------------
+
+    if horizontal:
+
+        chart = chart.properties(
+            height=max(
+                300,
+                min(
+                    700,
+                    len(chart_df) * 28,
+                ),
+            )
+        )
 
     else:
 
-        chart_long = chart_df.melt(
-            id_vars=[x_column],
-            var_name="Series",
-            value_name="Value",
+        chart = chart.properties(
+            height=430
         )
 
-        chart = (
-            alt.Chart(chart_long)
-            .mark_bar()
-            .encode(
-                x=alt.X(
-                    f"{x_column}:{x_type}",
-                    title=x_column,
-                ),
-                y=alt.Y(
-                    "Value:Q",
-                    title="Records",
-                ),
-                color=alt.Color(
-                    "Series:N",
-                    title="Series",
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        f"{x_column}:{x_type}",
-                        title=x_column,
-                    ),
-                    alt.Tooltip(
-                        "Series:N",
-                        title="Series",
-                    ),
-                    alt.Tooltip(
-                        "Value:Q",
-                        title="Records",
-                    ),
-                ],
-            )
-            .properties(
-                height=height,
-            )
-        )
+    chart = chart.configure_axis(
+        labelFontSize=11,
+        titleFontSize=12,
+    )
 
-        # ----------------------------------------------------
-        # DATA LABELS
-        # ----------------------------------------------------
+    chart = chart.configure_title(
+        fontSize=18,
+    )
 
-        if data_labels_enabled():
-
-            labels = (
-                alt.Chart(chart_long)
-                .mark_text(
-                    dy=-8,
-                    fontWeight="bold",
-                    fontSize=13,
-                )
-                .encode(
-                    x=alt.X(
-                        f"{x_column}:{x_type}"
-                    ),
-                    y=alt.Y(
-                        "Value:Q"
-                    ),
-                    color=alt.Color(
-                        "Series:N",
-                        legend=None,
-                    ),
-                    text=alt.Text(
-                        "Value:Q"
-                    ),
-                )
-            )
-
-            chart = chart + labels
-
-    # ========================================================
-    # EXPORT TITLE
-    # ========================================================
-
-    if export_title is None:
-        export_title = "Bar Chart"
-
-    if export_filename is None:
-        export_filename = export_title
-
-    # ========================================================
-    # EXPORT TABLE
-    # ========================================================
+    # --------------------------------------------------------
+    # Export table
+    # --------------------------------------------------------
 
     if export_table is None:
 
         export_table = chart_df.copy()
 
-    # ========================================================
-    # REGISTER + DISPLAY
-    # ========================================================
-
     _register_and_display(
         chart=chart,
-        title=export_title,
-        filename=export_filename,
-        table_data=export_table,
+        title=(
+            export_title
+            or title
+            or "Bar Chart"
+        ),
+        filename=(
+            export_filename
+            or export_title
+            or title
+            or "Bar_Chart"
+        ),
+        export_table=export_table,
         use_container_width=use_container_width,
     )
 
@@ -479,148 +468,168 @@ def render_bar_chart(
 
 def render_line_chart(
     data,
+    title=None,
+    x_title=None,
+    y_title="Records",
     use_container_width=True,
-    height=400,
+    show_values=None,
     export_title=None,
     export_filename=None,
     export_table=None,
 ):
-    """
-    Global line-chart renderer.
 
-    Existing values and ordering are preserved.
-
-    The exact Altair chart displayed on the dashboard is
-    registered for PDF/PNG export.
-
-    export_table:
-        Optional exact dataframe to be shown below the
-        chart in the exported PDF.
-
-        If not supplied, the chart dataframe itself is used.
-    """
-
-    chart_df = _prepare_chart_data(data)
-
-    if chart_df.empty:
-        return None
-
-    x_column = chart_df.columns[0]
-
-    value_columns = list(
-        chart_df.columns[1:]
+    chart_df = _prepare_chart_data(
+        data
     )
 
-    if not value_columns:
+    if chart_df.empty:
+        st.info(
+            "No data available for this chart."
+        )
         return None
+
+    columns = list(
+        chart_df.columns
+    )
+
+    if len(columns) < 2:
+
+        st.info(
+            "Insufficient data for chart."
+        )
+        return None
+
+    x_column = columns[0]
+    y_column = columns[1]
 
     x_type = _field_type(
         chart_df[x_column]
     )
 
-    chart_long = chart_df.melt(
-        id_vars=[x_column],
-        var_name="Series",
-        value_name="Value",
+    x_axis_title = (
+        x_title
+        if x_title
+        else str(x_column)
     )
 
+    y_axis_title = (
+        y_title
+        if y_title
+        else str(y_column)
+    )
+
+    # --------------------------------------------------------
+    # Base chart
+    # --------------------------------------------------------
+
     chart = (
-        alt.Chart(chart_long)
+        alt.Chart(chart_df)
         .mark_line(
             point=True,
         )
         .encode(
             x=alt.X(
                 f"{x_column}:{x_type}",
-                title=x_column,
+                title=x_axis_title,
             ),
             y=alt.Y(
-                "Value:Q",
-                title="Records",
-            ),
-            color=alt.Color(
-                "Series:N",
-                title="Series",
+                f"{y_column}:Q",
+                title=y_axis_title,
             ),
             tooltip=[
                 alt.Tooltip(
                     f"{x_column}:{x_type}",
-                    title=x_column,
+                    title=x_axis_title,
                 ),
                 alt.Tooltip(
-                    "Series:N",
-                    title="Series",
-                ),
-                alt.Tooltip(
-                    "Value:Q",
-                    title="Records",
+                    f"{y_column}:Q",
+                    title=y_axis_title,
+                    format=",",
                 ),
             ],
         )
-        .properties(
-            height=height,
-        )
     )
 
-    # ========================================================
-    # DATA LABELS
-    # ========================================================
+    # --------------------------------------------------------
+    # Data labels
+    # --------------------------------------------------------
 
-    if data_labels_enabled():
+    if show_values:
 
-        labels = (
-            alt.Chart(chart_long)
+        text = (
+            alt.Chart(chart_df)
             .mark_text(
                 dy=-10,
-                fontWeight="bold",
-                fontSize=12,
+                fontSize=10,
             )
             .encode(
                 x=alt.X(
                     f"{x_column}:{x_type}"
                 ),
                 y=alt.Y(
-                    "Value:Q"
-                ),
-                color=alt.Color(
-                    "Series:N",
-                    legend=None,
+                    f"{y_column}:Q"
                 ),
                 text=alt.Text(
-                    "Value:Q"
+                    f"{y_column}:Q",
+                    format=",",
                 ),
             )
         )
 
-        chart = chart + labels
+        chart = (
+            chart
+            + text
+        )
 
-    # ========================================================
-    # EXPORT TITLE
-    # ========================================================
+    # --------------------------------------------------------
+    # Title
+    # --------------------------------------------------------
 
-    if export_title is None:
-        export_title = "Line Chart"
+    if title:
 
-    if export_filename is None:
-        export_filename = export_title
+        chart = chart.properties(
+            title=alt.TitleParams(
+                text=title,
+                fontSize=18,
+                anchor="start",
+            )
+        )
 
-    # ========================================================
-    # EXPORT TABLE
-    # ========================================================
+    chart = chart.properties(
+        height=480
+    )
+
+    chart = chart.configure_axis(
+        labelFontSize=11,
+        titleFontSize=12,
+    )
+
+    chart = chart.configure_title(
+        fontSize=18,
+    )
+
+    # --------------------------------------------------------
+    # Export table
+    # --------------------------------------------------------
 
     if export_table is None:
 
         export_table = chart_df.copy()
 
-    # ========================================================
-    # REGISTER + DISPLAY
-    # ========================================================
-
     _register_and_display(
         chart=chart,
-        title=export_title,
-        filename=export_filename,
-        table_data=export_table,
+        title=(
+            export_title
+            or title
+            or "Line Chart"
+        ),
+        filename=(
+            export_filename
+            or export_title
+            or title
+            or "Line_Chart"
+        ),
+        export_table=export_table,
         use_container_width=use_container_width,
     )
 
