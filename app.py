@@ -34,6 +34,15 @@ from pdf_report import (
 
 from ppt_report import generate_ppt_report
 
+# ============================================================
+# DISPLAYED CHART EXPORT
+# ============================================================
+
+from displayed_chart_export import (
+    capture_displayed_charts,
+    render_displayed_chart_download_controls,
+)
+
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -1081,7 +1090,6 @@ if (
 
 try:
 
-
     # ========================================================
     # OVERVIEW
     # ========================================================
@@ -1106,9 +1114,33 @@ try:
 
     elif page == "Charts & Trends":
 
-        render_charts(
-            filtered_df
+        # ----------------------------------------------------
+        # Capture only the charts actually rendered on screen.
+        # This keeps export aligned with the current dashboard.
+        # ----------------------------------------------------
+
+        with capture_displayed_charts():
+
+            render_charts(
+                filtered_df
+            )
+
+        # ----------------------------------------------------
+        # Displayed chart export controls
+        # ----------------------------------------------------
+
+        st.divider()
+
+        render_displayed_chart_download_controls(
+            filter_summary=get_filter_summary(),
+            base_filename=(
+                "MSU_Mumbai_Charts_Trends_Displayed_Charts"
+            ),
         )
+
+        # ----------------------------------------------------
+        # Existing page PDF
+        # ----------------------------------------------------
 
         st.divider()
 
@@ -1136,7 +1168,6 @@ try:
         )
 
 
-    
     # ========================================================
     # DEMOGRAPHICS
     # ========================================================
@@ -1198,7 +1229,8 @@ try:
     elif page == "Geographic Map":
 
         render_geographic_map(
-            filtered_df, df
+            filtered_df,
+            df
         )
 
 
