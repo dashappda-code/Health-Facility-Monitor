@@ -1,7 +1,13 @@
-import streamlit as st
-import pandas as pd
+import inspect
+from datetime import datetime
 
-from phase1_data import load_data
+import pandas as pd
+import streamlit as st
+
+from phase1_data import (
+    load_data,
+    refresh_data,
+)
 
 from phase2_overview import (
     create_filters,
@@ -10,29 +16,59 @@ from phase2_overview import (
     render_overview,
 )
 
-from phase3_charts import render_charts
-from phase3_b_lab_pathogen import render_lab_pathogen
-from phase4_demographics import render_demographics
-from phase5_ward import render_ward
+from phase3_charts import (
+    render_charts,
+    get_selected_diseases,
+)
 
-# Existing patient/location hotspot map
-from phase6_map import render_map
+from phase3_b_lab_pathogen import (
+    render_lab_pathogen,
+)
 
-# New Mumbai ward geographic map
-from geographic_map import render_geographic_map
+from phase4_demographics import (
+    render_demographics,
+)
 
-from phase7_explorer import render_explorer
-from phase8_prediction import render_prediction
-from phase9_manual import render_manual
-from phase10_validation_kpi import render_validation_kpi
-from phase11_drilldown_export import render_drilldown_export
+from phase5_ward import (
+    render_ward,
+)
+
+from phase6_map import (
+    render_map,
+)
+
+from geographic_map import (
+    render_geographic_map,
+)
+
+from phase7_explorer import (
+    render_explorer,
+)
+
+from phase8_prediction import (
+    render_prediction,
+)
+
+from phase9_manual import (
+    render_manual,
+)
+
+from phase10_validation_kpi import (
+    render_validation_kpi,
+)
+
+from phase11_drilldown_export import (
+    render_drilldown_export,
+)
 
 from pdf_report import (
     generate_pdf_report,
     generate_complete_dashboard_pdf,
 )
 
-from ppt_report import generate_ppt_report
+from ppt_report import (
+    generate_ppt_report,
+)
 
 
 # ============================================================
@@ -40,7 +76,7 @@ from ppt_report import generate_ppt_report
 # ============================================================
 
 st.set_page_config(
-    page_title="MSU Mumbai Public Health Surveillance Dashboard",
+    page_title="Health Facility Management Dashboard",
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -55,67 +91,35 @@ st.markdown(
     """
     <style>
 
-    .block-container {
-        padding-top: 0.65rem;
-        padding-bottom: 1rem;
-        max-width: 100%;
+    .main-title {
+        font-size: 30px;
+        font-weight: 700;
+        margin-bottom: 2px;
     }
 
-    section[data-testid="stSidebar"] {
-        width: 250px;
+    .sub-title {
+        font-size: 15px;
+        color: #555;
+        margin-top: 0px;
+        margin-bottom: 15px;
     }
 
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 12px !important;
-        border: 1px solid rgba(120, 140, 160, 0.35) !important;
-        padding: 10px 12px 8px 12px !important;
-        margin-top: 4px !important;
-        margin-bottom: 12px !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+    .section-title {
+        font-size: 22px;
+        font-weight: 650;
+        margin-top: 10px;
+        margin-bottom: 8px;
     }
 
-    div[data-testid="stMultiSelect"] label,
-    div[data-testid="stDateInput"] label {
-        font-size: 11px !important;
-        font-weight: 650 !important;
-        margin-bottom: 2px !important;
+    div[data-testid="stMetric"] {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        background-color: #ffffff;
     }
 
-    div[data-testid="stMultiSelect"] > div,
-    div[data-testid="stDateInput"] > div {
-        min-height: 36px !important;
-    }
-
-    div[data-testid="stMultiSelect"] [data-baseweb="select"] {
-        min-height: 36px !important;
-        border-radius: 7px !important;
-    }
-
-    div[data-testid="stDateInput"] input {
-        min-height: 34px !important;
-        border-radius: 7px !important;
-    }
-
-    .st-key-global_reset_filters button {
-        min-height: 36px !important;
-        border-radius: 7px !important;
-        font-weight: 700 !important;
-        white-space: nowrap !important;
-    }
-
-    div[data-testid="stHorizontalBlock"] {
-        gap: 0.55rem !important;
-    }
-
-    [data-testid="stMetric"] {
-        padding: 7px 10px !important;
-    }
-
-    .dashboard-footer {
-        text-align: center;
-        color: #777;
-        font-size: 12px;
-        padding-top: 18px;
+    div[data-testid="stDownloadButton"] button {
+        width: 100%;
     }
 
     </style>
@@ -128,12 +132,19 @@ st.markdown(
 # DASHBOARD HEADER
 # ============================================================
 
-st.title(
-    "🏥 MSU Mumbai Public Health Surveillance Dashboard"
+st.markdown(
+    '<div class="main-title">Health Programme Management Dashboard</div>',
+    unsafe_allow_html=True,
 )
 
-st.caption(
-    "Surveillance • Monitoring • Analysis • Management"
+st.markdown(
+    """
+    <div class="sub-title">
+        Facility-wise, ward-wise, demographic, laboratory,
+        geographic and programme surveillance analysis
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -141,197 +152,192 @@ st.caption(
 # DATA LOADING
 # ============================================================
 
+@st.cache_data(
+    show_spinner=False,
+)
 def get_data():
     return load_data()
 
 
-df = get_data()
+try:
 
+    df = get_data()
 
-# ============================================================
-# DATA VALIDATION
-# ============================================================
-
-if df is None or df.empty:
+except Exception as exc:
 
     st.error(
-        "No data available from the Google Sheet."
+        "Unable to load the dashboard data."
     )
 
-    st.info(
-        "Please verify that the Google Sheet is shared as "
-        "'Anyone with the link - Viewer' and that the configured "
-        "worksheet GID is correct."
+    st.exception(exc)
+
+    st.stop()
+
+
+# ============================================================
+# BASIC DATA VALIDATION
+# ============================================================
+
+if df is None:
+
+    st.error(
+        "No data was returned from the data source."
+    )
+
+    st.stop()
+
+
+if not isinstance(df, pd.DataFrame):
+
+    try:
+        df = pd.DataFrame(df)
+
+    except Exception:
+
+        st.error(
+            "The loaded data could not be converted into a DataFrame."
+        )
+
+        st.stop()
+
+
+if df.empty:
+
+    st.warning(
+        "The current data source contains no records."
     )
 
     st.stop()
 
 
 # ============================================================
+# SESSION STATE INITIALISATION
+# ============================================================
+
+if "phase3_selected_diseases" not in st.session_state:
+
+    st.session_state[
+        "phase3_selected_diseases"
+    ] = []
+
+
+# ============================================================
 # SIDEBAR
 # ============================================================
 
-st.sidebar.title(
-    "📌 Dashboard Menu"
-)
+with st.sidebar:
 
-
-page = st.sidebar.radio(
-    "Select Section",
-    [
-        "Overview",
-        "Charts & Trends",
-        "Laboratory & Pathogen Analysis",
-        "Demographics",
-        "Ward Analysis",
-        "Map",
-        "Geographic Map",
-        "Data Explorer",
-        "Prediction",
-        "User Manual",
-        "Validation & KPI",
-        "Drill-down & Export",
-    ],
-)
-
-
-# ============================================================
-# SIDEBAR RECORD COUNT
-# ============================================================
-
-st.sidebar.divider()
-
-st.sidebar.caption(
-    f"Records loaded: {len(df):,}"
-)
-
-
-# ============================================================
-# GLOBAL CHART CONTROL
-# ============================================================
-
-st.sidebar.markdown("---")
-
-st.sidebar.subheader(
-    "📊 Chart Display Controls"
-)
-
-
-show_data_labels = st.sidebar.checkbox(
-    "🏷️ Show Data Labels",
-    value=st.session_state.get(
-        "show_data_labels",
-        False,
-    ),
-    key="show_data_labels",
-    help=(
-        "Turn ON to display values directly "
-        "on dashboard charts."
-    ),
-)
-
-
-if show_data_labels:
-
-    st.sidebar.success(
-        "Data Labels: ON"
+    st.markdown(
+        "## Dashboard Navigation"
     )
 
-else:
-
-    st.sidebar.info(
-        "Data Labels: OFF"
+    page = st.radio(
+        "Select Dashboard Section",
+        [
+            "Overview",
+            "Charts & Trends",
+            "Laboratory & Pathogen Analysis",
+            "Demographics",
+            "Ward Analysis",
+            "Map",
+            "Geographic Map",
+            "Data Explorer",
+            "Prediction",
+            "User Manual",
+            "Validation & KPI",
+            "Drill-down & Export",
+        ],
+        index=0,
     )
 
+    st.divider()
 
-# ============================================================
-# GLOBAL FILTER PANEL
-# ============================================================
-
-st.subheader(
-    "🎛️ Global Dashboard Control"
-)
-
-st.caption(
-    "Select any filter to update the entire dashboard immediately. "
-    "Leave filters blank to include all records."
-)
-
-
-with st.container(
-    border=True,
-    key="global_filter_panel",
-):
-
-    filter_values = create_filters(df)
-
-
-# ============================================================
-# APPLY GLOBAL FILTERS
-# ============================================================
-
-filtered_df = apply_filters(
-    df=df,
-    **filter_values,
-)
-
-
-st.caption(
-    f"📊 Filtered Records: "
-    f"**{len(filtered_df):,}** / "
-    f"**{len(df):,}**"
-)
-
-
-# ============================================================
-# KPI CALCULATION
-# ============================================================
-
-kpis = calculate_kpis(
-    filtered_df
-)
-
-
-# ============================================================
-# TOP KPI CARDS
-# ============================================================
-
-c1, c2, c3, c4 = st.columns(4)
-
-
-with c1:
-
-    st.metric(
-        "Total Records",
-        f"{kpis.get('total_records', len(filtered_df)):,}",
+    st.markdown(
+        "### Data Controls"
     )
 
-
-with c2:
-
-    st.metric(
-        "Diseases",
-        f"{kpis.get('diseases', 0):,}",
+    st.caption(
+        f"Available records: {len(df):,}"
     )
 
-
-with c3:
-
-    st.metric(
-        "Facilities",
-        f"{kpis.get('facilities', 0):,}",
+    show_data_labels = st.checkbox(
+        "Show chart data labels",
+        value=False,
+        key="global_show_data_labels",
     )
 
+    st.session_state[
+        "show_data_labels"
+    ] = show_data_labels
 
-with c4:
 
-    st.metric(
-        "Wards",
-        f"{kpis.get('wards', 0):,}",
+# ============================================================
+# GLOBAL FILTERS
+# ============================================================
+
+st.sidebar.markdown(
+    "### Global Filters"
+)
+
+try:
+
+    filter_values = create_filters(
+        df
     )
 
+except Exception as exc:
 
-st.divider()
+    st.sidebar.error(
+        "Unable to create dashboard filters."
+    )
+
+    st.sidebar.exception(exc)
+
+    filter_values = {}
+
+
+try:
+
+    filtered_df = apply_filters(
+        df=df,
+        **filter_values,
+    )
+
+except TypeError:
+
+    try:
+
+        filtered_df = apply_filters(
+            df,
+            **filter_values,
+        )
+
+    except Exception as exc:
+
+        st.error(
+            "Unable to apply the selected dashboard filters."
+        )
+
+        st.exception(exc)
+
+        st.stop()
+
+except Exception as exc:
+
+    st.error(
+        "Unable to apply the selected dashboard filters."
+    )
+
+    st.exception(exc)
+
+    st.stop()
+
+
+if filtered_df is None:
+
+    filtered_df = pd.DataFrame(
+        columns=df.columns
+    )
 
 
 # ============================================================
@@ -340,88 +346,117 @@ st.divider()
 
 def get_filter_summary():
 
-    labels = {
-        "year": "Year",
-        "month": "Month",
-        "week": "Week",
-        "disease": "Disease",
-        "facility": "Facility",
-        "ward": "Ward",
-        "gender": "Gender",
-        "age_group": "Age Group",
-        "opd_ipd": "OPD/IPD",
-    }
+    summary_parts = []
 
-    selected = []
+    def add_summary(
+        label,
+        value,
+    ):
 
-    for key, label in labels.items():
+        if value is None:
+            return
 
-        values = filter_values.get(
-            key,
-            [],
-        )
+        if isinstance(
+            value,
+            (list, tuple, set),
+        ):
 
-        if values:
+            values = [
+                str(item)
+                for item in value
+                if str(item).strip()
+            ]
 
-            if len(values) <= 5:
+            if not values:
+                return
 
-                value_text = ", ".join(
-                    str(value)
-                    for value in values
+            if len(values) > 5:
+
+                display_value = (
+                    ", ".join(values[:5])
+                    + f" + {len(values) - 5} more"
                 )
 
             else:
 
-                value_text = (
-                    f"{len(values)} selected"
-                )
+                display_value = ", ".join(values)
 
-            selected.append(
-                f"{label}: {value_text}"
-            )
+        else:
 
-    reporting_date = filter_values.get(
-        "reporting_date"
-    )
+            display_value = str(value).strip()
 
-    if reporting_date:
+            if not display_value:
+                return
 
-        try:
+        if display_value.lower() in {
+            "all",
+            "all years",
+            "all months",
+            "all weeks",
+            "all diseases",
+            "all facilities",
+            "all wards",
+            "all genders",
+            "all age groups",
+            "all records",
+            "none",
+        }:
 
-            start_date, end_date = reporting_date
+            return
 
-            if start_date and end_date:
+        summary_parts.append(
+            f"{label}: {display_value}"
+        )
 
-                selected.append(
-                    "Date: "
-                    f"{start_date.strftime('%d-%m-%Y')}"
-                    " to "
-                    f"{end_date.strftime('%d-%m-%Y')}"
-                )
-
-            elif start_date:
-
-                selected.append(
-                    "From Date: "
-                    f"{start_date.strftime('%d-%m-%Y')}"
-                )
-
-            elif end_date:
-
-                selected.append(
-                    "To Date: "
-                    f"{end_date.strftime('%d-%m-%Y')}"
-                )
-
-        except Exception:
-
-            pass
-
-    if not selected:
+    if not isinstance(
+        filter_values,
+        dict,
+    ):
 
         return "All records"
 
-    return " | ".join(selected)
+    possible_labels = {
+        "year": "Year",
+        "years": "Year",
+        "month": "Month",
+        "months": "Month",
+        "week": "Week",
+        "weeks": "Week",
+        "disease": "Disease",
+        "diseases": "Disease",
+        "facility": "Facility",
+        "facilities": "Facility",
+        "ward": "Ward",
+        "wards": "Ward",
+        "gender": "Gender",
+        "age_group": "Age Group",
+        "age": "Age Group",
+        "opd_ipd": "OPD/IPD",
+        "reporting_date": "Reporting Date",
+    }
+
+    for key, value in filter_values.items():
+
+        label = possible_labels.get(
+            key,
+            str(key).replace(
+                "_",
+                " ",
+            ).title(),
+        )
+
+        add_summary(
+            label,
+            value,
+        )
+
+    if not summary_parts:
+
+        return "All records"
+
+    return " | ".join(
+        summary_parts
+    )
 
 
 # ============================================================
@@ -436,44 +471,240 @@ def get_reporting_period(data):
         or "Reporting Date" not in data.columns
     ):
 
-        return None
+        return "Not available"
 
-    dates = data[
-        "Reporting Date"
-    ].dropna()
+    dates = pd.to_datetime(
+        data["Reporting Date"],
+        errors="coerce",
+    ).dropna()
 
     if dates.empty:
 
-        return None
+        return "Not available"
+
+    minimum_date = dates.min()
+    maximum_date = dates.max()
+
+    if minimum_date.date() == maximum_date.date():
+
+        return minimum_date.strftime(
+            "%d %b %Y"
+        )
+
+    return (
+        minimum_date.strftime("%d %b %Y")
+        + " to "
+        + maximum_date.strftime("%d %b %Y")
+    )
+
+
+# ============================================================
+# CURRENT FILTER INFORMATION
+# ============================================================
+
+filter_summary = get_filter_summary()
+
+reporting_period = get_reporting_period(
+    filtered_df
+)
+
+
+# ============================================================
+# KPI CALCULATION
+# ============================================================
+
+try:
+
+    kpis = calculate_kpis(
+        filtered_df
+    )
+
+except Exception:
+
+    kpis = {}
+
+
+# ============================================================
+# TOP KPI CARDS
+# ============================================================
+
+kpi_columns = st.columns(4)
+
+
+def _get_kpi_value(
+    dictionary,
+    keys,
+    default,
+):
+    if not isinstance(
+        dictionary,
+        dict,
+    ):
+        return default
+
+    for key in keys:
+
+        if key in dictionary:
+
+            value = dictionary[key]
+
+            if value is not None:
+                return value
+
+    return default
+
+
+with kpi_columns[0]:
+
+    total_records = _get_kpi_value(
+        kpis,
+        [
+            "Total Records",
+            "total_records",
+            "records",
+            "Total",
+        ],
+        len(filtered_df),
+    )
 
     try:
-
-        start_date = dates.min().strftime(
-            "%d-%m-%Y"
-        )
-
-        end_date = dates.max().strftime(
-            "%d-%m-%Y"
-        )
-
-        return (
-            f"{start_date} to {end_date}"
-        )
-
+        total_display = f"{int(total_records):,}"
     except Exception:
+        total_display = str(total_records)
 
-        return None
+    st.metric(
+        "Total Records",
+        total_display,
+    )
+
+
+with kpi_columns[1]:
+
+    disease_count = _get_kpi_value(
+        kpis,
+        [
+            "Diseases",
+            "diseases",
+            "Disease Count",
+            "disease_count",
+        ],
+        (
+            filtered_df["Disease"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .replace(
+                {
+                    "": None,
+                    "nan": None,
+                    "None": None,
+                }
+            )
+            .dropna()
+            .nunique()
+            if "Disease" in filtered_df.columns
+            else 0
+        ),
+    )
+
+    try:
+        disease_display = f"{int(disease_count):,}"
+    except Exception:
+        disease_display = str(disease_count)
+
+    st.metric(
+        "Diseases",
+        disease_display,
+    )
+
+
+with kpi_columns[2]:
+
+    facility_count = _get_kpi_value(
+        kpis,
+        [
+            "Facilities",
+            "facilities",
+            "Facility Count",
+            "facility_count",
+        ],
+        (
+            filtered_df["Facility Name"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .replace(
+                {
+                    "": None,
+                    "nan": None,
+                    "None": None,
+                }
+            )
+            .dropna()
+            .nunique()
+            if "Facility Name" in filtered_df.columns
+            else 0
+        ),
+    )
+
+    try:
+        facility_display = f"{int(facility_count):,}"
+    except Exception:
+        facility_display = str(facility_count)
+
+    st.metric(
+        "Facilities",
+        facility_display,
+    )
+
+
+with kpi_columns[3]:
+
+    ward_count = _get_kpi_value(
+        kpis,
+        [
+            "Wards",
+            "wards",
+            "Ward Count",
+            "ward_count",
+        ],
+        (
+            filtered_df["Ward Name"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .replace(
+                {
+                    "": None,
+                    "nan": None,
+                    "None": None,
+                }
+            )
+            .dropna()
+            .nunique()
+            if "Ward Name" in filtered_df.columns
+            else 0
+        ),
+    )
+
+    try:
+        ward_display = f"{int(ward_count):,}"
+    except Exception:
+        ward_display = str(ward_count)
+
+    st.metric(
+        "Wards",
+        ward_display,
+    )
 
 
 # ============================================================
-# FREQUENCY TABLE
+# REPORT DATA HELPERS
 # ============================================================
 
-def make_frequency_table(
+def _clean_text_series(
     data,
     column,
-    output_name,
-    limit=20,
 ):
 
     if (
@@ -482,37 +713,97 @@ def make_frequency_table(
         or column not in data.columns
     ):
 
-        return None
+        return pd.Series(
+            dtype="object"
+        )
 
-    values = (
+    series = (
         data[column]
         .fillna("")
         .astype(str)
         .str.strip()
     )
 
-    values = values[
-        values.ne("")
-        & values.ne("nan")
+    return series[
+        series.ne("")
+        & series.str.lower().ne("nan")
+        & series.str.lower().ne("none")
+        & series.str.lower().ne("nat")
     ]
 
-    if values.empty:
 
-        return None
+def make_frequency_table(
+    data,
+    column,
+    output_column=None,
+    limit=None,
+    sort_mode="count",
+):
 
-    return (
-        values
+    if (
+        data is None
+        or data.empty
+        or column not in data.columns
+    ):
+
+        return pd.DataFrame()
+
+    series = _clean_text_series(
+        data,
+        column,
+    )
+
+    if series.empty:
+
+        return pd.DataFrame()
+
+    table = (
+        series
         .value_counts()
-        .head(limit)
-        .rename_axis(output_name)
+        .rename_axis(
+            output_column or column
+        )
         .reset_index(
             name="Records"
         )
     )
 
+    if sort_mode == "alphabetical":
+
+        first_column = (
+            output_column or column
+        )
+
+        table["_sort"] = (
+            table[first_column]
+            .astype(str)
+            .str.lower()
+        )
+
+        table = (
+            table
+            .sort_values(
+                "_sort",
+                kind="stable",
+            )
+            .drop(
+                columns="_sort"
+            )
+        )
+
+    if limit is not None:
+
+        table = table.head(
+            int(limit)
+        )
+
+    return table.reset_index(
+        drop=True
+    )
+
 
 # ============================================================
-# BUILD PAGE REPORT DATA
+# PAGE-SPECIFIC REPORT DATA
 # ============================================================
 
 def build_page_report_data(
@@ -520,217 +811,958 @@ def build_page_report_data(
     data,
 ):
 
-    tables = []
-    charts = []
+    report_data = []
 
-    if data is None or data.empty:
+    if data is None:
 
-        return tables, charts
-
+        data = pd.DataFrame()
 
     # --------------------------------------------------------
-    # DISEASE
+    # OVERVIEW
     # --------------------------------------------------------
 
-    disease_table = make_frequency_table(
-        data,
-        "Disease",
-        "Disease",
-    )
+    if page_name == "Overview":
 
-    if disease_table is not None:
-
-        tables.append(
-            (
-                "Disease-wise Burden",
-                disease_table,
-            )
+        disease_table = make_frequency_table(
+            data,
+            "Disease",
+            "Disease",
+            limit=20,
         )
 
-        charts.append(
-            {
-                "dataframe": disease_table,
-                "x_column": "Disease",
-                "y_column": "Records",
-                "title": "Disease-wise Burden",
-            }
+        facility_table = make_frequency_table(
+            data,
+            "Facility Name",
+            "Facility",
+            limit=20,
         )
 
-
-    # --------------------------------------------------------
-    # FACILITY
-    # --------------------------------------------------------
-
-    facility_table = make_frequency_table(
-        data,
-        "Facility Name",
-        "Facility",
-    )
-
-    if facility_table is not None:
-
-        tables.append(
-            (
-                "Facility-wise Burden",
-                facility_table,
-            )
+        ward_table = make_frequency_table(
+            data,
+            "Ward Name",
+            "Ward",
+            limit=20,
+            sort_mode="alphabetical",
         )
 
-        charts.append(
-            {
-                "dataframe": facility_table,
-                "x_column": "Facility",
-                "y_column": "Records",
-                "title": "Facility-wise Burden",
-            }
-        )
+        if not disease_table.empty:
 
-
-    # --------------------------------------------------------
-    # WARD
-    # --------------------------------------------------------
-
-    ward_table = make_frequency_table(
-        data,
-        "Ward Name",
-        "Ward",
-    )
-
-    if ward_table is not None:
-
-        tables.append(
-            (
-                "Ward-wise Burden",
-                ward_table,
-            )
-        )
-
-        charts.append(
-            {
-                "dataframe": ward_table,
-                "x_column": "Ward",
-                "y_column": "Records",
-                "title": "Ward-wise Burden",
-            }
-        )
-
-
-    # --------------------------------------------------------
-    # GENDER
-    # --------------------------------------------------------
-
-    gender_table = make_frequency_table(
-        data,
-        "Gender",
-        "Gender",
-    )
-
-    if gender_table is not None:
-
-        tables.append(
-            (
-                "Gender-wise Distribution",
-                gender_table,
-            )
-        )
-
-
-    # --------------------------------------------------------
-    # AGE
-    # --------------------------------------------------------
-
-    age_table = make_frequency_table(
-        data,
-        "Age Group",
-        "Age Group",
-    )
-
-    if age_table is not None:
-
-        tables.append(
-            (
-                "Age Group-wise Distribution",
-                age_table,
-            )
-        )
-
-
-    # --------------------------------------------------------
-    # OPD / IPD
-    # --------------------------------------------------------
-
-    opd_table = make_frequency_table(
-        data,
-        "OPD/IPD",
-        "OPD/IPD",
-    )
-
-    if opd_table is not None:
-
-        tables.append(
-            (
-                "OPD / IPD Distribution",
-                opd_table,
-            )
-        )
-
-
-    # --------------------------------------------------------
-    # MONTH-WISE ANALYSIS
-    # --------------------------------------------------------
-
-    if (
-        "Month" in data.columns
-        and "Year" in data.columns
-    ):
-
-        monthly = (
-            data
-            .groupby(
-                ["Year", "Month"],
-                dropna=False,
-            )
-            .size()
-            .reset_index(
-                name="Records"
-            )
-        )
-
-        if not monthly.empty:
-
-            monthly["Period"] = (
-                monthly["Year"]
-                .astype(str)
-                + " - "
-                + monthly["Month"]
-                .astype(str)
-            )
-
-            monthly = monthly[
-                [
-                    "Period",
-                    "Records",
-                ]
-            ]
-
-            tables.append(
+            report_data.append(
                 (
-                    "Month-wise Analysis",
-                    monthly,
+                    "Disease-wise Summary",
+                    disease_table,
                 )
             )
 
-            charts.append(
+        if not facility_table.empty:
+
+            report_data.append(
+                (
+                    "Facility-wise Summary",
+                    facility_table,
+                )
+            )
+
+        if not ward_table.empty:
+
+            report_data.append(
+                (
+                    "Ward-wise Summary",
+                    ward_table,
+                )
+            )
+
+    # --------------------------------------------------------
+    # CHARTS & TRENDS
+    # --------------------------------------------------------
+
+    elif page_name == "Charts & Trends":
+
+        month_table = pd.DataFrame()
+
+        if "Month" in data.columns:
+
+            month_table = make_frequency_table(
+                data,
+                "Month",
+                "Month",
+            )
+
+        if not month_table.empty:
+
+            report_data.append(
+                (
+                    "Month-wise Programme Trend",
+                    month_table,
+                )
+            )
+
+        # Disease comparison
+        if (
+            "Month" in data.columns
+            and "Disease" in data.columns
+        ):
+
+            disease_month_data = data[
+                [
+                    "Month",
+                    "Disease",
+                ]
+            ].copy()
+
+            disease_month_data["Month"] = (
+                disease_month_data["Month"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+
+            disease_month_data["Disease"] = (
+                disease_month_data["Disease"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+
+            disease_month_data = (
+                disease_month_data[
+                    disease_month_data["Month"].ne("")
+                    & disease_month_data["Disease"].ne("")
+                ]
+            )
+
+            if not disease_month_data.empty:
+
+                selected_diseases = (
+                    get_selected_diseases()
+                )
+
+                if selected_diseases:
+
+                    disease_month_data = (
+                        disease_month_data[
+                            disease_month_data[
+                                "Disease"
+                            ].isin(
+                                selected_diseases
+                            )
+                        ]
+                    )
+
+                if not disease_month_data.empty:
+
+                    monthly_disease_table = (
+                        pd.crosstab(
+                            disease_month_data[
+                                "Month"
+                            ],
+                            disease_month_data[
+                                "Disease"
+                            ],
+                        )
+                        .reset_index()
+                    )
+
+                    report_data.append(
+                        (
+                            "Monthly Disease Comparison",
+                            monthly_disease_table,
+                        )
+                    )
+
+        disease_table = make_frequency_table(
+            data,
+            "Disease",
+            "Disease",
+            limit=20,
+        )
+
+        pathogen_column = None
+
+        for column in [
+            "Test Performed Pathogen Name",
+            "Pathogen Name",
+            "Test Performed Pathogen",
+            "Pathogen",
+        ]:
+
+            if column in data.columns:
+
+                pathogen_column = column
+                break
+
+        if not disease_table.empty:
+
+            report_data.append(
+                (
+                    "Disease-wise Burden",
+                    disease_table,
+                )
+            )
+
+        if pathogen_column is not None:
+
+            pathogen_table = make_frequency_table(
+                data,
+                pathogen_column,
+                "Test Performed Pathogen Name",
+                limit=20,
+            )
+
+            if not pathogen_table.empty:
+
+                report_data.append(
+                    (
+                        "Test Performed / Pathogen Name-wise Analysis",
+                        pathogen_table,
+                    )
+                )
+
+        facility_table = make_frequency_table(
+            data,
+            "Facility Name",
+            "Facility",
+            limit=20,
+        )
+
+        if not facility_table.empty:
+
+            report_data.append(
+                (
+                    "Facility-wise Burden",
+                    facility_table,
+                )
+            )
+
+        ward_table = make_frequency_table(
+            data,
+            "Ward Name",
+            "Ward",
+            limit=100,
+            sort_mode="alphabetical",
+        )
+
+        if not ward_table.empty:
+
+            report_data.append(
+                (
+                    "Ward-wise Burden",
+                    ward_table,
+                )
+            )
+
+        opd_table = make_frequency_table(
+            data,
+            "OPD/IPD",
+            "OPD/IPD",
+        )
+
+        if not opd_table.empty:
+
+            report_data.append(
+                (
+                    "OPD / IPD Distribution",
+                    opd_table,
+                )
+            )
+
+        if "Reporting Date" in data.columns:
+
+            date_data = data[
+                ["Reporting Date"]
+            ].copy()
+
+            date_data["Reporting Date"] = (
+                pd.to_datetime(
+                    date_data[
+                        "Reporting Date"
+                    ],
+                    errors="coerce",
+                )
+            )
+
+            date_data = date_data.dropna(
+                subset=[
+                    "Reporting Date"
+                ]
+            )
+
+            if not date_data.empty:
+
+                daily_table = (
+                    date_data
+                    .assign(
+                        Date=lambda x:
+                        x[
+                            "Reporting Date"
+                        ].dt.normalize()
+                    )
+                    .groupby(
+                        "Date"
+                    )
+                    .size()
+                    .rename(
+                        "Records"
+                    )
+                    .reset_index()
+                )
+
+                report_data.append(
+                    (
+                        "Reporting Date Trend",
+                        daily_table,
+                    )
+                )
+
+    # --------------------------------------------------------
+    # LABORATORY & PATHOGEN
+    # --------------------------------------------------------
+
+    elif page_name == "Laboratory & Pathogen Analysis":
+
+        pathogen_column = None
+
+        for column in [
+            "Test Performed Pathogen Name",
+            "Pathogen Name",
+            "Test Performed Pathogen",
+            "Pathogen",
+        ]:
+
+            if column in data.columns:
+
+                pathogen_column = column
+                break
+
+        if pathogen_column is not None:
+
+            pathogen_table = make_frequency_table(
+                data,
+                pathogen_column,
+                "Test Performed Pathogen Name",
+                limit=100,
+            )
+
+            if not pathogen_table.empty:
+
+                report_data.append(
+                    (
+                        "Test Performed / Pathogen Name",
+                        pathogen_table,
+                    )
+                )
+
+        if (
+            "Test Performed" in data.columns
+            and "Pathogen Name" in data.columns
+        ):
+
+            test_pathogen = data[
+                [
+                    "Test Performed",
+                    "Pathogen Name",
+                ]
+            ].copy()
+
+            test_pathogen = (
+                test_pathogen
+                .fillna("")
+                .astype(str)
+            )
+
+            test_pathogen[
+                "Test Performed / Pathogen"
+            ] = (
+                test_pathogen[
+                    "Test Performed"
+                ].str.strip()
+                + " - "
+                + test_pathogen[
+                    "Pathogen Name"
+                ].str.strip()
+            )
+
+            test_pathogen = test_pathogen[
+                test_pathogen[
+                    "Test Performed / Pathogen"
+                ].str.strip().ne("-")
+            ]
+
+            if not test_pathogen.empty:
+
+                table = (
+                    test_pathogen[
+                        "Test Performed / Pathogen"
+                    ]
+                    .value_counts()
+                    .rename_axis(
+                        "Test Performed / Pathogen"
+                    )
+                    .reset_index(
+                        name="Records"
+                    )
+                    .head(100)
+                )
+
+                report_data.append(
+                    (
+                        "Test + Pathogen Combination",
+                        table,
+                    )
+                )
+
+        if "Disease" in data.columns:
+
+            disease_table = make_frequency_table(
+                data,
+                "Disease",
+                "Disease",
+                limit=50,
+            )
+
+            if not disease_table.empty:
+
+                report_data.append(
+                    (
+                        "Disease-wise Laboratory Records",
+                        disease_table,
+                    )
+                )
+
+    # --------------------------------------------------------
+    # DEMOGRAPHICS
+    # --------------------------------------------------------
+
+    elif page_name == "Demographics":
+
+        for column, label in [
+            (
+                "Gender",
+                "Gender-wise Distribution",
+            ),
+            (
+                "Age Group",
+                "Age Group-wise Distribution",
+            ),
+            (
+                "Age",
+                "Age-wise Distribution",
+            ),
+            (
+                "OPD/IPD",
+                "OPD / IPD Distribution",
+            ),
+        ]:
+
+            if column in data.columns:
+
+                table = make_frequency_table(
+                    data,
+                    column,
+                    label.replace(
+                        "-wise Distribution",
+                        "",
+                    ),
+                    limit=100,
+                )
+
+                if not table.empty:
+
+                    report_data.append(
+                        (
+                            label,
+                            table,
+                        )
+                    )
+
+    # --------------------------------------------------------
+    # WARD ANALYSIS
+    # --------------------------------------------------------
+
+    elif page_name == "Ward Analysis":
+
+        ward_table = make_frequency_table(
+            data,
+            "Ward Name",
+            "Ward",
+            limit=100,
+            sort_mode="alphabetical",
+        )
+
+        if not ward_table.empty:
+
+            report_data.append(
+                (
+                    "Ward-wise Burden",
+                    ward_table,
+                )
+            )
+
+        if (
+            "Ward Name" in data.columns
+            and "Disease" in data.columns
+        ):
+
+            ward_disease = (
+                pd.crosstab(
+                    data["Ward Name"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip(),
+                    data["Disease"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip(),
+                )
+                .reset_index()
+            )
+
+            if not ward_disease.empty:
+
+                report_data.append(
+                    (
+                        "Ward-wise Disease Distribution",
+                        ward_disease,
+                    )
+                )
+
+    # --------------------------------------------------------
+    # MAP
+    # --------------------------------------------------------
+
+    elif page_name == "Map":
+
+        if (
+            "Ward Name" in data.columns
+            or "Ward" in data.columns
+        ):
+
+            ward_column = (
+                "Ward Name"
+                if "Ward Name" in data.columns
+                else "Ward"
+            )
+
+            ward_table = make_frequency_table(
+                data,
+                ward_column,
+                "Ward",
+                limit=100,
+                sort_mode="alphabetical",
+            )
+
+            if not ward_table.empty:
+
+                report_data.append(
+                    (
+                        "Map-linked Ward Distribution",
+                        ward_table,
+                    )
+                )
+
+        if (
+            "Facility Name" in data.columns
+        ):
+
+            facility_table = make_frequency_table(
+                data,
+                "Facility Name",
+                "Facility",
+                limit=100,
+            )
+
+            if not facility_table.empty:
+
+                report_data.append(
+                    (
+                        "Facility Distribution",
+                        facility_table,
+                    )
+                )
+
+    # --------------------------------------------------------
+    # GEOGRAPHIC MAP
+    # --------------------------------------------------------
+
+    elif page_name == "Geographic Map":
+
+        coordinate_columns = []
+
+        for column in [
+            "Address Latitude",
+            "Address Longitude",
+            "Latitude",
+            "Longitude",
+        ]:
+
+            if column in data.columns:
+
+                coordinate_columns.append(
+                    column
+                )
+
+        if coordinate_columns:
+
+            geographic_data = data[
+                coordinate_columns
+                + (
+                    ["Facility Name"]
+                    if "Facility Name"
+                    in data.columns
+                    else []
+                )
+                + (
+                    ["Ward Name"]
+                    if "Ward Name"
+                    in data.columns
+                    else []
+                )
+            ].copy()
+
+            report_data.append(
+                (
+                    "Geographic Records",
+                    geographic_data.head(500),
+                )
+            )
+
+        else:
+
+            report_data.append(
+                (
+                    "Geographic Map Data",
+                    pd.DataFrame(
+                        {
+                            "Status": [
+                                "Latitude/Longitude fields are not available."
+                            ]
+                        }
+                    ),
+                )
+            )
+
+    # --------------------------------------------------------
+    # DATA EXPLORER
+    # --------------------------------------------------------
+
+    elif page_name == "Data Explorer":
+
+        if data is not None and not data.empty:
+
+            report_data.append(
+                (
+                    "Filtered Data",
+                    data.copy(),
+                )
+            )
+
+    # --------------------------------------------------------
+    # PREDICTION
+    # --------------------------------------------------------
+
+    elif page_name == "Prediction":
+
+        if "Disease" in data.columns:
+
+            disease_table = make_frequency_table(
+                data,
+                "Disease",
+                "Disease",
+                limit=50,
+            )
+
+            if not disease_table.empty:
+
+                report_data.append(
+                    (
+                        "Current Disease Distribution",
+                        disease_table,
+                    )
+                )
+
+        if "Month" in data.columns:
+
+            month_table = make_frequency_table(
+                data,
+                "Month",
+                "Month",
+                limit=12,
+            )
+
+            if not month_table.empty:
+
+                report_data.append(
+                    (
+                        "Current Month Distribution",
+                        month_table,
+                    )
+                )
+
+    # --------------------------------------------------------
+    # USER MANUAL
+    # --------------------------------------------------------
+
+    elif page_name == "User Manual":
+
+        manual_table = pd.DataFrame(
+            {
+                "Dashboard Item": [
+                    "Global Filters",
+                    "Overview",
+                    "Charts & Trends",
+                    "Laboratory & Pathogen Analysis",
+                    "Demographics",
+                    "Ward Analysis",
+                    "Map",
+                    "Geographic Map",
+                    "Data Explorer",
+                    "Prediction",
+                    "Validation & KPI",
+                    "Drill-down & Export",
+                ],
+                "Purpose": [
+                    "Filter the dashboard by available programme dimensions.",
+                    "View programme-level summary indicators.",
+                    "Analyse monthly, disease, facility and ward trends.",
+                    "Analyse laboratory and pathogen-related records.",
+                    "Analyse age, gender and OPD/IPD distributions.",
+                    "Analyse ward-level burden.",
+                    "View programme records spatially.",
+                    "View facility/record geographic distribution.",
+                    "Inspect filtered records.",
+                    "Review available programme prediction outputs.",
+                    "Review data validation and KPI information.",
+                    "Perform detailed drill-down and export operations.",
+                ],
+            }
+        )
+
+        report_data.append(
+            (
+                "Dashboard User Guide",
+                manual_table,
+            )
+        )
+
+    # --------------------------------------------------------
+    # VALIDATION & KPI
+    # --------------------------------------------------------
+
+    elif page_name == "Validation & KPI":
+
+        validation_rows = []
+
+        validation_rows.append(
+            {
+                "Indicator": "Filtered Records",
+                "Value": len(data),
+            }
+        )
+
+        validation_rows.append(
+            {
+                "Indicator": "Columns Available",
+                "Value": len(data.columns),
+            }
+        )
+
+        if "Disease" in data.columns:
+
+            validation_rows.append(
                 {
-                    "dataframe": monthly,
-                    "x_column": "Period",
-                    "y_column": "Records",
-                    "title": "Month-wise Analysis",
+                    "Indicator": "Unique Diseases",
+                    "Value": (
+                        _clean_text_series(
+                            data,
+                            "Disease",
+                        ).nunique()
+                    ),
                 }
             )
 
+        if "Facility Name" in data.columns:
 
-    return tables, charts
+            validation_rows.append(
+                {
+                    "Indicator": "Unique Facilities",
+                    "Value": (
+                        _clean_text_series(
+                            data,
+                            "Facility Name",
+                        ).nunique()
+                    ),
+                }
+            )
+
+        if "Ward Name" in data.columns:
+
+            validation_rows.append(
+                {
+                    "Indicator": "Unique Wards",
+                    "Value": (
+                        _clean_text_series(
+                            data,
+                            "Ward Name",
+                        ).nunique()
+                    ),
+                }
+            )
+
+        validation_table = pd.DataFrame(
+            validation_rows
+        )
+
+        report_data.append(
+            (
+                "Validation & KPI Summary",
+                validation_table,
+            )
+        )
+
+    # --------------------------------------------------------
+    # DRILL-DOWN & EXPORT
+    # --------------------------------------------------------
+
+    elif page_name == "Drill-down & Export":
+
+        if data is not None and not data.empty:
+
+            report_data.append(
+                (
+                    "Filtered Drill-down Dataset",
+                    data.copy(),
+                )
+            )
+
+    return report_data
+
+
+# ============================================================
+# PDF GENERATION SAFE WRAPPER
+# ============================================================
+
+def _call_pdf_function(
+    function,
+    page_name,
+    data,
+    page_report_data=None,
+):
+
+    selected_diseases = (
+        get_selected_diseases()
+    )
+
+    common_values = {
+        "page_name": page_name,
+        "data": data,
+        "df": data,
+        "filtered_df": data,
+        "kpis": kpis,
+        "filter_summary": filter_summary,
+        "reporting_period": reporting_period,
+        "report_data": page_report_data or [],
+        "selected_diseases": selected_diseases,
+        "disease_selection": selected_diseases,
+        "show_data_labels": st.session_state.get(
+            "show_data_labels",
+            False,
+        ),
+    }
+
+    try:
+
+        signature = inspect.signature(
+            function
+        )
+
+        kwargs = {}
+
+        positional_only = []
+
+        for parameter in signature.parameters.values():
+
+            if parameter.kind == (
+                inspect.Parameter.POSITIONAL_ONLY
+            ):
+
+                positional_only.append(
+                    parameter
+                )
+
+                continue
+
+            if parameter.name in common_values:
+
+                kwargs[
+                    parameter.name
+                ] = common_values[
+                    parameter.name
+                ]
+
+        if positional_only:
+
+            positional_values = []
+
+            for parameter in positional_only:
+
+                if parameter.name in common_values:
+
+                    positional_values.append(
+                        common_values[
+                            parameter.name
+                        ]
+                    )
+
+            return function(
+                *positional_values,
+                **kwargs,
+            )
+
+        return function(
+            **kwargs
+        )
+
+    except Exception as exc:
+
+        # Fallback attempts for older report functions.
+        attempts = [
+            lambda: function(
+                page_name,
+                data,
+                kpis,
+                filter_summary,
+                reporting_period,
+                page_report_data or [],
+            ),
+            lambda: function(
+                page_name,
+                data,
+                kpis,
+                filter_summary,
+                reporting_period,
+            ),
+            lambda: function(
+                page_name,
+                data,
+            ),
+            lambda: function(
+                data,
+            ),
+        ]
+
+        last_error = exc
+
+        for attempt in attempts:
+
+            try:
+
+                return attempt()
+
+            except Exception as retry_exc:
+
+                last_error = retry_exc
+
+        raise last_error
 
 
 # ============================================================
@@ -742,38 +1774,108 @@ def create_page_pdf(
     data,
 ):
 
-    tables, charts = build_page_report_data(
+    page_report_data = (
+        build_page_report_data(
+            page_name,
+            data,
+        )
+    )
+
+    result = _call_pdf_function(
+        generate_pdf_report,
         page_name,
         data,
+        page_report_data,
     )
 
-    report_period = get_reporting_period(
-        data
-    )
+    if result is None:
 
-    filter_summary = get_filter_summary()
+        raise ValueError(
+            "PDF generator returned no data."
+        )
 
-    pdf_bytes = generate_pdf_report(
-        report_title=page_name,
-        df=data,
-        kpis=kpis,
-        tables=tables,
-        charts=charts,
-        report_period=report_period,
-        filter_summary=filter_summary,
-    )
+    if isinstance(
+        result,
+        bytes,
+    ):
 
-    return pdf_bytes
+        return result
+
+    if hasattr(
+        result,
+        "getvalue",
+    ):
+
+        return result.getvalue()
+
+    if hasattr(
+        result,
+        "read",
+    ):
+
+        current_position = None
+
+        try:
+            current_position = result.tell()
+        except Exception:
+            pass
+
+        try:
+
+            result.seek(0)
+
+        except Exception:
+            pass
+
+        pdf_bytes = result.read()
+
+        if current_position is not None:
+
+            try:
+                result.seek(
+                    current_position
+                )
+            except Exception:
+                pass
+
+        return pdf_bytes
+
+    return bytes(result)
 
 
 # ============================================================
-# PAGE PDF DOWNLOAD BUTTON
+# PAGE PDF BUTTON
 # ============================================================
 
 def render_page_pdf_button(
     page_name,
     data,
+    key_suffix=None,
 ):
+
+    if key_suffix is None:
+
+        key_suffix = (
+            page_name
+            .lower()
+            .replace(
+                " ",
+                "_",
+            )
+            .replace(
+                "&",
+                "and",
+            )
+            .replace(
+                "/",
+                "_",
+            )
+        )
+
+    button_key = (
+        "pdf_page_"
+        + key_suffix
+    )
 
     try:
 
@@ -782,31 +1884,32 @@ def render_page_pdf_button(
             data,
         )
 
-        safe_name = (
-            page_name
-            .replace("&", "and")
-            .replace("/", "_")
-            .replace("-", "_")
-            .replace(" ", "_")
+        filename = (
+            "Health_Dashboard_"
+            + key_suffix
+            + "_"
+            + datetime.now().strftime(
+                "%Y%m%d_%H%M"
+            )
+            + ".pdf"
         )
 
         st.download_button(
-            label="📄 Download This Page PDF",
+            label="📄 Download This Section as PDF",
             data=pdf_bytes,
-            file_name=(
-                f"{safe_name}_Report.pdf"
-            ),
+            file_name=filename,
             mime="application/pdf",
-            key=f"pdf_page_{safe_name}",
+            key=button_key,
+            use_container_width=True,
         )
 
-    except Exception as e:
+    except Exception as exc:
 
         st.error(
-            "PDF report could not be generated."
+            "Unable to generate the PDF for this section."
         )
 
-        st.exception(e)
+        st.exception(exc)
 
 
 # ============================================================
@@ -815,17 +1918,10 @@ def render_page_pdf_button(
 
 def create_complete_dashboard_pdf():
 
-    report_period = get_reporting_period(
-        filtered_df
-    )
-
-    filter_summary = get_filter_summary()
-
-    dashboard_pages = []
-
     page_names = [
         "Overview",
         "Charts & Trends",
+        "Laboratory & Pathogen Analysis",
         "Demographics",
         "Ward Analysis",
         "Map",
@@ -837,242 +1933,326 @@ def create_complete_dashboard_pdf():
         "Drill-down & Export",
     ]
 
+    page_data = {}
 
     for page_name in page_names:
 
-        page_tables, page_charts = build_page_report_data(
+        page_data[
+            page_name
+        ] = build_page_report_data(
             page_name,
             filtered_df,
         )
 
-        dashboard_pages.append(
-            {
-                "title": page_name,
-                "df": filtered_df,
-                "kpis": kpis,
-                "tables": page_tables,
-                "charts": page_charts,
-            }
+    selected_diseases = (
+        get_selected_diseases()
+    )
+
+    try:
+
+        result = _call_pdf_function(
+            generate_complete_dashboard_pdf,
+            "Complete Dashboard",
+            filtered_df,
+            page_data,
         )
 
+    except Exception as exc:
 
-    return generate_complete_dashboard_pdf(
-        pages=dashboard_pages,
-        report_period=report_period,
-        filter_summary=filter_summary,
-    )
+        # Additional compatibility attempt
+        try:
+
+            result = generate_complete_dashboard_pdf(
+                filtered_df,
+                page_data,
+                kpis,
+                filter_summary,
+                reporting_period,
+                selected_diseases,
+            )
+
+        except Exception:
+
+            raise exc
+
+    if result is None:
+
+        raise ValueError(
+            "Complete PDF generator returned no data."
+        )
+
+    if isinstance(
+        result,
+        bytes,
+    ):
+
+        return result
+
+    if hasattr(
+        result,
+        "getvalue",
+    ):
+
+        return result.getvalue()
+
+    if hasattr(
+        result,
+        "read",
+    ):
+
+        try:
+            result.seek(0)
+        except Exception:
+            pass
+
+        return result.read()
+
+    return bytes(result)
 
 
 # ============================================================
-# COMPLETE DASHBOARD POWERPOINT
+# COMPLETE DASHBOARD PPT
 # ============================================================
 
 def create_complete_dashboard_ppt():
 
-    report_period = get_reporting_period(
-        filtered_df
+    selected_diseases = (
+        get_selected_diseases()
     )
 
-    filter_summary = get_filter_summary()
+    common_values = {
+        "data": filtered_df,
+        "df": filtered_df,
+        "filtered_df": filtered_df,
+        "kpis": kpis,
+        "filter_summary": filter_summary,
+        "reporting_period": reporting_period,
+        "selected_diseases": selected_diseases,
+        "disease_selection": selected_diseases,
+    }
 
-    ppt_bytes = generate_ppt_report(
-        df=filtered_df,
-        report_period=report_period,
-        filter_summary=filter_summary,
+    signature = inspect.signature(
+        generate_ppt_report
     )
 
-    return ppt_bytes
+    kwargs = {}
+
+    for parameter in signature.parameters.values():
+
+        if parameter.name in common_values:
+
+            kwargs[
+                parameter.name
+            ] = common_values[
+                parameter.name
+            ]
+
+    result = generate_ppt_report(
+        **kwargs
+    )
+
+    if result is None:
+
+        raise ValueError(
+            "PowerPoint generator returned no data."
+        )
+
+    if isinstance(
+        result,
+        bytes,
+    ):
+
+        return result
+
+    if hasattr(
+        result,
+        "getvalue",
+    ):
+
+        return result.getvalue()
+
+    if hasattr(
+        result,
+        "read",
+    ):
+
+        try:
+            result.seek(0)
+        except Exception:
+            pass
+
+        return result.read()
+
+    return bytes(result)
 
 
 # ============================================================
-# SIDEBAR PDF SECTION
+# SIDEBAR DOWNLOADS
 # ============================================================
 
-st.sidebar.markdown("---")
+with st.sidebar:
 
-st.sidebar.subheader(
-    "📄 PDF Reports"
-)
+    st.divider()
 
-st.sidebar.caption(
-    "Download the current dashboard view as "
-    "a complete consolidated PDF."
-)
+    st.markdown(
+        "### Reports"
+    )
 
+    st.caption(
+        "Reports use the currently selected Global Dashboard Filters."
+    )
 
-# ============================================================
-# GENERATE COMPLETE PDF
-# ============================================================
+    if page == "Charts & Trends":
 
-if st.sidebar.button(
-    "📚 Generate Complete Dashboard PDF",
-    use_container_width=True,
-):
+        selected_diseases = (
+            get_selected_diseases()
+        )
 
-    try:
+        if selected_diseases:
+
+            st.caption(
+                "Selected diseases: "
+                + ", ".join(
+                    selected_diseases
+                )
+            )
+
+    complete_pdf_button = st.button(
+        "📄 Prepare Complete Dashboard PDF",
+        key="prepare_complete_pdf",
+        use_container_width=True,
+    )
+
+    if complete_pdf_button:
 
         with st.spinner(
             "Generating complete dashboard PDF..."
         ):
 
-            st.session_state[
-                "complete_dashboard_pdf"
-            ] = create_complete_dashboard_pdf()
+            try:
 
-            st.session_state[
-                "complete_dashboard_pdf_filter"
-            ] = get_filter_summary()
+                complete_pdf = (
+                    create_complete_dashboard_pdf()
+                )
 
+                st.session_state[
+                    "complete_dashboard_pdf"
+                ] = complete_pdf
 
-        st.sidebar.success(
-            "Complete PDF generated."
-        )
+            except Exception as exc:
 
+                st.session_state[
+                    "complete_dashboard_pdf"
+                ] = None
 
-    except Exception as e:
+                st.error(
+                    "Unable to generate complete dashboard PDF."
+                )
 
-        st.sidebar.error(
-            "Complete dashboard PDF could not be generated."
-        )
+                st.exception(exc)
 
-        st.sidebar.exception(e)
+    if st.session_state.get(
+        "complete_dashboard_pdf"
+    ) is not None:
 
-
-# ============================================================
-# COMPLETE PDF DOWNLOAD
-# ============================================================
-
-if (
-    "complete_dashboard_pdf"
-    in st.session_state
-):
-
-    current_filter = get_filter_summary()
-
-    generated_filter = st.session_state.get(
-        "complete_dashboard_pdf_filter",
-        "",
-    )
-
-
-    if current_filter == generated_filter:
-
-        st.sidebar.download_button(
+        st.download_button(
             label="⬇️ Download Complete Dashboard PDF",
             data=st.session_state[
                 "complete_dashboard_pdf"
             ],
             file_name=(
-                "MSU_Mumbai_Complete_Dashboard_Report.pdf"
+                "Health_Programme_Management_Dashboard_"
+                + datetime.now().strftime(
+                    "%Y%m%d_%H%M"
+                )
+                + ".pdf"
             ),
             mime="application/pdf",
+            key="download_complete_pdf",
             use_container_width=True,
-            key="download_complete_dashboard_pdf",
         )
 
-    else:
+    st.divider()
 
-        st.sidebar.info(
-            "Dashboard filters have changed. "
-            "Generate the complete PDF again."
-        )
-
-
-# ============================================================
-# SIDEBAR POWERPOINT SECTION
-# ============================================================
-
-st.sidebar.markdown("---")
-
-st.sidebar.subheader(
-    "📊 PowerPoint Report"
-)
-
-st.sidebar.caption(
-    "Generate a management presentation from "
-    "the currently selected dashboard filters."
-)
-
-
-# ============================================================
-# GENERATE POWERPOINT
-# ============================================================
-
-if st.sidebar.button(
-    "📊 Generate PowerPoint",
-    use_container_width=True,
-):
-
-    try:
-
-        with st.spinner(
-            "Generating PowerPoint report..."
-        ):
-
-            st.session_state[
-                "complete_dashboard_ppt"
-            ] = create_complete_dashboard_ppt()
-
-            st.session_state[
-                "complete_dashboard_ppt_filter"
-            ] = get_filter_summary()
-
-
-        st.sidebar.success(
-            "PowerPoint generated successfully."
-        )
-
-
-    except Exception as e:
-
-        st.sidebar.error(
-            "PowerPoint report could not be generated."
-        )
-
-        st.sidebar.exception(e)
-
-
-# ============================================================
-# POWERPOINT DOWNLOAD
-# ============================================================
-
-if (
-    "complete_dashboard_ppt"
-    in st.session_state
-):
-
-    current_filter = get_filter_summary()
-
-    generated_ppt_filter = st.session_state.get(
-        "complete_dashboard_ppt_filter",
-        "",
+    ppt_button = st.button(
+        "📊 Prepare Complete Dashboard PPT",
+        key="prepare_complete_ppt",
+        use_container_width=True,
     )
 
+    if ppt_button:
 
-    if current_filter == generated_ppt_filter:
+        with st.spinner(
+            "Generating PowerPoint..."
+        ):
 
-        st.sidebar.download_button(
-            label="⬇️ Download PowerPoint",
+            try:
+
+                complete_ppt = (
+                    create_complete_dashboard_ppt()
+                )
+
+                st.session_state[
+                    "complete_dashboard_ppt"
+                ] = complete_ppt
+
+            except Exception as exc:
+
+                st.session_state[
+                    "complete_dashboard_ppt"
+                ] = None
+
+                st.error(
+                    "Unable to generate PowerPoint."
+                )
+
+                st.exception(exc)
+
+    if st.session_state.get(
+        "complete_dashboard_ppt"
+    ) is not None:
+
+        st.download_button(
+            label="⬇️ Download Complete Dashboard PPT",
             data=st.session_state[
                 "complete_dashboard_ppt"
             ],
             file_name=(
-                "MSU_Mumbai_Dashboard_Management_Report.pptx"
+                "Health_Programme_Management_Dashboard_"
+                + datetime.now().strftime(
+                    "%Y%m%d_%H%M"
+                )
+                + ".pptx"
             ),
             mime=(
                 "application/vnd.openxmlformats-officedocument."
                 "presentationml.presentation"
             ),
+            key="download_complete_ppt",
             use_container_width=True,
-            key="download_complete_dashboard_ppt",
         )
 
-    else:
 
-        st.sidebar.info(
-            "Dashboard filters have changed. "
-            "Generate the PowerPoint again."
-        )
+# ============================================================
+# ACTIVE FILTER SUMMARY
+# ============================================================
+
+with st.expander(
+    "🔎 Current Dashboard Filter Summary",
+    expanded=False,
+):
+
+    st.write(
+        filter_summary
+    )
+
+    st.caption(
+        f"Reporting period: {reporting_period}"
+    )
+
+    st.caption(
+        f"Records after filters: {len(filtered_df):,}"
+    )
 
 
 # ============================================================
@@ -1081,15 +2261,15 @@ if (
 
 try:
 
-
     # ========================================================
-    # OVERVIEW
+    # 1. OVERVIEW
     # ========================================================
 
     if page == "Overview":
 
         render_overview(
-            filtered_df
+            filtered_df,
+            kpis,
         )
 
         st.divider()
@@ -1099,9 +2279,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # CHARTS & TRENDS
+    # 2. CHARTS & TRENDS
     # ========================================================
 
     elif page == "Charts & Trends":
@@ -1117,9 +2296,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # LABORATORY & PATHOGEN ANALYSIS
+    # 3. LABORATORY & PATHOGEN
     # ========================================================
 
     elif page == "Laboratory & Pathogen Analysis":
@@ -1135,10 +2313,8 @@ try:
             filtered_df,
         )
 
-
-    
     # ========================================================
-    # DEMOGRAPHICS
+    # 4. DEMOGRAPHICS
     # ========================================================
 
     elif page == "Demographics":
@@ -1154,9 +2330,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # WARD ANALYSIS
+    # 5. WARD ANALYSIS
     # ========================================================
 
     elif page == "Ward Analysis":
@@ -1172,9 +2347,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # EXISTING MAP
+    # 6. MAP
     # ========================================================
 
     elif page == "Map":
@@ -1190,20 +2364,36 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # NEW GEOGRAPHIC MAP
+    # 7. GEOGRAPHIC MAP
     # ========================================================
 
     elif page == "Geographic Map":
 
         render_geographic_map(
-            filtered_df, df
+            filtered_df,
+            df,
         )
 
+        st.divider()
+
+        st.markdown(
+            "### Geographic Map Report"
+        )
+
+        st.caption(
+            "The PDF uses the same currently filtered dataset "
+            "shown in the Geographic Map section."
+        )
+
+        render_page_pdf_button(
+            "Geographic Map",
+            filtered_df,
+            key_suffix="geographic_map",
+        )
 
     # ========================================================
-    # DATA EXPLORER
+    # 8. DATA EXPLORER
     # ========================================================
 
     elif page == "Data Explorer":
@@ -1219,9 +2409,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # PREDICTION
+    # 9. PREDICTION
     # ========================================================
 
     elif page == "Prediction":
@@ -1237,9 +2426,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # USER MANUAL
+    # 10. USER MANUAL
     # ========================================================
 
     elif page == "User Manual":
@@ -1253,9 +2441,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # VALIDATION & KPI
+    # 11. VALIDATION & KPI
     # ========================================================
 
     elif page == "Validation & KPI":
@@ -1271,9 +2458,8 @@ try:
             filtered_df,
         )
 
-
     # ========================================================
-    # DRILL-DOWN & EXPORT
+    # 12. DRILL-DOWN & EXPORT
     # ========================================================
 
     elif page == "Drill-down & Export":
@@ -1290,52 +2476,73 @@ try:
         )
 
 
-except Exception as e:
+except Exception as exc:
 
     st.error(
         "This dashboard section could not be loaded."
     )
 
-    st.exception(e)
+    st.exception(exc)
 
 
 # ============================================================
-# GOOGLE SHEET REFRESH
+# DATA REFRESH
 # ============================================================
 
-st.sidebar.markdown("---")
+st.sidebar.divider()
 
+with st.sidebar:
 
-if st.sidebar.button(
-    "🔄 Refresh Google Sheet Data",
-    use_container_width=True,
-):
-
-    with st.spinner(
-        "Refreshing Google Sheet data..."
-    ):
-
-        from phase1_data import refresh_data
-
-        refresh_data()
-
-
-    st.success(
-        "Google Sheet data refreshed successfully."
+    st.markdown(
+        "### Data Refresh"
     )
 
-    st.rerun()
+    st.caption(
+        "Refresh the dashboard from the connected data source."
+    )
+
+    if st.button(
+        "🔄 Refresh Data",
+        key="refresh_data",
+        use_container_width=True,
+    ):
+
+        try:
+
+            refresh_data()
+
+        except Exception:
+
+            pass
+
+        get_data.clear()
+
+        st.session_state[
+            "complete_dashboard_pdf"
+        ] = None
+
+        st.session_state[
+            "complete_dashboard_ppt"
+        ] = None
+
+        st.rerun()
 
 
 # ============================================================
 # FOOTER
 # ============================================================
 
+st.divider()
+
 st.markdown(
     """
-    <div class="dashboard-footer">
-        MSU Mumbai Public Health Surveillance Dashboard |
-        Surveillance • Monitoring • Analysis • Management
+    <div style="
+        text-align:center;
+        color:#777;
+        font-size:12px;
+        padding:8px;
+    ">
+        Health Programme Management Dashboard
     </div>
     """,
     unsafe_allow_html=True,
