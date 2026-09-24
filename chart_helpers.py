@@ -1,7 +1,97 @@
+
+import io
+
 import streamlit as st
 import pandas as pd
 import altair as alt
 
+
+# ============================================================
+# GLOBAL CHART EXPORT REGISTRY
+# ============================================================
+
+DISPLAYED_CHARTS_KEY = "displayed_chart_exports"
+
+
+def _ensure_chart_registry():
+    """
+    Creates the session-state registry used by the displayed
+    chart export system.
+    """
+
+    if DISPLAYED_CHARTS_KEY not in st.session_state:
+        st.session_state[DISPLAYED_CHARTS_KEY] = []
+
+    return st.session_state[DISPLAYED_CHARTS_KEY]
+
+
+def reset_displayed_chart_registry():
+    """
+    Clears the displayed-chart registry.
+
+    This should be called once before rendering a dashboard
+    section whose displayed charts need to be exported.
+    """
+
+    st.session_state[DISPLAYED_CHARTS_KEY] = []
+
+
+def register_displayed_chart(
+    chart,
+    title="Chart",
+    filename=None,
+):
+    """
+    Register an Altair chart for displayed-chart export.
+
+    The SAME Altair chart object that is displayed on the
+    dashboard is registered. This avoids recreating a
+    different chart for the PDF.
+    """
+
+    if chart is None:
+        return
+
+    registry = _ensure_chart_registry()
+
+    if filename is None:
+        filename = title
+
+    safe_filename = (
+        str(filename)
+        .strip()
+        .replace("/", "_")
+        .replace("\\", "_")
+        .replace(" ", "_")
+        .replace("&", "and")
+        .replace(":", "_")
+    )
+
+    registry.append(
+        {
+            "title": str(title),
+            "filename": safe_filename,
+            "chart": chart,
+        }
+    )
+
+
+def get_displayed_charts():
+    """
+    Return currently registered displayed charts.
+    """
+
+    return list(
+        st.session_state.get(
+            DISPLAYED_CHARTS_KEY,
+            [],
+        )
+    )
+
+
+# ============================================================
+# DATA LABEL CONTROL
+# ============================================================
 
 def data_labels_enabled():
     return bool(
@@ -11,6 +101,10 @@ def data_labels_enabled():
         )
     )
 
+
+# ============================================================
+# DATA PREPARATION
+# ============================================================
 
 def _prepare_chart_data(data):
     """
@@ -23,6 +117,7 @@ def _prepare_chart_data(data):
         result = data.reset_index()
 
         if len(result.columns) >= 2:
+
             result.columns = [
                 str(result.columns[0]),
                 "Records",
@@ -35,6 +130,7 @@ def _prepare_chart_data(data):
         result = data.reset_index()
 
         if len(result.columns) > 0:
+
             result = result.rename(
                 columns={
                     result.columns[0]: str(
@@ -59,22 +155,56 @@ def _field_type(series):
     return "N"
 
 
+# ============================================================
+# SAFE CHART EXPORT REGISTRATION
+# ============================================================
+
+def _register_and_display(
+    chart,
+    title,
+    filename,
+    use_container_width=True,
+):
+    """
+    Register the exact chart object and then display it.
+    """
+
+    register_displayed_chart(
+        chart=chart,
+        title=title,
+        filename=filename,
+    )
+
+    st.altair_chart(
+        chart,
+        use_container_width=use_container_width,
+    )
+
+
+# ============================================================
+# BAR CHART
+# ============================================================
+
 def render_bar_chart(
     data,
     use_container_width=True,
     height=400,
+    export_title=None,
+    export_filename=None,
 ):
     """
     Global bar-chart renderer.
 
     Existing data and calculations are preserved.
-    Data labels are controlled by the global switch.
+
+    The exact Altair chart displayed on the dashboard is
+    registered for PDF/PNG export.
     """
 
     chart_df = _prepare_chart_data(data)
 
     if chart_df.empty:
-        return
+        return None
 
     x_column = chart_df.columns[0]
 
@@ -83,15 +213,15 @@ def render_bar_chart(
     )
 
     if not value_columns:
-        return
+        return None
 
     x_type = _field_type(
         chart_df[x_column]
     )
 
-    # =====================================================
+    # ========================================================
     # SINGLE SERIES BAR CHART
-    # =====================================================
+    # ========================================================
 
     if len(value_columns) == 1:
 
@@ -129,9 +259,9 @@ def render_bar_chart(
             )
         )
 
-        # -------------------------------------------------
+        # ----------------------------------------------------
         # DATA LABELS
-        # -------------------------------------------------
+        # ----------------------------------------------------
 
         if data_labels_enabled():
 
@@ -161,9 +291,9 @@ def render_bar_chart(
 
             chart = chart + labels
 
-    # =====================================================
+    # ========================================================
     # MULTI SERIES BAR CHART
-    # =====================================================
+    # ========================================================
 
     else:
 
@@ -209,9 +339,9 @@ def render_bar_chart(
             )
         )
 
-        # -------------------------------------------------
+        # ----------------------------------------------------
         # DATA LABELS
-        # -------------------------------------------------
+        # ----------------------------------------------------
 
         if data_labels_enabled():
 
@@ -241,28 +371,50 @@ def render_bar_chart(
 
             chart = chart + labels
 
-    st.altair_chart(
-        chart,
+    # ========================================================
+    # EXPORT TITLE
+    # ========================================================
+
+    if export_title is None:
+        export_title = "Bar Chart"
+
+    if export_filename is None:
+        export_filename = export_title
+
+    _register_and_display(
+        chart=chart,
+        title=export_title,
+        filename=export_filename,
         use_container_width=use_container_width,
     )
 
+    return chart
+
+
+# ============================================================
+# LINE CHART
+# ============================================================
 
 def render_line_chart(
     data,
     use_container_width=True,
     height=400,
+    export_title=None,
+    export_filename=None,
 ):
     """
     Global line-chart renderer.
 
     Existing values and ordering are preserved.
-    Data labels are controlled by the global switch.
+
+    The exact Altair chart displayed on the dashboard is
+    registered for PDF/PNG export.
     """
 
     chart_df = _prepare_chart_data(data)
 
     if chart_df.empty:
-        return
+        return None
 
     x_column = chart_df.columns[0]
 
@@ -271,7 +423,7 @@ def render_line_chart(
     )
 
     if not value_columns:
-        return
+        return None
 
     x_type = _field_type(
         chart_df[x_column]
@@ -321,9 +473,9 @@ def render_line_chart(
         )
     )
 
-    # -----------------------------------------------------
+    # --------------------------------------------------------
     # DATA LABELS
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
     if data_labels_enabled():
 
@@ -353,7 +505,22 @@ def render_line_chart(
 
         chart = chart + labels
 
-    st.altair_chart(
-        chart,
+    # ========================================================
+    # EXPORT TITLE
+    # ========================================================
+
+    if export_title is None:
+        export_title = "Line Chart"
+
+    if export_filename is None:
+        export_filename = export_title
+
+    _register_and_display(
+        chart=chart,
+        title=export_title,
+        filename=export_filename,
         use_container_width=use_container_width,
     )
+
+    return chart
+
