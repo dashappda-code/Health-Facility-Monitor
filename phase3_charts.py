@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -5,7 +6,6 @@ import altair as alt
 from chart_helpers import (
     render_bar_chart,
     render_line_chart,
-    register_displayed_chart,
 )
 
 
@@ -62,30 +62,18 @@ def _normalize_month(value):
 
     text = str(value).strip().lower()
 
-    if text in {"january", "jan", "1", "01"}:
-        return "Jan"
-    if text in {"february", "feb", "2", "02"}:
-        return "Feb"
-    if text in {"march", "mar", "3", "03"}:
-        return "Mar"
-    if text in {"april", "apr", "4", "04"}:
-        return "Apr"
-    if text in {"may", "5", "05"}:
-        return "May"
-    if text in {"june", "jun", "6", "06"}:
-        return "Jun"
-    if text in {"july", "jul", "7", "07"}:
-        return "Jul"
-    if text in {"august", "aug", "8", "08"}:
-        return "Aug"
-    if text in {"september", "sep", "sept", "9", "09"}:
-        return "Sep"
-    if text in {"october", "oct", "10"}:
-        return "Oct"
-    if text in {"november", "nov", "11"}:
-        return "Nov"
-    if text in {"december", "dec", "12"}:
-        return "Dec"
+    if text in {"january", "jan", "1", "01"}: return "Jan"
+    if text in {"february", "feb", "2", "02"}: return "Feb"
+    if text in {"march", "mar", "3", "03"}: return "Mar"
+    if text in {"april", "apr", "4", "04"}: return "Apr"
+    if text in {"may", "5", "05"}: return "May"
+    if text in {"june", "jun", "6", "06"}: return "Jun"
+    if text in {"july", "jul", "7", "07"}: return "Jul"
+    if text in {"august", "aug", "8", "08"}: return "Aug"
+    if text in {"september", "sep", "sept", "9", "09"}: return "Sep"
+    if text in {"october", "oct", "10"}: return "Oct"
+    if text in {"november", "nov", "11"}: return "Nov"
+    if text in {"december", "dec", "12"}: return "Dec"
 
     return text
 
@@ -115,29 +103,20 @@ def _normalize_year(value):
     # Direct numeric year
     try:
         numeric = float(text)
-
         if numeric.is_integer():
             year = int(numeric)
-
             if 1900 <= year <= 2100:
                 return year
-
     except Exception:
         pass
 
     # Date-like year values
     try:
-        parsed = pd.to_datetime(
-            value,
-            errors="coerce",
-        )
-
+        parsed = pd.to_datetime(value, errors="coerce")
         if not pd.isna(parsed):
             year = int(parsed.year)
-
             if 1900 <= year <= 2100:
                 return year
-
     except Exception:
         pass
 
@@ -158,7 +137,6 @@ def _build_year_month_timeline(
     Create a complete chronological Year-Month timeline.
     Missing months are retained with zero records.
     """
-
     if (
         data is None
         or data.empty
@@ -170,14 +148,8 @@ def _build_year_month_timeline(
 
     temp = data.copy()
 
-    temp["Month"] = temp[month_column].apply(
-        _normalize_month
-    )
-
-    temp["Year"] = temp[year_column].apply(
-        _normalize_year
-    )
-
+    temp["Month"] = temp[month_column].apply(_normalize_month)
+    temp["Year"] = temp[year_column].apply(_normalize_year)
     temp["Year"] = pd.to_numeric(
         temp["Year"],
         errors="coerce",
@@ -205,11 +177,7 @@ def _build_year_month_timeline(
     temp = (
         temp
         .groupby(
-            [
-                "Year",
-                "Month",
-                "Month Number",
-            ],
+            ["Year", "Month", "Month Number"],
             as_index=False,
         )[value_column]
         .sum()
@@ -310,7 +278,7 @@ def _build_year_month_timeline(
 def _apply_chronological_zwsp(label_list):
     """
     Adds increasing Zero-Width Spaces to force Streamlit's
-    alphabetical sorting to match chronological order.
+    alphabetical sorting to match our perfect chronological order.
     """
     return [
         ("\u200b" * (i + 1)) + str(lbl)
@@ -491,9 +459,7 @@ def render_charts(df):
                         hide_index=True,
                     )
 
-            # ------------------------------------------------
             # FALLBACK: MONTH-ONLY ANALYSIS
-            # ------------------------------------------------
 
             if not use_year_month:
 
@@ -710,7 +676,9 @@ def render_charts(df):
                                 "**Select diseases to display in the chart:**"
                             )
 
-                            checkbox_columns = st.columns(4)
+                            checkbox_columns = st.columns(
+                                4
+                            )
 
                             selected_diseases = []
 
@@ -720,7 +688,8 @@ def render_charts(df):
 
                                 checkbox_column = (
                                     checkbox_columns[
-                                        index % 4
+                                        index
+                                        % 4
                                     ]
                                 )
 
@@ -927,18 +896,17 @@ def render_charts(df):
                                             "Records:Q",
                                             title="Records",
                                         ),
-                                        color=alt.Color(
-                                            "Disease:N",
-                                            legend=alt.Legend(
-                                                orient="bottom",
-                                                title="Disease",
-                                                labelLimit=0,
-                                                columns=10,
-                                                symbolSize=80,
-                                                labelFontSize=10,
-                                                rowPadding=3,
-                                            ),
-                                        ),
+                                        
+                                       color=alt.Color(
+    "Disease:N",
+    legend=alt.Legend(
+        orient="bottom",
+        title="Disease",
+        labelLimit=0,
+        columns=4,
+    ),
+),
+                                        
                                     )
                                 )
 
@@ -970,7 +938,7 @@ def render_charts(df):
                                         lines
                                         + text_labels
                                     ).properties(
-                                        height=540
+                                        height=450
                                     )
 
                                 else:
@@ -978,23 +946,9 @@ def render_charts(df):
                                     final_chart = (
                                         lines
                                         .properties(
-                                            height=540
+                                            height=450
                                         )
                                     )
-
-                                register_displayed_chart(
-                                    chart=final_chart,
-                                    title="Monthly Disease Comparison",
-                                    filename="Monthly_Disease_Comparison",
-                                    table_data=chart_disease_month[
-                                        [
-                                            "Year",
-                                            "Month",
-                                            "Disease",
-                                            "Records",
-                                        ]
-                                    ],
-                                )
 
                                 st.altair_chart(
                                     final_chart,
@@ -1045,7 +999,9 @@ def render_charts(df):
                             "**Select diseases to display in the chart:**"
                         )
 
-                        checkbox_columns = st.columns(4)
+                        checkbox_columns = st.columns(
+                            4
+                        )
 
                         selected_diseases = []
 
@@ -1055,7 +1011,8 @@ def render_charts(df):
 
                             checkbox_column = (
                                 checkbox_columns[
-                                    index % 4
+                                    index
+                                    % 4
                                 ]
                             )
 
@@ -1102,29 +1059,17 @@ def render_charts(df):
                             if disease in selected_diseases
                         ]
 
-                        if chart_diseases:
-
-                            long_df = (
-                                cross_tab[
-                                    chart_diseases
-                                ]
-                                .reset_index()
-                                .melt(
-                                    id_vars="Month",
-                                    var_name="Disease",
-                                    value_name="Records",
-                                )
+                        long_df = (
+                            cross_tab[
+                                chart_diseases
+                            ]
+                            .reset_index()
+                            .melt(
+                                id_vars="Month",
+                                var_name="Disease",
+                                value_name="Records",
                             )
-
-                        else:
-
-                            long_df = pd.DataFrame(
-                                columns=[
-                                    "Month",
-                                    "Disease",
-                                    "Records",
-                                ]
-                            )
+                        )
 
                         show_labels_m = st.toggle(
                             "Show Data Labels",
@@ -1151,18 +1096,17 @@ def render_charts(df):
                                         "Records:Q",
                                         title="Records",
                                     ),
-                                    color=alt.Color(
-                                        "Disease:N",
-                                        legend=alt.Legend(
-                                            orient="bottom",
-                                            title="Disease",
-                                            labelLimit=0,
-                                            columns=10,
-                                            symbolSize=80,
-                                            labelFontSize=10,
-                                            rowPadding=3,
-                                        ),
-                                    ),
+                                    
+                                 color=alt.Color(
+    "Disease:N",
+    legend=alt.Legend(
+        orient="bottom",
+        title="Disease",
+        labelLimit=0,
+        columns=4,
+    ),
+),
+                                    
                                 )
                             )
 
@@ -1194,7 +1138,7 @@ def render_charts(df):
                                     lines
                                     + text_labels
                                 ).properties(
-                                    height=540
+                                    height=450
                                 )
 
                             else:
@@ -1202,16 +1146,9 @@ def render_charts(df):
                                 final_chart = (
                                     lines
                                     .properties(
-                                        height=540
+                                        height=450
                                     )
                                 )
-
-                            register_displayed_chart(
-                                chart=final_chart,
-                                title="Monthly Disease Comparison",
-                                filename="Monthly_Disease_Comparison",
-                                table_data=long_df,
-                            )
 
                             st.altair_chart(
                                 final_chart,
@@ -1655,22 +1592,6 @@ def render_charts(df):
                 use_container_width=True,
             )
 
-            reporting_table = (
-                daily_counts
-                .reset_index()
-            )
-
-            reporting_table.columns = [
-                "Reporting Date",
-                "Records",
-            ]
-
-            st.dataframe(
-                reporting_table,
-                use_container_width=True,
-                hide_index=True,
-            )
-
         else:
 
             st.info(
@@ -1776,3 +1697,4 @@ def render_charts(df):
                 "Wards",
                 "0",
             )
+
