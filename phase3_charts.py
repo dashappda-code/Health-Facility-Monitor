@@ -896,10 +896,17 @@ def render_charts(df):
                                             "Records:Q",
                                             title="Records",
                                         ),
-                                        color=alt.Color(
-                                            "Disease:N",
-                                            legend=None,
-                                        ),
+                                        
+                                       color=alt.Color(
+    "Disease:N",
+    legend=alt.Legend(
+        orient="bottom",
+        title="Disease",
+        labelLimit=0,
+        columns=4,
+    ),
+),
+                                        
                                     )
                                 )
 
@@ -1089,10 +1096,17 @@ def render_charts(df):
                                         "Records:Q",
                                         title="Records",
                                     ),
-                                    color=alt.Color(
-                                        "Disease:N",
-                                        legend=None,
-                                    ),
+                                    
+                                 color=alt.Color(
+    "Disease:N",
+    legend=alt.Legend(
+        orient="bottom",
+        title="Disease",
+        labelLimit=0,
+        columns=4,
+    ),
+),
+                                    
                                 )
                             )
 
