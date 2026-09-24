@@ -20,1293 +20,852 @@ def _clean_series(df, column):
 
     return (
         df[column]
-        .fillna("")
+        .dropna()
         .astype(str)
         .str.strip()
+        .replace("", pd.NA)
+        .dropna()
     )
-
-
-# ============================================================
-# MONTH ORDER
-# ============================================================
-
-CALENDAR_MONTHS = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-]
-
-MONTH_NUMBER_MAP = {
-    month: index
-    for index, month in enumerate(
-        CALENDAR_MONTHS,
-        start=1,
-    )
-}
 
 
 def _normalize_month(value):
-    """
-    Convert different month formats into standard Jan-Dec labels.
-    """
     if pd.isna(value):
-        return ""
-
-    text = str(value).strip().lower()
-
-    if text in {"january", "jan", "1", "01"}:
-        return "Jan"
-    if text in {"february", "feb", "2", "02"}:
-        return "Feb"
-    if text in {"march", "mar", "3", "03"}:
-        return "Mar"
-    if text in {"april", "apr", "4", "04"}:
-        return "Apr"
-    if text in {"may", "5", "05"}:
-        return "May"
-    if text in {"june", "jun", "6", "06"}:
-        return "Jun"
-    if text in {"july", "jul", "7", "07"}:
-        return "Jul"
-    if text in {"august", "aug", "8", "08"}:
-        return "Aug"
-    if text in {"september", "sep", "sept", "9", "09"}:
-        return "Sep"
-    if text in {"october", "oct", "10"}:
-        return "Oct"
-    if text in {"november", "nov", "11"}:
-        return "Nov"
-    if text in {"december", "dec", "12"}:
-        return "Dec"
-
-    return text
-
-
-# ============================================================
-# YEAR NORMALIZATION
-# ============================================================
-
-def _normalize_year(value):
-    """
-    Convert different year formats into a numeric year.
-    """
-    if value is None:
-        return ""
-
-    try:
-        if pd.isna(value):
-            return ""
-    except Exception:
-        return ""
+        return None
 
     text = str(value).strip()
 
-    if not text:
-        return ""
+    month_map = {
+        "1": "Jan",
+        "01": "Jan",
+        "jan": "Jan",
+        "january": "Jan",
 
-    # Direct numeric year
+        "2": "Feb",
+        "02": "Feb",
+        "feb": "Feb",
+        "february": "Feb",
+
+        "3": "Mar",
+        "03": "Mar",
+        "mar": "Mar",
+        "march": "Mar",
+
+        "4": "Apr",
+        "04": "Apr",
+        "apr": "Apr",
+        "april": "Apr",
+
+        "5": "May",
+        "05": "May",
+        "may": "May",
+
+        "6": "Jun",
+        "06": "Jun",
+        "jun": "Jun",
+        "june": "Jun",
+
+        "7": "Jul",
+        "07": "Jul",
+        "jul": "Jul",
+        "july": "Jul",
+
+        "8": "Aug",
+        "08": "Aug",
+        "aug": "Aug",
+        "august": "Aug",
+
+        "9": "Sep",
+        "09": "Sep",
+        "sep": "Sep",
+        "september": "Sep",
+
+        "10": "Oct",
+        "oct": "Oct",
+        "october": "Oct",
+
+        "11": "Nov",
+        "nov": "Nov",
+        "november": "Nov",
+
+        "12": "Dec",
+        "dec": "Dec",
+        "december": "Dec",
+    }
+
+    return month_map.get(text.lower(), text[:3].title())
+
+
+def _normalize_year(value):
+    if pd.isna(value):
+        return None
+
     try:
-        numeric = float(text)
-
-        if numeric.is_integer():
-            year = int(numeric)
-
-            if 1900 <= year <= 2100:
-                return year
-
+        return int(float(value))
     except Exception:
-        pass
-
-    # Date-like year values
-    try:
-        parsed = pd.to_datetime(
-            value,
-            errors="coerce",
-        )
-
-        if not pd.isna(parsed):
-            year = int(parsed.year)
-
-            if 1900 <= year <= 2100:
-                return year
-
-    except Exception:
-        pass
-
-    return ""
+        return str(value).strip()
 
 
-# ============================================================
-# YEAR-MONTH TIMELINE
-# ============================================================
-
-def _build_year_month_timeline(
-    data,
-    year_column="Year",
-    month_column="Month",
-    value_column="Records",
-):
+def _build_year_month_timeline(df):
     """
-    Create a complete chronological Year-Month timeline.
-    Missing months are retained with zero records.
+    Build chronological Year-Month summary.
+
+    Returns:
+        table_df
+        x_order
     """
 
-    if (
-        data is None
-        or data.empty
-        or year_column not in data.columns
-        or month_column not in data.columns
-        or value_column not in data.columns
-    ):
-        return pd.DataFrame()
+    if df is None or df.empty:
+        return pd.DataFrame(), []
 
-    temp = data.copy()
+    month_col = None
+    year_col = None
 
-    temp["Month"] = temp[month_column].apply(
-        _normalize_month
-    )
+    for col in ["Month", "month", "Month Name", "Reporting Month"]:
+        if col in df.columns:
+            month_col = col
+            break
 
-    temp["Year"] = temp[year_column].apply(
-        _normalize_year
-    )
+    for col in ["Year", "year", "Reporting Year"]:
+        if col in df.columns:
+            year_col = col
+            break
 
-    temp["Year"] = pd.to_numeric(
-        temp["Year"],
-        errors="coerce",
-    )
+    # --------------------------------------------------------
+    # Preferred route: Month + Year
+    # --------------------------------------------------------
 
-    temp = temp[
-        temp["Month"].isin(CALENDAR_MONTHS)
-        & temp["Year"].notna()
-    ].copy()
+    if month_col and year_col:
 
-    if temp.empty:
-        return pd.DataFrame()
+        temp = df[[year_col, month_col]].copy()
 
-    temp["Year"] = temp["Year"].astype(int)
+        temp["Year"] = temp[year_col].apply(_normalize_year)
+        temp["Month"] = temp[month_col].apply(_normalize_month)
 
-    temp[value_column] = pd.to_numeric(
-        temp[value_column],
-        errors="coerce",
-    ).fillna(0)
+        month_order = {
+            "Jan": 1,
+            "Feb": 2,
+            "Mar": 3,
+            "Apr": 4,
+            "May": 5,
+            "Jun": 6,
+            "Jul": 7,
+            "Aug": 8,
+            "Sep": 9,
+            "Oct": 10,
+            "Nov": 11,
+            "Dec": 12,
+        }
 
-    temp["Month Number"] = temp["Month"].map(
-        MONTH_NUMBER_MAP
-    )
+        temp["Month_No"] = temp["Month"].map(month_order)
 
-    temp = (
-        temp
-        .groupby(
-            [
-                "Year",
-                "Month",
-                "Month Number",
-            ],
-            as_index=False,
-        )[value_column]
-        .sum()
-    )
-
-    available_years = sorted(
-        temp["Year"].unique().tolist()
-    )
-
-    if not available_years:
-        return pd.DataFrame()
-
-    full_index = pd.MultiIndex.from_product(
-        [
-            available_years,
-            CALENDAR_MONTHS,
-        ],
-        names=[
-            "Year",
-            "Month",
-        ],
-    )
-
-    temp = (
-        temp[
-            [
-                "Year",
-                "Month",
-                value_column,
-            ]
-        ]
-        .set_index(
-            [
-                "Year",
-                "Month",
-            ]
+        temp = temp.dropna(
+            subset=["Year", "Month"]
         )
-        .reindex(
-            full_index,
-            fill_value=0,
+
+        if temp.empty:
+            return pd.DataFrame(), []
+
+        grouped = (
+            temp
+            .groupby(
+                ["Year", "Month", "Month_No"],
+                dropna=False
+            )
+            .size()
+            .reset_index(name="Records")
         )
-        .reset_index()
-    )
 
-    temp["Month Number"] = temp["Month"].map(
-        MONTH_NUMBER_MAP
-    )
-
-    temp[value_column] = (
-        pd.to_numeric(
-            temp[value_column],
-            errors="coerce",
+        grouped = grouped.sort_values(
+            ["Year", "Month_No"]
         )
-        .fillna(0)
-        .astype(int)
-    )
 
-    temp["Sort Date"] = pd.to_datetime(
-        dict(
-            year=temp["Year"],
-            month=temp["Month Number"],
-            day=1,
-        ),
-        errors="coerce",
-    )
-
-    temp["Month-Year"] = (
-        temp["Sort Date"]
-        .dt
-        .strftime("%b-%y")
-    )
-
-    temp = (
-        temp
-        .sort_values(
-            "Sort Date",
-            kind="stable",
+        grouped["Period"] = (
+            grouped["Year"].astype(str)
+            + " - "
+            + grouped["Month"].astype(str)
         )
-        .reset_index(drop=True)
-    )
 
-    return temp[
-        [
-            "Year",
-            "Month",
-            "Month Number",
-            "Sort Date",
-            "Month-Year",
-            value_column,
-        ]
-    ]
+        return (
+            grouped[
+                [
+                    "Year",
+                    "Month",
+                    "Month_No",
+                    "Period",
+                    "Records",
+                ]
+            ].reset_index(drop=True),
+            grouped["Period"].tolist(),
+        )
+
+    # --------------------------------------------------------
+    # Fallback: Reporting Date
+    # --------------------------------------------------------
+
+    if "Reporting Date" in df.columns:
+
+        temp = df.copy()
+
+        temp["Reporting Date"] = pd.to_datetime(
+            temp["Reporting Date"],
+            errors="coerce"
+        )
+
+        temp = temp.dropna(
+            subset=["Reporting Date"]
+        )
+
+        if temp.empty:
+            return pd.DataFrame(), []
+
+        temp["Year"] = temp["Reporting Date"].dt.year
+        temp["Month_No"] = temp["Reporting Date"].dt.month
+        temp["Month"] = temp["Reporting Date"].dt.strftime("%b")
+
+        grouped = (
+            temp
+            .groupby(
+                ["Year", "Month_No", "Month"],
+                dropna=False
+            )
+            .size()
+            .reset_index(name="Records")
+        )
+
+        grouped = grouped.sort_values(
+            ["Year", "Month_No"]
+        )
+
+        grouped["Period"] = (
+            grouped["Year"].astype(str)
+            + " - "
+            + grouped["Month"].astype(str)
+        )
+
+        return (
+            grouped[
+                [
+                    "Year",
+                    "Month",
+                    "Month_No",
+                    "Period",
+                    "Records",
+                ]
+            ].reset_index(drop=True),
+            grouped["Period"].tolist(),
+        )
+
+    return pd.DataFrame(), []
 
 
-# ============================================================
-# CHART ORDER HELPERS
-# ============================================================
-
-def _apply_chronological_zwsp(label_list):
+def _apply_chronological_zwsp(value):
     """
-    Adds increasing Zero-Width Spaces to force Streamlit's
-    alphabetical sorting to match our chronological order.
+    Keeps chronological ordering while allowing
+    Altair labels to remain readable.
     """
 
-    return [
-        ("\u200b" * (i + 1)) + str(lbl)
-        for i, lbl in enumerate(label_list)
-    ]
+    if value is None:
+        return value
+
+    return str(value)
 
 
-# ============================================================
-# WARD ORDER
-# ============================================================
-
-def _sort_ward_dataframe(
-    df,
-    column="Ward",
-):
-    if (
-        df is None
-        or df.empty
-        or column not in df.columns
-    ):
+def _sort_ward_dataframe(df):
+    if df is None or df.empty:
         return df
 
     result = df.copy()
 
-    result["_ward_order"] = (
-        result[column]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-    result = (
-        result
-        .sort_values(
-            "_ward_order",
-            kind="stable",
+    if "Records" in result.columns:
+        result = result.sort_values(
+            "Records",
+            ascending=False
         )
-        .drop(
-            columns="_ward_order"
-        )
-        .reset_index(drop=True)
-    )
 
-    return result
+    return result.reset_index(drop=True)
+
+
+def _register_table_chart(
+    chart,
+    title,
+    filename,
+    table_df,
+):
+    """
+    Register chart + exact table data used for the chart.
+
+    displayed_chart_export.py reads this registration and
+    places the corresponding table underneath the chart
+    in the PDF.
+    """
+
+    try:
+        register_displayed_chart(
+            chart,
+            title=title,
+            filename=filename,
+            table_data=table_df,
+        )
+    except TypeError:
+        # Backward compatibility with older chart_helpers.py
+        register_displayed_chart(
+            chart,
+            title=title,
+            filename=filename,
+        )
 
 
 # ============================================================
-# MAIN CHART RENDERER
+# MAIN RENDER FUNCTION
 # ============================================================
 
 def render_charts(df):
 
-    # --------------------------------------------------------
-    # Reset displayed chart registry
-    # --------------------------------------------------------
-    reset_displayed_chart_registry()
-
-    st.subheader("📈 Charts & Trends")
-
     if df is None or df.empty:
-
-        st.warning(
-            "No records available for the selected filters."
+        st.info(
+            "No data available for Charts & Trends analysis."
         )
-
         return
 
-    st.caption(
-        "Month-wise, disease-wise, facility-wise and ward-wise "
-        "analysis based on the currently selected Global Dashboard Filters."
+    # Reset displayed chart registry for this page render.
+    reset_displayed_chart_registry()
+
+    st.markdown(
+        "## Charts & Trends"
     )
 
-    # ========================================================
-    # YEAR COLUMN DETECTION
-    # ========================================================
-
-    year_column = None
-
-    possible_year_columns = [
-        "Year",
-        "Reporting Year",
-        "Year of Reporting",
-    ]
-
-    for column in possible_year_columns:
-
-        if column in df.columns:
-
-            year_column = column
-            break
+    st.caption(
+        "Interactive programme trends, disease burden, "
+        "laboratory/pathogen analysis, facility and ward "
+        "distribution."
+    )
 
     # ========================================================
     # 1. MONTH-WISE PROGRAMME TREND
     # ========================================================
 
     st.markdown(
-        "### 🗓️ Month-wise Programme Trend"
+        "### 1. Month-wise Programme Trend"
     )
 
-    if "Month" in df.columns:
+    timeline_df, timeline_order = (
+        _build_year_month_timeline(df)
+    )
 
-        month_series = _clean_series(
-            df,
-            "Month",
+    if not timeline_df.empty:
+
+        chart_series = pd.Series(
+            timeline_df["Records"].values,
+            index=timeline_df["Period"].values,
         )
 
-        month_series = month_series[
-            month_series.ne("")
-            & month_series.str.lower().ne("nan")
-            & month_series.str.lower().ne("nat")
-            & month_series.str.lower().ne("none")
-        ]
+        render_line_chart(
+            chart_series,
+            use_container_width=True,
+            export_title="Month-wise Programme Trend",
+            export_filename="month_wise_programme_trend",
+        )
 
-        if not month_series.empty:
-
-            use_year_month = False
-
-            if year_column is not None:
-
-                timeline_source = pd.DataFrame(
-                    {
-                        "Year": df[year_column],
-                        "Month": df["Month"],
-                    }
-                )
-
-                timeline_source["Records"] = 1
-
-                year_month_data = (
-                    _build_year_month_timeline(
-                        timeline_source,
-                        year_column="Year",
-                        month_column="Month",
-                        value_column="Records",
-                    )
-                )
-
-                if not year_month_data.empty:
-
-                    use_year_month = True
-
-                    year_month_data = (
-                        year_month_data
-                        .sort_values(
-                            "Sort Date",
-                            kind="stable",
-                        )
-                        .reset_index(drop=True)
-                    )
-
-                    chart_labels = (
-                        _apply_chronological_zwsp(
-                            year_month_data[
-                                "Month-Year"
-                            ]
-                        )
-                    )
-
-                    chart_series = pd.Series(
-                        year_month_data[
-                            "Records"
-                        ].to_numpy(),
-                        index=pd.CategoricalIndex(
-                            chart_labels,
-                            categories=chart_labels,
-                            ordered=True,
-                            name="Month-Year",
-                        ),
-                        name="Records",
-                    )
-
-                    render_bar_chart(
-                        chart_series,
-                        use_container_width=True,
-                        export_title="Month-wise Programme Trend",
-                        export_filename="month_wise_programme_trend",
-                    )
-
-                    display_month_counts = (
-                        year_month_data[
-                            [
-                                "Month-Year",
-                                "Records",
-                            ]
-                        ].copy()
-                    )
-
-                    st.dataframe(
-                        display_month_counts,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-            # =================================================
-            # FALLBACK: MONTH-ONLY ANALYSIS
-            # =================================================
-
-            if not use_year_month:
-
-                normalized_months = (
-                    month_series.apply(
-                        _normalize_month
-                    )
-                )
-
-                month_counts = (
-                    normalized_months
-                    .value_counts()
-                    .rename_axis("Month")
-                    .reset_index(
-                        name="Records"
-                    )
-                )
-
-                month_counts = month_counts[
-                    month_counts["Month"].isin(
-                        CALENDAR_MONTHS
-                    )
-                ].copy()
-
-                month_counts["_Month_Order"] = (
-                    month_counts["Month"]
-                    .map(MONTH_NUMBER_MAP)
-                )
-
-                month_counts = (
-                    month_counts
-                    .sort_values(
-                        "_Month_Order"
-                    )
-                    .drop(
-                        columns="_Month_Order"
-                    )
-                    .reset_index(drop=True)
-                )
-
-                chart_labels = [
-                    ("\u200b" * MONTH_NUMBER_MAP[m])
-                    + m
-                    for m in month_counts["Month"]
+        _register_table_chart(
+            None,
+            "Month-wise Programme Trend",
+            "month_wise_programme_trend",
+            timeline_df[
+                [
+                    "Year",
+                    "Month",
+                    "Period",
+                    "Records",
                 ]
+            ],
+        )
 
-                chart_series = pd.Series(
-                    month_counts[
-                        "Records"
-                    ].to_numpy(),
-                    index=pd.CategoricalIndex(
-                        chart_labels,
-                        categories=chart_labels,
-                        ordered=True,
-                        name="Month",
-                    ),
-                    name="Records",
-                )
+    else:
+        st.info(
+            "Month-wise programme trend data is not available."
+        )
 
-                render_bar_chart(
-                    chart_series,
-                    use_container_width=True,
-                    export_title="Month-wise Programme Trend",
-                    export_filename="month_wise_programme_trend",
-                )
-
-                display_month_counts = (
-                    month_counts.copy()
-                )
-
-                display_month_counts["Month"] = (
-                    display_month_counts[
-                        "Month"
-                    ].astype(str)
-                )
-
-                st.dataframe(
-                    display_month_counts,
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-        else:
-
-            st.info(
-                "Month information is not available "
-                "for the selected records."
-            )
+    st.divider()
 
     # ========================================================
     # 2. MONTHLY DISEASE COMPARISON
     # ========================================================
 
-    st.divider()
-
     st.markdown(
-        "### 🦠 Monthly Disease Comparison"
+        "### 2. Monthly Disease Comparison"
     )
 
-    if (
-        "Month" in df.columns
-        and "Disease" in df.columns
-    ):
+    disease_col = None
 
-        temp_columns = [
-            "Month",
-            "Disease",
-        ]
+    for col in [
+        "Disease",
+        "Disease Name",
+        "Disease / Syndrome",
+    ]:
+        if col in df.columns:
+            disease_col = col
+            break
 
-        if year_column is not None:
-            temp_columns.append(
-                year_column
-            )
+    if disease_col:
 
-        temp = df[
-            temp_columns
-        ].copy()
-
-        temp["Month"] = _clean_series(
-            temp,
-            "Month",
+        disease_values = (
+            _clean_series(df, disease_col)
+            .value_counts()
+            .index
+            .tolist()
         )
 
-        temp["Disease"] = _clean_series(
-            temp,
-            "Disease",
-        )
+        if disease_values:
 
-        temp = temp[
-            temp["Month"].ne("")
-            & temp["Disease"].ne("")
-            & temp["Month"].str.lower().ne("nan")
-            & temp["Disease"].str.lower().ne("nan")
-            & temp["Month"].str.lower().ne("none")
-            & temp["Disease"].str.lower().ne("none")
-        ]
-
-        if not temp.empty:
-
-            temp["Month"] = (
-                temp["Month"]
-                .apply(_normalize_month)
+            st.markdown(
+                "#### Select Diseases"
             )
 
-            temp = temp[
-                temp["Month"].isin(
-                    CALENDAR_MONTHS
-                )
-            ].copy()
+            # ------------------------------------------------
+            # Compact disease selection
+            # ------------------------------------------------
 
-            if not temp.empty:
+            selected_diseases = []
 
-                use_year_month_disease = False
+            selection_columns = st.columns(4)
 
-                # ====================================================
-                # YEAR + MONTH DISEASE ANALYSIS
-                # ====================================================
+            for idx, disease in enumerate(
+                disease_values
+            ):
 
-                if year_column is not None:
+                col_idx = idx % 4
 
-                    temp["Year"] = (
-                        temp[year_column]
-                        .apply(_normalize_year)
+                with selection_columns[col_idx]:
+
+                    selected = st.checkbox(
+                        str(disease),
+                        value=True,
+                        key=(
+                            "phase3_monthly_disease_"
+                            + str(idx)
+                        ),
                     )
 
-                    temp["Year"] = pd.to_numeric(
-                        temp["Year"],
-                        errors="coerce",
-                    )
-
-                    valid_year_temp = temp[
-                        temp["Year"].notna()
-                    ].copy()
-
-                    if not valid_year_temp.empty:
-
-                        valid_year_temp["Year"] = (
-                            valid_year_temp[
-                                "Year"
-                            ].astype(int)
-                        )
-
-                        # --------------------------------------------
-                        # ALL AVAILABLE DISEASES
-                        # --------------------------------------------
-
-                        available_diseases = (
-                            valid_year_temp[
-                                "Disease"
-                            ]
-                            .dropna()
-                            .astype(str)
-                            .str.strip()
-                        )
-
-                        available_diseases = (
-                            available_diseases[
-                                available_diseases.ne("")
-                                & available_diseases.str.lower().ne("nan")
-                                & available_diseases.str.lower().ne("none")
-                            ]
-                            .drop_duplicates()
-                            .sort_values(
-                                key=lambda x: x.str.lower()
-                            )
-                            .tolist()
-                        )
-
-                        if available_diseases:
-
-                            # ----------------------------------------
-                            # DISEASE CHECKBOXES
-                            # ----------------------------------------
-
-                            st.markdown(
-                                "**Select diseases to display in the chart:**"
-                            )
-
-                            checkbox_columns = st.columns(
-                                4
-                            )
-
-                            selected_diseases = []
-
-                            for index, disease in enumerate(
-                                available_diseases
-                            ):
-
-                                checkbox_column = (
-                                    checkbox_columns[
-                                        index % 4
-                                    ]
-                                )
-
-                                checkbox_key = (
-                                    "phase3_disease_"
-                                    + str(index)
-                                    + "_"
-                                    + str(disease)
-                                )
-
-                                with checkbox_column:
-
-                                    is_selected = st.checkbox(
-                                        disease,
-                                        value=True,
-                                        key=checkbox_key,
-                                    )
-
-                                if is_selected:
-                                    selected_diseases.append(
-                                        disease
-                                    )
-
-                            # ----------------------------------------
-                            # BUILD DISEASE MONTH DATA
-                            # ----------------------------------------
-
-                            disease_month = (
-                                valid_year_temp
-                                .groupby(
-                                    [
-                                        "Year",
-                                        "Month",
-                                        "Disease",
-                                    ]
-                                )
-                                .size()
-                                .rename("Records")
-                                .reset_index()
-                            )
-
-                            available_years = sorted(
-                                valid_year_temp[
-                                    "Year"
-                                ]
-                                .unique()
-                                .tolist()
-                            )
-
-                            full_index = (
-                                pd.MultiIndex.from_product(
-                                    [
-                                        available_years,
-                                        CALENDAR_MONTHS,
-                                        available_diseases,
-                                    ],
-                                    names=[
-                                        "Year",
-                                        "Month",
-                                        "Disease",
-                                    ],
-                                )
-                            )
-
-                            disease_month = (
-                                disease_month
-                                .set_index(
-                                    [
-                                        "Year",
-                                        "Month",
-                                        "Disease",
-                                    ]
-                                )
-                                .reindex(
-                                    full_index,
-                                    fill_value=0,
-                                )
-                                .reset_index()
-                            )
-
-                            disease_month["Records"] = (
-                                pd.to_numeric(
-                                    disease_month[
-                                        "Records"
-                                    ],
-                                    errors="coerce",
-                                )
-                                .fillna(0)
-                                .astype(int)
-                            )
-
-                            disease_month["Month Number"] = (
-                                disease_month[
-                                    "Month"
-                                ].map(
-                                    MONTH_NUMBER_MAP
-                                )
-                            )
-
-                            disease_month["Sort Date"] = (
-                                pd.to_datetime(
-                                    dict(
-                                        year=disease_month[
-                                            "Year"
-                                        ],
-                                        month=disease_month[
-                                            "Month Number"
-                                        ],
-                                        day=1,
-                                    ),
-                                    errors="coerce",
-                                )
-                            )
-
-                            disease_month["Month-Year"] = (
-                                disease_month[
-                                    "Sort Date"
-                                ]
-                                .dt
-                                .strftime("%b-%y")
-                            )
-
-                            disease_month = (
-                                disease_month
-                                .sort_values(
-                                    [
-                                        "Sort Date",
-                                        "Disease",
-                                    ],
-                                    kind="stable",
-                                )
-                                .reset_index(drop=True)
-                            )
-
-                            # ----------------------------------------
-                            # CHRONOLOGICAL TIMELINE
-                            # ----------------------------------------
-
-                            timeline_order = (
-                                disease_month[
-                                    [
-                                        "Sort Date",
-                                        "Month-Year",
-                                    ]
-                                ]
-                                .drop_duplicates(
-                                    subset=[
-                                        "Month-Year"
-                                    ]
-                                )
-                                .sort_values(
-                                    "Sort Date",
-                                    kind="stable",
-                                )[
-                                    "Month-Year"
-                                ]
-                                .tolist()
-                            )
-
-                            # ----------------------------------------
-                            # FILTER CHART BY SELECTED DISEASES
-                            # ----------------------------------------
-
-                            chart_disease_month = (
-                                disease_month[
-                                    disease_month[
-                                        "Disease"
-                                    ].isin(
-                                        selected_diseases
-                                    )
-                                ].copy()
-                            )
-
-                            # ----------------------------------------
-                            # DATA LABEL TOGGLE
-                            # ----------------------------------------
-
-                            show_labels_ym = st.toggle(
-                                "Show Data Labels",
-                                value=False,
-                                key="toggle_labels_ym",
-                            )
-
-                            # ----------------------------------------
-                            # CHART
-                            # ----------------------------------------
-
-                            if not chart_disease_month.empty:
-
-                                base_chart = (
-                                    alt.Chart(
-                                        chart_disease_month
-                                    )
-                                    .encode(
-                                        x=alt.X(
-                                            "Month-Year:O",
-                                            sort=timeline_order,
-                                            title="Timeline",
-                                            axis=alt.Axis(
-                                                labelAngle=-45
-                                            ),
-                                        ),
-                                        y=alt.Y(
-                                            "Records:Q",
-                                            title="Records",
-                                        ),
-                                        color=alt.Color(
-                                            "Disease:N",
-                                            legend=alt.Legend(
-                                                orient="bottom",
-                                                title="Disease",
-                                                labelLimit=0,
-                                                columns=4,
-                                            ),
-                                        ),
-                                    )
-                                )
-
-                                lines = (
-                                    base_chart
-                                    .mark_line(
-                                        point=True
-                                    )
-                                )
-
-                                if show_labels_ym:
-
-                                    text_labels = (
-                                        base_chart
-                                        .mark_text(
-                                            align="center",
-                                            baseline="bottom",
-                                            dy=-10,
-                                            fontSize=11,
-                                        )
-                                        .encode(
-                                            text=alt.Text(
-                                                "Records:Q"
-                                            )
-                                        )
-                                    )
-
-                                    final_chart = (
-                                        lines
-                                        + text_labels
-                                    ).properties(
-                                        height=450
-                                    )
-
-                                else:
-
-                                    final_chart = (
-                                        lines
-                                        .properties(
-                                            height=450
-                                        )
-                                    )
-
-                                register_displayed_chart(
-                                    final_chart,
-                                    title="Monthly Disease Comparison",
-                                    filename="monthly_disease_comparison",
-                                )
-
-                                st.altair_chart(
-                                    final_chart,
-                                    use_container_width=True,
-                                )
-
-                            else:
-
-                                st.info(
-                                    "No diseases are selected. "
-                                    "Select at least one disease "
-                                    "to display the chart."
-                                )
-
-                            use_year_month_disease = True
-
-                # ====================================================
-                # FALLBACK: MONTH-ONLY DISEASE ANALYSIS
-                # ====================================================
-
-                if not use_year_month_disease:
-
-                    available_diseases = (
-                        temp[
-                            "Disease"
-                        ]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                    )
-
-                    available_diseases = (
-                        available_diseases[
-                            available_diseases.ne("")
-                            & available_diseases.str.lower().ne("nan")
-                            & available_diseases.str.lower().ne("none")
-                        ]
-                        .drop_duplicates()
-                        .sort_values(
-                            key=lambda x: x.str.lower()
-                        )
-                        .tolist()
-                    )
-
-                    if available_diseases:
-
-                        st.markdown(
-                            "**Select diseases to display in the chart:**"
-                        )
-
-                        checkbox_columns = st.columns(
-                            4
-                        )
-
-                        selected_diseases = []
-
-                        for index, disease in enumerate(
-                            available_diseases
-                        ):
-
-                            checkbox_column = (
-                                checkbox_columns[
-                                    index % 4
-                                ]
-                            )
-
-                            checkbox_key = (
-                                "phase3_disease_month_"
-                                + str(index)
-                                + "_"
-                                + str(disease)
-                            )
-
-                            with checkbox_column:
-
-                                is_selected = st.checkbox(
-                                    disease,
-                                    value=True,
-                                    key=checkbox_key,
-                                )
-
-                            if is_selected:
-                                selected_diseases.append(
-                                    disease
-                                )
-
-                        # --------------------------------------------
-                        # MONTH-ONLY DATA
-                        # --------------------------------------------
-
-                        cross_tab = pd.crosstab(
-                            temp["Month"],
-                            temp["Disease"],
-                        )
-
-                        cross_tab = (
-                            cross_tab
-                            .reindex(
-                                CALENDAR_MONTHS,
-                                fill_value=0,
-                            )
-                        )
-
-                        chart_diseases = [
+                    if selected:
+                        selected_diseases.append(
                             disease
-                            for disease in available_diseases
-                            if disease in selected_diseases
+                        )
+
+            # ------------------------------------------------
+            # Data labels toggle
+            # ------------------------------------------------
+
+            show_labels = st.checkbox(
+                "Show data labels",
+                value=st.session_state.get(
+                    "show_data_labels",
+                    False
+                ),
+                key="phase3_monthly_disease_labels",
+            )
+
+            # ------------------------------------------------
+            # Month detection
+            # ------------------------------------------------
+
+            month_col = None
+
+            for col in [
+                "Month",
+                "month",
+                "Month Name",
+                "Reporting Month",
+            ]:
+                if col in df.columns:
+                    month_col = col
+                    break
+
+            year_col = None
+
+            for col in [
+                "Year",
+                "year",
+                "Reporting Year",
+            ]:
+                if col in df.columns:
+                    year_col = col
+                    break
+
+            # ------------------------------------------------
+            # Build comparison table
+            # ------------------------------------------------
+
+            if selected_diseases:
+
+                temp = df[
+                    df[disease_col]
+                    .astype(str)
+                    .isin(
+                        [
+                            str(x)
+                            for x in selected_diseases
                         ]
+                    )
+                ].copy()
 
-                        long_df = (
-                            cross_tab[
-                                chart_diseases
+                if (
+                    month_col
+                    and year_col
+                ):
+
+                    temp["__Year"] = temp[
+                        year_col
+                    ].apply(
+                        _normalize_year
+                    )
+
+                    temp["__Month"] = temp[
+                        month_col
+                    ].apply(
+                        _normalize_month
+                    )
+
+                    month_order = {
+                        "Jan": 1,
+                        "Feb": 2,
+                        "Mar": 3,
+                        "Apr": 4,
+                        "May": 5,
+                        "Jun": 6,
+                        "Jul": 7,
+                        "Aug": 8,
+                        "Sep": 9,
+                        "Oct": 10,
+                        "Nov": 11,
+                        "Dec": 12,
+                    }
+
+                    temp["__Month_No"] = (
+                        temp["__Month"]
+                        .map(month_order)
+                    )
+
+                    comparison_df = (
+                        temp
+                        .dropna(
+                            subset=[
+                                "__Year",
+                                "__Month",
                             ]
-                            .reset_index()
-                            .melt(
-                                id_vars="Month",
-                                var_name="Disease",
-                                value_name="Records",
-                            )
+                        )
+                        .groupby(
+                            [
+                                "__Year",
+                                "__Month",
+                                "__Month_No",
+                                disease_col,
+                            ],
+                            dropna=False,
+                        )
+                        .size()
+                        .reset_index(
+                            name="Records"
+                        )
+                    )
+
+                    comparison_df = (
+                        comparison_df
+                        .sort_values(
+                            [
+                                "__Year",
+                                "__Month_No",
+                                disease_col,
+                            ]
+                        )
+                    )
+
+                    comparison_df[
+                        "Period"
+                    ] = (
+                        comparison_df[
+                            "__Year"
+                        ].astype(str)
+                        + " - "
+                        + comparison_df[
+                            "__Month"
+                        ].astype(str)
+                    )
+
+                    # ----------------------------------------
+                    # Altair chart
+                    # ----------------------------------------
+
+                    base = alt.Chart(
+                        comparison_df
+                    ).encode(
+                        x=alt.X(
+                            "Period:N",
+                            sort=timeline_order
+                            if timeline_order
+                            else alt.SortField(
+                                "__Month_No",
+                                order="ascending",
+                            ),
+                            title="Reporting Month",
+                            axis=alt.Axis(
+                                labelAngle=-45
+                            ),
+                        ),
+                        y=alt.Y(
+                            "Records:Q",
+                            title="Number of Records",
+                        ),
+                        color=alt.Color(
+                            f"{disease_col}:N",
+                            title="Disease",
+                            legend=alt.Legend(
+                                orient="bottom",
+
+                                # IMPORTANT:
+                                # Compact bottom legend.
+                                columns=10,
+
+                                direction="horizontal",
+
+                                labelLimit=180,
+
+                                columnPadding=8,
+
+                                rowPadding=3,
+
+                                symbolSize=90,
+
+                                titlePadding=8,
+
+                                labelFontSize=11,
+
+                                titleFontSize=12,
+                            ),
+                        ),
+                    )
+
+                    bars = base.mark_line(
+                        point=True
+                    )
+
+                    final_chart = bars
+
+                    if show_labels:
+
+                        labels = base.mark_text(
+                            dy=-8,
+                            fontSize=10,
+                        ).encode(
+                            text="Records:Q"
                         )
 
-                        show_labels_m = st.toggle(
-                            "Show Data Labels",
-                            value=False,
-                            key="toggle_labels_m",
+                        final_chart = (
+                            bars + labels
                         )
 
-                        if not long_df.empty:
+                    # ----------------------------------------
+                    # Larger chart area
+                    # ----------------------------------------
 
-                            base_chart = (
-                                alt.Chart(
-                                    long_df
-                                )
-                                .encode(
-                                    x=alt.X(
-                                        "Month:O",
-                                        sort=CALENDAR_MONTHS,
-                                        title="Month",
-                                        axis=alt.Axis(
-                                            labelAngle=-45
-                                        ),
-                                    ),
-                                    y=alt.Y(
-                                        "Records:Q",
-                                        title="Records",
-                                    ),
-                                    color=alt.Color(
-                                        "Disease:N",
-                                        legend=alt.Legend(
-                                            orient="bottom",
-                                            title="Disease",
-                                            labelLimit=0,
-                                            columns=4,
-                                        ),
-                                    ),
-                                )
-                            )
+                    final_chart = (
+                        final_chart
+                        .properties(
+                            height=560,
+                        )
+                    )
 
-                            lines = (
-                                base_chart
-                                .mark_line(
-                                    point=True
-                                )
-                            )
+                    # ----------------------------------------
+                    # Register chart + table
+                    # ----------------------------------------
 
-                            if show_labels_m:
+                    _register_table_chart(
+                        final_chart,
+                        "Monthly Disease Comparison",
+                        "monthly_disease_comparison",
+                        comparison_df[
+                            [
+                                "__Year",
+                                "__Month",
+                                "Period",
+                                disease_col,
+                                "Records",
+                            ]
+                        ].rename(
+                            columns={
+                                "__Year": "Year",
+                                "__Month": "Month",
+                                disease_col: "Disease",
+                            }
+                        ),
+                    )
 
-                                text_labels = (
-                                    base_chart
-                                    .mark_text(
-                                        align="center",
-                                        baseline="bottom",
-                                        dy=-10,
-                                        fontSize=11,
-                                    )
-                                    .encode(
-                                        text=alt.Text(
-                                            "Records:Q"
-                                        )
-                                    )
-                                )
+                    st.altair_chart(
+                        final_chart,
+                        use_container_width=True,
+                    )
 
-                                final_chart = (
-                                    lines
-                                    + text_labels
-                                ).properties(
-                                    height=450
-                                )
+                else:
 
-                            else:
+                    # ----------------------------------------
+                    # Month unavailable
+                    # ----------------------------------------
 
-                                final_chart = (
-                                    lines
-                                    .properties(
-                                        height=450
-                                    )
-                                )
+                    monthly_df = (
+                        temp
+                        .groupby(
+                            disease_col
+                        )
+                        .size()
+                        .reset_index(
+                            name="Records"
+                        )
+                        .sort_values(
+                            "Records",
+                            ascending=False,
+                        )
+                    )
 
-                            register_displayed_chart(
-                                final_chart,
-                                title="Monthly Disease Comparison",
-                                filename="monthly_disease_comparison",
-                            )
+                    chart = alt.Chart(
+                        monthly_df
+                    ).mark_bar().encode(
+                        x=alt.X(
+                            f"{disease_col}:N",
+                            sort="-y",
+                            title="Disease",
+                            axis=alt.Axis(
+                                labelAngle=-45
+                            ),
+                        ),
+                        y=alt.Y(
+                            "Records:Q",
+                            title="Number of Records",
+                        ),
+                        color=alt.Color(
+                            f"{disease_col}:N",
+                            title="Disease",
+                            legend=alt.Legend(
+                                orient="bottom",
+                                columns=10,
+                                direction="horizontal",
+                                labelLimit=180,
+                                columnPadding=8,
+                                rowPadding=3,
+                                symbolSize=90,
+                                titlePadding=8,
+                                labelFontSize=11,
+                                titleFontSize=12,
+                            ),
+                        ),
+                    )
 
-                            st.altair_chart(
-                                final_chart,
-                                use_container_width=True,
-                            )
+                    chart = chart.properties(
+                        height=560
+                    )
 
-                        else:
+                    _register_table_chart(
+                        chart,
+                        "Monthly Disease Comparison",
+                        "monthly_disease_comparison",
+                        monthly_df.rename(
+                            columns={
+                                disease_col: "Disease"
+                            }
+                        ),
+                    )
 
-                            st.info(
-                                "No diseases are selected. "
-                                "Select at least one disease "
-                                "to display the chart."
-                            )
-
-                    st.caption(
-                        "Chart displays all available diseases "
-                        "selected below the chart. Months are shown "
-                        "in calendar order from January to December."
+                    st.altair_chart(
+                        chart,
+                        use_container_width=True,
                     )
 
             else:
 
                 st.info(
-                    "Valid month information is not available "
-                    "for the selected records."
+                    "Please select at least one disease."
                 )
 
-        else:
+    else:
 
-            st.info(
-                "Disease/month information is not available "
-                "for the selected records."
-            )
+        st.info(
+            "Disease column is not available."
+        )
+
+    st.divider()
 
     # ========================================================
     # 3. DISEASE-WISE BURDEN
     # ========================================================
 
-    st.divider()
-
     st.markdown(
-        "### 🦠 Disease-wise Burden"
+        "### 3. Disease-wise Burden"
     )
 
-    if "Disease" in df.columns:
+    if disease_col:
 
-        disease_series = _clean_series(
-            df,
-            "Disease",
+        disease_burden = (
+            _clean_series(
+                df,
+                disease_col
+            )
+            .value_counts()
+            .rename_axis("Disease")
+            .reset_index(
+                name="Records"
+            )
         )
 
-        disease_series = disease_series[
-            disease_series.ne("")
-            & disease_series.str.lower().ne("nan")
-            & disease_series.str.lower().ne("none")
-        ]
+        if not disease_burden.empty:
 
-        if not disease_series.empty:
-
-            disease_counts = (
-                disease_series
-                .value_counts()
-                .head(15)
-                .rename_axis("Disease")
-                .reset_index(
-                    name="Records"
-                )
+            chart_series = pd.Series(
+                disease_burden["Records"].values,
+                index=disease_burden[
+                    "Disease"
+                ].values,
             )
 
             render_bar_chart(
-                disease_counts.set_index(
-                    "Disease"
-                )["Records"],
+                chart_series,
                 use_container_width=True,
                 export_title="Disease-wise Burden",
                 export_filename="disease_wise_burden",
             )
 
             st.dataframe(
-                disease_counts,
+                disease_burden,
                 use_container_width=True,
                 hide_index=True,
             )
 
-        else:
-
-            st.info(
-                "Disease information is not available."
+            # Register table explicitly
+            _register_table_chart(
+                None,
+                "Disease-wise Burden",
+                "disease_wise_burden",
+                disease_burden,
             )
+
+        else:
+            st.info(
+                "Disease-wise burden data is not available."
+            )
+
+    else:
+
+        st.info(
+            "Disease column is not available."
+        )
+
+    st.divider()
 
     # ========================================================
     # 4. TEST PERFORMED / PATHOGEN NAME-WISE ANALYSIS
     # ========================================================
 
-    st.divider()
-
     st.markdown(
-        "### 🧪 Test Performed / Pathogen Name-wise Analysis"
+        "### 4. Test Performed / Pathogen Name-wise Analysis"
     )
 
-    pathogen_column = None
+    pathogen_col = None
 
     possible_pathogen_columns = [
         "Test Performed Pathogen Name",
@@ -1315,457 +874,614 @@ def render_charts(df):
         "Pathogen",
     ]
 
-    for column in possible_pathogen_columns:
+    for col in possible_pathogen_columns:
 
-        if column in df.columns:
+        if col in df.columns:
 
-            pathogen_column = column
+            pathogen_col = col
             break
 
-    if pathogen_column is not None:
+    # --------------------------------------------------------
+    # Fallback combined column
+    # --------------------------------------------------------
 
-        pathogen_series = _clean_series(
-            df,
-            pathogen_column,
-        )
+    if pathogen_col is None:
 
-        pathogen_series = pathogen_series[
-            pathogen_series.ne("")
-            & pathogen_series.str.lower().ne("nan")
-            & pathogen_series.str.lower().ne("none")
-        ]
+        test_col = None
 
-        if not pathogen_series.empty:
-
-            pathogen_counts = (
-                pathogen_series
-                .value_counts()
-                .head(20)
-                .rename_axis(
-                    "Test Performed Pathogen Name"
-                )
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            render_bar_chart(
-                pathogen_counts.set_index(
-                    "Test Performed Pathogen Name"
-                )["Records"],
-                use_container_width=True,
-                export_title="Test Performed / Pathogen Name-wise Analysis",
-                export_filename="test_performed_pathogen_analysis",
-            )
-
-            st.dataframe(
-                pathogen_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        else:
-
-            st.info(
-                "Test performed / pathogen information "
-                "is not available for the selected records."
-            )
-
-    elif (
-        "Test Performed" in df.columns
-        and "Pathogen Name" in df.columns
-    ):
-
-        test_series = _clean_series(
-            df,
+        for col in [
             "Test Performed",
-        )
+            "Test",
+            "Laboratory Test",
+        ]:
 
-        pathogen_series = _clean_series(
-            df,
+            if col in df.columns:
+
+                test_col = col
+                break
+
+        pathogen_name_col = None
+
+        for col in [
             "Pathogen Name",
-        )
+            "Pathogen",
+        ]:
 
-        combined = (
-            test_series
-            + " - "
-            + pathogen_series
-        )
+            if col in df.columns:
 
-        combined = combined[
-            test_series.ne("")
-            | pathogen_series.ne("")
-        ]
+                pathogen_name_col = col
+                break
 
-        combined = combined[
-            combined.str.strip().ne("")
-        ]
+        if (
+            test_col
+            and pathogen_name_col
+        ):
 
-        if not combined.empty:
+            temp_pathogen = df.copy()
 
-            pathogen_counts = (
-                combined
+            temp_pathogen[
+                "__Test_Pathogen"
+            ] = (
+                temp_pathogen[
+                    test_col
+                ].fillna("")
+                .astype(str)
+                .str.strip()
+                + " | "
+                + temp_pathogen[
+                    pathogen_name_col
+                ].fillna("")
+                .astype(str)
+                .str.strip()
+            )
+
+            temp_pathogen[
+                "__Test_Pathogen"
+            ] = (
+                temp_pathogen[
+                    "__Test_Pathogen"
+                ]
+                .str.strip(" |")
+            )
+
+            pathogen_table = (
+                temp_pathogen[
+                    "__Test_Pathogen"
+                ]
+                .replace(
+                    "",
+                    pd.NA
+                )
+                .dropna()
                 .value_counts()
-                .head(20)
                 .rename_axis(
-                    "Test Performed Pathogen Name"
+                    "Test / Pathogen"
                 )
                 .reset_index(
                     name="Records"
                 )
             )
 
-            render_bar_chart(
-                pathogen_counts.set_index(
-                    "Test Performed Pathogen Name"
-                )["Records"],
-                use_container_width=True,
-                export_title="Test Performed / Pathogen Name-wise Analysis",
-                export_filename="test_performed_pathogen_analysis",
-            )
-
-            st.dataframe(
-                pathogen_counts,
-                use_container_width=True,
-                hide_index=True,
-            )
-
         else:
 
-            st.info(
-                "Test performed / pathogen information "
-                "is not available for the selected records."
+            pathogen_table = pd.DataFrame()
+
+    else:
+
+        pathogen_table = (
+            _clean_series(
+                df,
+                pathogen_col
             )
+            .value_counts()
+            .rename_axis(
+                "Test / Pathogen"
+            )
+            .reset_index(
+                name="Records"
+            )
+        )
+
+    if not pathogen_table.empty:
+
+        chart_series = pd.Series(
+            pathogen_table["Records"].values,
+            index=pathogen_table[
+                "Test / Pathogen"
+            ].values,
+        )
+
+        render_bar_chart(
+            chart_series,
+            use_container_width=True,
+            export_title=(
+                "Test Performed / Pathogen "
+                "Name-wise Analysis"
+            ),
+            export_filename=(
+                "test_performed_pathogen_analysis"
+            ),
+        )
+
+        st.dataframe(
+            pathogen_table,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        _register_table_chart(
+            None,
+            "Test Performed / Pathogen Name-wise Analysis",
+            "test_performed_pathogen_analysis",
+            pathogen_table,
+        )
 
     else:
 
         st.info(
-            "Test performed / pathogen fields are not "
-            "available in the current dataset."
+            "Test Performed / Pathogen Name-wise data "
+            "is not available."
         )
+
+    st.divider()
 
     # ========================================================
     # 5. FACILITY-WISE BURDEN
     # ========================================================
 
-    st.divider()
-
     st.markdown(
-        "### 🏥 Facility-wise Burden"
+        "### 5. Facility-wise Burden"
     )
 
-    if "Facility Name" in df.columns:
+    facility_col = None
 
-        facility_series = _clean_series(
-            df,
-            "Facility Name",
+    for col in [
+        "Facility Name",
+        "Facility",
+        "Health Facility",
+        "Facility_Name",
+    ]:
+
+        if col in df.columns:
+
+            facility_col = col
+            break
+
+    if facility_col:
+
+        facility_burden = (
+            _clean_series(
+                df,
+                facility_col
+            )
+            .value_counts()
+            .rename_axis(
+                "Facility"
+            )
+            .reset_index(
+                name="Records"
+            )
         )
 
-        facility_series = facility_series[
-            facility_series.ne("")
-            & facility_series.str.lower().ne("nan")
-            & facility_series.str.lower().ne("none")
-        ]
+        if not facility_burden.empty:
 
-        if not facility_series.empty:
-
-            facility_counts = (
-                facility_series
-                .value_counts()
-                .head(20)
-                .rename_axis("Facility")
-                .reset_index(
-                    name="Records"
-                )
+            chart_series = pd.Series(
+                facility_burden["Records"].values,
+                index=facility_burden[
+                    "Facility"
+                ].values,
             )
 
             render_bar_chart(
-                facility_counts.set_index(
-                    "Facility"
-                )["Records"],
+                chart_series,
                 use_container_width=True,
                 export_title="Facility-wise Burden",
                 export_filename="facility_wise_burden",
             )
 
             st.dataframe(
-                facility_counts,
+                facility_burden,
                 use_container_width=True,
                 hide_index=True,
+            )
+
+            _register_table_chart(
+                None,
+                "Facility-wise Burden",
+                "facility_wise_burden",
+                facility_burden,
             )
 
         else:
 
             st.info(
-                "Facility information is not available."
+                "Facility-wise burden data is not available."
             )
+
+    else:
+
+        st.info(
+            "Facility column is not available."
+        )
+
+    st.divider()
 
     # ========================================================
     # 6. WARD-WISE BURDEN
     # ========================================================
 
-    st.divider()
-
     st.markdown(
-        "### 📍 Ward-wise Burden"
+        "### 6. Ward-wise Burden"
     )
 
-    if "Ward Name" in df.columns:
+    ward_col = None
 
-        ward_series = _clean_series(
-            df,
-            "Ward Name",
+    for col in [
+        "Ward",
+        "Ward Name",
+        "Ward_Name",
+        "BMC Ward",
+    ]:
+
+        if col in df.columns:
+
+            ward_col = col
+            break
+
+    if ward_col:
+
+        ward_burden = (
+            _clean_series(
+                df,
+                ward_col
+            )
+            .value_counts()
+            .rename_axis(
+                "Ward"
+            )
+            .reset_index(
+                name="Records"
+            )
         )
 
-        ward_series = ward_series[
-            ward_series.ne("")
-            & ward_series.str.lower().ne("nan")
-            & ward_series.str.lower().ne("none")
-        ]
+        ward_burden = _sort_ward_dataframe(
+            ward_burden
+        )
 
-        if not ward_series.empty:
+        if not ward_burden.empty:
 
-            ward_counts = (
-                ward_series
-                .value_counts()
-                .rename_axis("Ward")
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            ward_counts = _sort_ward_dataframe(
-                ward_counts,
-                "Ward",
+            chart_series = pd.Series(
+                ward_burden["Records"].values,
+                index=ward_burden[
+                    "Ward"
+                ].values,
             )
 
             render_bar_chart(
-                ward_counts.set_index(
-                    "Ward"
-                )["Records"],
+                chart_series,
                 use_container_width=True,
                 export_title="Ward-wise Burden",
                 export_filename="ward_wise_burden",
             )
 
             st.dataframe(
-                ward_counts,
+                ward_burden,
                 use_container_width=True,
                 hide_index=True,
+            )
+
+            _register_table_chart(
+                None,
+                "Ward-wise Burden",
+                "ward_wise_burden",
+                ward_burden,
             )
 
         else:
 
             st.info(
-                "Ward information is not available."
+                "Ward-wise burden data is not available."
             )
 
-    # ========================================================
-    # 7. OPD / IPD COMPARISON
-    # ========================================================
+    else:
+
+        st.info(
+            "Ward column is not available."
+        )
 
     st.divider()
 
+    # ========================================================
+    # 7. OPD / IPD DISTRIBUTION
+    # ========================================================
+
     st.markdown(
-        "### 🏨 OPD / IPD Distribution"
+        "### 7. OPD / IPD Distribution"
     )
 
-    if "OPD/IPD" in df.columns:
+    opd_ipd_col = None
 
-        opd_series = _clean_series(
-            df,
-            "OPD/IPD",
+    for col in [
+        "OPD / IPD",
+        "OPD/IPD",
+        "OPD_IPD",
+        "OPD IPD",
+        "OPD or IPD",
+    ]:
+
+        if col in df.columns:
+
+            opd_ipd_col = col
+            break
+
+    if opd_ipd_col:
+
+        opd_ipd_table = (
+            _clean_series(
+                df,
+                opd_ipd_col
+            )
+            .value_counts()
+            .rename_axis(
+                "OPD / IPD"
+            )
+            .reset_index(
+                name="Records"
+            )
         )
 
-        opd_series = opd_series[
-            opd_series.ne("")
-            & opd_series.str.lower().ne("nan")
-            & opd_series.str.lower().ne("none")
-        ]
+        if not opd_ipd_table.empty:
 
-        if not opd_series.empty:
-
-            opd_counts = (
-                opd_series
-                .value_counts()
-                .rename_axis("OPD/IPD")
-                .reset_index(
-                    name="Records"
-                )
+            chart_series = pd.Series(
+                opd_ipd_table["Records"].values,
+                index=opd_ipd_table[
+                    "OPD / IPD"
+                ].values,
             )
 
             render_bar_chart(
-                opd_counts.set_index(
-                    "OPD/IPD"
-                )["Records"],
+                chart_series,
                 use_container_width=True,
                 export_title="OPD / IPD Distribution",
                 export_filename="opd_ipd_distribution",
             )
 
             st.dataframe(
-                opd_counts,
+                opd_ipd_table,
                 use_container_width=True,
                 hide_index=True,
+            )
+
+            _register_table_chart(
+                None,
+                "OPD / IPD Distribution",
+                "opd_ipd_distribution",
+                opd_ipd_table,
             )
 
         else:
 
             st.info(
-                "OPD/IPD information is not available."
+                "OPD / IPD data is not available."
             )
+
+    else:
+
+        st.info(
+            "OPD / IPD column is not available."
+        )
+
+    st.divider()
 
     # ========================================================
     # 8. REPORTING DATE TREND
     # ========================================================
 
-    st.divider()
-
     st.markdown(
-        "### 📅 Reporting Date Trend"
+        "### 8. Reporting Date Trend"
     )
 
     if "Reporting Date" in df.columns:
 
-        date_df = df[
-            ["Reporting Date"]
-        ].copy()
-
-        date_df["Reporting Date"] = (
-            pd.to_datetime(
-                date_df["Reporting Date"],
-                errors="coerce",
-            )
+        reporting_dates = pd.to_datetime(
+            df["Reporting Date"],
+            errors="coerce"
         )
 
-        date_df = date_df.dropna(
-            subset=["Reporting Date"]
+        reporting_dates = (
+            reporting_dates
+            .dropna()
+            .dt.date
+            .value_counts()
+            .sort_index()
         )
 
-        if not date_df.empty:
+        if not reporting_dates.empty:
 
-            daily_counts = (
-                date_df
-                .assign(
-                    Date=lambda x:
-                    x["Reporting Date"]
-                    .dt
-                    .normalize()
+            reporting_table = (
+                reporting_dates
+                .rename_axis(
+                    "Reporting Date"
                 )
-                .groupby("Date")
-                .size()
-                .rename("Records")
+                .reset_index(
+                    name="Records"
+                )
+            )
+
+            reporting_table[
+                "Reporting Date"
+            ] = pd.to_datetime(
+                reporting_table[
+                    "Reporting Date"
+                ]
+            ).dt.strftime(
+                "%Y-%m-%d"
+            )
+
+            chart_series = pd.Series(
+                reporting_table["Records"].values,
+                index=reporting_table[
+                    "Reporting Date"
+                ].values,
             )
 
             render_line_chart(
-                daily_counts,
+                chart_series,
                 use_container_width=True,
                 export_title="Reporting Date Trend",
                 export_filename="reporting_date_trend",
             )
 
+            st.dataframe(
+                reporting_table,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            _register_table_chart(
+                None,
+                "Reporting Date Trend",
+                "reporting_date_trend",
+                reporting_table,
+            )
+
         else:
 
             st.info(
-                "Valid reporting dates are not available."
+                "Reporting Date trend data is not available."
             )
+
+    else:
+
+        st.info(
+            "Reporting Date column is not available."
+        )
+
+    st.divider()
 
     # ========================================================
     # 9. TREND SUMMARY
     # ========================================================
 
-    st.divider()
-
     st.markdown(
-        "### 📌 Trend Summary"
+        "### 9. Trend Summary"
     )
 
-    summary_columns = st.columns(4)
+    summary_items = []
 
-    with summary_columns[0]:
+    # --------------------------------------------------------
+    # Total records
+    # --------------------------------------------------------
 
-        st.metric(
-            "Records Analysed",
-            f"{len(df):,}",
+    summary_items.append(
+        {
+            "Metric": "Total Records",
+            "Value": len(df),
+        }
+    )
+
+    # --------------------------------------------------------
+    # Diseases
+    # --------------------------------------------------------
+
+    if disease_col:
+
+        summary_items.append(
+            {
+                "Metric": "Unique Diseases",
+                "Value": int(
+                    _clean_series(
+                        df,
+                        disease_col
+                    ).nunique()
+                ),
+            }
         )
 
-    with summary_columns[1]:
+    # --------------------------------------------------------
+    # Facilities
+    # --------------------------------------------------------
 
-        if "Disease" in df.columns:
+    if facility_col:
 
-            disease_count = _clean_series(
-                df,
-                "Disease",
+        summary_items.append(
+            {
+                "Metric": "Unique Facilities",
+                "Value": int(
+                    _clean_series(
+                        df,
+                        facility_col
+                    ).nunique()
+                ),
+            }
+        )
+
+    # --------------------------------------------------------
+    # Wards
+    # --------------------------------------------------------
+
+    if ward_col:
+
+        summary_items.append(
+            {
+                "Metric": "Unique Wards",
+                "Value": int(
+                    _clean_series(
+                        df,
+                        ward_col
+                    ).nunique()
+                ),
+            }
+        )
+
+    # --------------------------------------------------------
+    # Reporting period
+    # --------------------------------------------------------
+
+    if "Reporting Date" in df.columns:
+
+        dates = pd.to_datetime(
+            df["Reporting Date"],
+            errors="coerce"
+        ).dropna()
+
+        if not dates.empty:
+
+            summary_items.append(
+                {
+                    "Metric": "Reporting Period",
+                    "Value": (
+                        dates.min().strftime(
+                            "%d-%b-%Y"
+                        )
+                        + " to "
+                        + dates.max().strftime(
+                            "%d-%b-%Y"
+                        )
+                    ),
+                }
             )
 
-            disease_count = disease_count[
-                disease_count.ne("")
-                & disease_count.str.lower().ne("nan")
-                & disease_count.str.lower().ne("none")
-            ]
+    summary_df = pd.DataFrame(
+        summary_items
+    )
 
-            st.metric(
-                "Diseases",
-                f"{disease_count.nunique():,}",
-            )
+    if not summary_df.empty:
 
-        else:
+        st.dataframe(
+            summary_df,
+            use_container_width=True,
+            hide_index=True,
+        )
 
-            st.metric(
-                "Diseases",
-                "0",
-            )
+        _register_table_chart(
+            None,
+            "Trend Summary",
+            "trend_summary",
+            summary_df,
+        )
 
-    with summary_columns[2]:
-
-        if "Facility Name" in df.columns:
-
-            facility_count = _clean_series(
-                df,
-                "Facility Name",
-            )
-
-            facility_count = facility_count[
-                facility_count.ne("")
-                & facility_count.str.lower().ne("nan")
-                & facility_count.str.lower().ne("none")
-            ]
-
-            st.metric(
-                "Facilities",
-                f"{facility_count.nunique():,}",
-            )
-
-        else:
-
-            st.metric(
-                "Facilities",
-                "0",
-            )
-
-    with summary_columns[3]:
-
-        if "Ward Name" in df.columns:
-
-            ward_count = _clean_series(
-                df,
-                "Ward Name",
-            )
-
-            ward_count = ward_count[
-                ward_count.ne("")
-                & ward_count.str.lower().ne("nan")
-                & ward_count.str.lower().ne("none")
-            ]
-
-            st.metric(
-                "Wards",
-                f"{ward_count.nunique():,}",
-            )
-
-        else:
-
-            st.metric(
-                "Wards",
-                "0",
-            )
+    st.caption(
+        "All charts and tables are based on the currently "
+        "selected global filters."
+    )
