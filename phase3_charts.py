@@ -903,7 +903,7 @@ def render_charts(df):
         orient="bottom",
         title="Disease",
         labelLimit=0,
-        columns=4,
+        columns=12,
     ),
 ),
                                         
@@ -1103,7 +1103,7 @@ def render_charts(df):
         orient="bottom",
         title="Disease",
         labelLimit=0,
-        columns=4,
+        columns=12,
     ),
 ),
                                     
@@ -1138,7 +1138,7 @@ def render_charts(df):
                                     lines
                                     + text_labels
                                 ).properties(
-                                    height=450
+                                    height=500
                                 )
 
                             else:
@@ -1146,7 +1146,7 @@ def render_charts(df):
                                 final_chart = (
                                     lines
                                     .properties(
-                                        height=450
+                                        height=500
                                     )
                                 )
 
