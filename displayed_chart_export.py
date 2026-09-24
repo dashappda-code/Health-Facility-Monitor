@@ -1,10 +1,9 @@
 import io
-import json
 import hashlib
 import zipfile
 from contextlib import contextmanager
-from datetime import datetime
 
+import pandas as pd
 import streamlit as st
 
 
@@ -13,174 +12,368 @@ import streamlit as st
 # ============================================================
 
 DISPLAYED_CHARTS_KEY = "displayed_chart_exports"
-DISPLAYED_CHART_CACHE_KEY = "displayed_chart_export_cache"
 
-DEFAULT_PDF_FILENAME = (
-    "MSU_Mumbai_Charts_Trends_Displayed_Charts.pdf"
-)
-
-DEFAULT_ZIP_FILENAME = (
-    "MSU_Mumbai_Charts_Trends_Displayed_Charts_PNG.zip"
-)
+CAPTURE_ACTIVE_KEY = "displayed_chart_capture_active"
 
 
 # ============================================================
-# OPTIONAL DEPENDENCIES
+# REGISTRY
 # ============================================================
 
-try:
-    import vl_convert as vlc
+def _ensure_registry():
 
-    VLC_AVAILABLE = True
+    if DISPLAYED_CHARTS_KEY not in st.session_state:
+        st.session_state[DISPLAYED_CHARTS_KEY] = []
 
-except Exception:
-    vlc = None
-    VLC_AVAILABLE = False
+    return st.session_state[DISPLAYED_CHARTS_KEY]
 
 
-try:
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import inch
-    from reportlab.lib.utils import ImageReader
-    from reportlab.platypus import (
-        Image,
-        PageBreak,
-        Paragraph,
-        SimpleDocTemplate,
-        Spacer,
+def clear_displayed_charts():
+
+    st.session_state[DISPLAYED_CHARTS_KEY] = []
+
+
+def get_displayed_charts():
+
+    return st.session_state.get(
+        DISPLAYED_CHARTS_KEY,
+        [],
     )
 
-    REPORTLAB_AVAILABLE = True
 
-except Exception:
-    colors = None
-    TA_LEFT = None
-    A4 = None
-    getSampleStyleSheet = None
-    inch = None
-    ImageReader = None
-    Image = None
-    PageBreak = None
-    Paragraph = None
-    SimpleDocTemplate = None
-    Spacer = None
-    REPORTLAB_AVAILABLE = False
+# ============================================================
+# CHART DATA EXTRACTION
+# ============================================================
+
+def _safe_dataframe(data):
+
+    if data is None:
+        return pd.DataFrame()
+
+    if isinstance(data, pd.DataFrame):
+        return data.copy()
+
+    if isinstance(data, pd.Series):
+
+        result = data.reset_index()
+
+        if len(result.columns) >= 2:
+
+            result.columns = [
+                str(result.columns[0]),
+                "Records",
+            ]
+
+        return result
+
+    if isinstance(data, dict):
+
+        try:
+            return pd.DataFrame(data)
+        except Exception:
+            return pd.DataFrame()
+
+    if isinstance(data, list):
+
+        try:
+            return pd.DataFrame(data)
+        except Exception:
+            return pd.DataFrame()
+
+    return pd.DataFrame()
+
+
+def _extract_chart_dataframe(chart):
+
+    """
+    Try to extract the dataframe directly from an Altair chart.
+
+    Handles:
+    - normal charts
+    - layered charts
+    - concatenated charts
+    - charts where data is stored in datasets
+    """
+
+    if chart is None:
+        return pd.DataFrame()
+
+    # --------------------------------------------------------
+    # Direct chart data
+    # --------------------------------------------------------
+
+    try:
+
+        data = getattr(chart, "data", None)
+
+        result = _safe_dataframe(data)
+
+        if not result.empty:
+            return result
+
+    except Exception:
+        pass
+
+
+    # --------------------------------------------------------
+    # Chart dictionary
+    # --------------------------------------------------------
+
+    try:
+
+        spec = chart.to_dict()
+
+    except Exception:
+
+        return pd.DataFrame()
+
+
+    # --------------------------------------------------------
+    # Direct data block
+    # --------------------------------------------------------
+
+    try:
+
+        if isinstance(spec, dict):
+
+            data_block = spec.get("data")
+
+            if isinstance(data_block, dict):
+
+                values = data_block.get("values")
+
+                if values is not None:
+
+                    result = _safe_dataframe(values)
+
+                    if not result.empty:
+                        return result
+
+    except Exception:
+        pass
+
+
+    # --------------------------------------------------------
+    # Dataset references
+    # --------------------------------------------------------
+
+    try:
+
+        datasets = spec.get("datasets", {})
+
+        if datasets:
+
+            frames = []
+
+            for dataset_name, values in datasets.items():
+
+                frame = _safe_dataframe(values)
+
+                if not frame.empty:
+
+                    frames.append(frame)
+
+            if frames:
+
+                # Usually there is one main dataset.
+                # If multiple datasets exist, combine where possible.
+                if len(frames) == 1:
+                    return frames[0]
+
+                try:
+                    return pd.concat(
+                        frames,
+                        ignore_index=True,
+                    )
+                except Exception:
+                    return frames[0]
+
+    except Exception:
+        pass
+
+
+    # --------------------------------------------------------
+    # Layered charts
+    # --------------------------------------------------------
+
+    try:
+
+        layers = spec.get("layer", [])
+
+        if layers:
+
+            for layer in layers:
+
+                if not isinstance(layer, dict):
+                    continue
+
+                layer_data = layer.get("data")
+
+                if isinstance(layer_data, dict):
+
+                    values = layer_data.get("values")
+
+                    if values is not None:
+
+                        result = _safe_dataframe(
+                            values
+                        )
+
+                        if not result.empty:
+                            return result
+
+                layer_name = layer.get("name")
+
+                if layer_name:
+                    continue
+
+    except Exception:
+        pass
+
+
+    return pd.DataFrame()
 
 
 # ============================================================
-# DISPLAYED CHART CAPTURE
+# CLEAN TABLE FOR REPORT
+# ============================================================
+
+def _prepare_report_table(data):
+
+    df = _safe_dataframe(data)
+
+    if df.empty:
+        return df
+
+    result = df.copy()
+
+    # Remove unnamed index columns
+    remove_columns = []
+
+    for column in result.columns:
+
+        text = str(column).strip().lower()
+
+        if (
+            text.startswith("unnamed:")
+            or text == "index"
+        ):
+
+            remove_columns.append(column)
+
+    if remove_columns:
+
+        result = result.drop(
+            columns=remove_columns,
+            errors="ignore",
+        )
+
+    # Convert datetime columns to readable text
+    for column in result.columns:
+
+        try:
+
+            if pd.api.types.is_datetime64_any_dtype(
+                result[column]
+            ):
+
+                result[column] = result[column].dt.strftime(
+                    "%d-%m-%Y"
+                )
+
+        except Exception:
+            pass
+
+    return result
+
+
+# ============================================================
+# CAPTURE DISPLAYED CHARTS
 # ============================================================
 
 @contextmanager
 def capture_displayed_charts():
-    """
-    Capture the exact Altair charts rendered during the
-    Charts & Trends page.
 
-    This temporarily wraps Streamlit's:
-        - st.altair_chart()
-        - st.markdown()
-
-    The original Streamlit functions are restored automatically
-    after the render is complete.
-    """
+    clear_displayed_charts()
 
     captured_charts = []
 
-    current_title = {
-        "value": "Displayed Chart"
-    }
-
     original_altair_chart = st.altair_chart
-    original_markdown = st.markdown
 
-    # --------------------------------------------------------
-    # Markdown wrapper
-    # --------------------------------------------------------
-
-    def captured_markdown(
-        body,
-        *args,
-        **kwargs,
-    ):
-        try:
-
-            if isinstance(body, str):
-
-                text = body.strip()
-
-                # Detect headings such as:
-                # ### 🦠 Monthly Disease Comparison
-                # ## Heading
-                # #### Heading
-                if text.startswith("#"):
-
-                    lines = text.splitlines()
-
-                    if lines:
-
-                        first_line = lines[0].strip()
-
-                        if (
-                            first_line.startswith("### ")
-                            or first_line.startswith("## ")
-                            or first_line.startswith("# ")
-                        ):
-
-                            heading = first_line.lstrip("#").strip()
-
-                            if heading:
-                                current_title["value"] = heading
-
-        except Exception:
-            pass
-
-        return original_markdown(
-            body,
-            *args,
-            **kwargs,
-        )
-
-    # --------------------------------------------------------
-    # Altair wrapper
-    # --------------------------------------------------------
-
-    def captured_altair_chart(
+    def wrapped_altair_chart(
         chart,
         *args,
         **kwargs,
     ):
+
         try:
 
-            title = (
-                current_title.get(
-                    "value",
-                    "Displayed Chart",
+            title = None
+
+            # ------------------------------------------------
+            # Try chart title
+            # ------------------------------------------------
+
+            try:
+
+                chart_dict = chart.to_dict()
+
+                title_block = chart_dict.get(
+                    "title"
                 )
-                or "Displayed Chart"
-            )
+
+                if isinstance(
+                    title_block,
+                    str,
+                ):
+
+                    title = title_block
+
+                elif isinstance(
+                    title_block,
+                    dict,
+                ):
+
+                    title = title_block.get(
+                        "text"
+                    )
+
+            except Exception:
+                pass
+
 
             # ------------------------------------------------
-            # Generate filename
+            # Extract chart data
             # ------------------------------------------------
 
-            filename = _safe_filename(
-                title
+            table_df = _extract_chart_dataframe(
+                chart
             )
+
+            table_df = _prepare_report_table(
+                table_df
+            )
+
 
             captured_charts.append(
                 {
                     "chart": chart,
-                    "title": title,
-                    "filename": filename,
+                    "title": title
+                    or f"Chart {len(captured_charts) + 1}",
+                    "table": table_df,
                 }
             )
 
         except Exception:
-            pass
+
+            captured_charts.append(
+                {
+                    "chart": chart,
+                    "title": f"Chart {len(captured_charts) + 1}",
+                    "table": pd.DataFrame(),
+                }
+            )
+
 
         return original_altair_chart(
             chart,
@@ -188,37 +381,24 @@ def capture_displayed_charts():
             **kwargs,
         )
 
-    # --------------------------------------------------------
-    # Activate wrappers
-    # --------------------------------------------------------
-
-    st.altair_chart = captured_altair_chart
-    st.markdown = captured_markdown
-
-    # --------------------------------------------------------
-    # Store empty registry before rendering
-    # --------------------------------------------------------
-
-    st.session_state[
-        DISPLAYED_CHARTS_KEY
-    ] = []
 
     try:
+
+        st.altair_chart = wrapped_altair_chart
+
+        st.session_state[
+            CAPTURE_ACTIVE_KEY
+        ] = True
 
         yield captured_charts
 
     finally:
 
-        # ----------------------------------------------------
-        # Restore original Streamlit functions
-        # ----------------------------------------------------
-
         st.altair_chart = original_altair_chart
-        st.markdown = original_markdown
 
-        # ----------------------------------------------------
-        # Save captured charts
-        # ----------------------------------------------------
+        st.session_state[
+            CAPTURE_ACTIVE_KEY
+        ] = False
 
         st.session_state[
             DISPLAYED_CHARTS_KEY
@@ -226,459 +406,160 @@ def capture_displayed_charts():
 
 
 # ============================================================
-# SAFE FILENAME
-# ============================================================
-
-def _safe_filename(value):
-    """
-    Convert a chart title into a safe filename.
-    """
-
-    if value is None:
-        value = "displayed_chart"
-
-    text = str(value).strip()
-
-    if not text:
-        text = "displayed_chart"
-
-    replacements = {
-        "/": "_",
-        "\\": "_",
-        ":": "_",
-        "*": "_",
-        "?": "_",
-        '"': "_",
-        "<": "_",
-        ">": "_",
-        "|": "_",
-        " ": "_",
-    }
-
-    for old, new in replacements.items():
-        text = text.replace(
-            old,
-            new,
-        )
-
-    # Remove common emoji / unusual characters
-    cleaned = []
-
-    for character in text:
-
-        if (
-            character.isalnum()
-            or character in {
-                "_",
-                "-",
-                ".",
-            }
-        ):
-            cleaned.append(character)
-
-    text = "".join(cleaned)
-
-    while "__" in text:
-        text = text.replace(
-            "__",
-            "_",
-        )
-
-    text = text.strip(
-        "_"
-    )
-
-    if not text:
-        text = "displayed_chart"
-
-    return text.lower()
-
-
-# ============================================================
-# GET DISPLAYED CHARTS
-# ============================================================
-
-def get_displayed_charts():
-    """
-    Return charts captured during the current page render.
-    """
-
-    charts = st.session_state.get(
-        DISPLAYED_CHARTS_KEY,
-        [],
-    )
-
-    if not isinstance(
-        charts,
-        list,
-    ):
-        return []
-
-    return charts
-
-
-# ============================================================
-# CHART SPECIFICATION
-# ============================================================
-
-def _prepare_vegalite_spec(chart):
-    """
-    Convert an Altair chart object into a Vega-Lite specification
-    suitable for PNG export.
-    """
-
-    if chart is None:
-        return None
-
-    if not hasattr(
-        chart,
-        "to_dict",
-    ):
-        return None
-
-    spec = chart.to_dict()
-
-    if not isinstance(
-        spec,
-        dict,
-    ):
-        return None
-
-    # --------------------------------------------------------
-    # Dashboard charts use container width.
-    #
-    # For PDF/PNG export we provide a fixed wide canvas.
-    # --------------------------------------------------------
-
-    current_width = spec.get(
-        "width"
-    )
-
-    if (
-        current_width is None
-        or current_width == "container"
-        or current_width == "step"
-    ):
-        spec["width"] = 1000
-
-    return spec
-
-
-# ============================================================
-# CHART PNG CONVERSION
+# ALTair -> PNG
 # ============================================================
 
 def _chart_to_png(chart):
-    """
-    Convert an Altair chart to a high-resolution PNG.
-    """
-
-    if not VLC_AVAILABLE:
-
-        raise RuntimeError(
-            "vl-convert-python is not installed. "
-            "Please add 'vl-convert-python' to requirements.txt "
-            "and redeploy the Streamlit app."
-        )
-
-    spec = _prepare_vegalite_spec(
-        chart
-    )
-
-    if spec is None:
-
-        raise RuntimeError(
-            "The displayed chart could not be converted "
-            "to a Vega-Lite specification."
-        )
 
     try:
 
-        png_bytes = vlc.vegalite_to_png(
-            spec,
-            scale=2,
-        )
+        import vl_convert as vlc
 
-    except Exception as exc:
+    except ImportError as e:
 
-        raise RuntimeError(
-            "Could not convert the displayed Altair chart "
-            f"to PNG: {exc}"
-        ) from exc
+        raise ImportError(
+            "vl-convert-python is required for "
+            "displayed chart PNG/PDF export."
+        ) from e
 
-    if not png_bytes:
 
-        raise RuntimeError(
-            "The chart conversion returned an empty PNG."
-        )
+    spec = chart.to_dict()
+
+    png_bytes = vlc.vegalite_to_png(
+        spec,
+        scale=2,
+    )
 
     return png_bytes
 
 
 # ============================================================
-# CHART FINGERPRINT
+# FINGERPRINT
 # ============================================================
 
-def _chart_fingerprint(
-    chart,
-    title,
+def _make_fingerprint(
+    charts,
+    filter_summary="",
 ):
-    """
-    Create a stable fingerprint for the displayed chart.
 
-    This allows the export to be reused when the dashboard
-    reruns without changing the displayed chart.
-    """
+    pieces = [
+        str(filter_summary)
+    ]
 
-    spec = _prepare_vegalite_spec(
-        chart
+    for item in charts:
+
+        chart = item.get("chart")
+
+        try:
+
+            spec = chart.to_dict()
+
+            pieces.append(
+                repr(spec)
+            )
+
+        except Exception:
+
+            pieces.append(
+                str(chart)
+            )
+
+
+        table = item.get("table")
+
+        if isinstance(
+            table,
+            pd.DataFrame,
+        ):
+
+            try:
+
+                pieces.append(
+                    table.to_csv(
+                        index=False
+                    )
+                )
+
+            except Exception:
+                pass
+
+
+    raw = "\n".join(
+        pieces
+    ).encode(
+        "utf-8",
+        errors="ignore",
     )
 
-    if spec is None:
-        spec = {}
-
-    try:
-
-        serialized = json.dumps(
-            spec,
-            sort_keys=True,
-            default=str,
-        )
-
-    except Exception:
-
-        serialized = str(
-            spec
-        )
-
-    payload = (
-        str(title)
-        + "|"
-        + serialized
-    )
-
-    return hashlib.sha256(
-        payload.encode(
-            "utf-8"
-        )
+    return hashlib.md5(
+        raw
     ).hexdigest()
 
 
 # ============================================================
-# CREATE PNG FILES
+# PDF HELPERS
 # ============================================================
 
-def _create_chart_png_files(
+def _build_pdf(
     charts,
+    filter_summary="",
 ):
-    """
-    Convert all displayed charts into PNG files.
 
-    Returns:
-        list of dictionaries:
-        [
-            {
-                "title": ...,
-                "filename": ...,
-                "png": bytes,
-            }
-        ]
-    """
+    try:
 
-    if not charts:
-        return []
-
-    results = []
-
-    for index, item in enumerate(
-        charts,
-        start=1,
-    ):
-
-        chart = item.get(
-            "chart"
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            Image,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+            PageBreak,
         )
 
-        title = item.get(
-            "title",
-            f"Displayed Chart {index}",
-        )
+    except ImportError as e:
 
-        filename = item.get(
-            "filename"
-        )
-
-        if not filename:
-
-            filename = _safe_filename(
-                title
-            )
-
-        png_bytes = _chart_to_png(
-            chart
-        )
-
-        results.append(
-            {
-                "title": title,
-                "filename": (
-                    f"{index:02d}_{filename}.png"
-                ),
-                "png": png_bytes,
-            }
-        )
-
-    return results
+        raise ImportError(
+            "reportlab is required for PDF export."
+        ) from e
 
 
-# ============================================================
-# CREATE ZIP
-# ============================================================
-
-def _create_png_zip(
-    png_files,
-):
-    """
-    Create ZIP archive containing all displayed chart PNGs.
-    """
-
-    output = io.BytesIO()
-
-    with zipfile.ZipFile(
-        output,
-        mode="w",
-        compression=zipfile.ZIP_DEFLATED,
-    ) as archive:
-
-        for item in png_files:
-
-            archive.writestr(
-                item["filename"],
-                item["png"],
-            )
-
-    output.seek(0)
-
-    return output.getvalue()
+    buffer = io.BytesIO()
 
 
-# ============================================================
-# PDF PAGE FOOTER
-# ============================================================
-
-def _draw_pdf_footer(
-    canvas,
-    doc,
-):
-    """
-    Draw footer on every PDF page.
-    """
-
-    canvas.saveState()
-
-    page_number = canvas.getPageNumber()
-
-    canvas.setFont(
-        "Helvetica",
-        8,
-    )
-
-    canvas.setFillColor(
-        colors.grey
-    )
-
-    canvas.drawString(
-        0.65 * inch,
-        0.4 * inch,
-        "MSU Mumbai Public Health Surveillance Dashboard",
-    )
-
-    canvas.drawRightString(
-        7.85 * inch,
-        0.4 * inch,
-        f"Page {page_number}",
-    )
-
-    canvas.restoreState()
-
-
-# ============================================================
-# CREATE PDF
-# ============================================================
-
-def _create_pdf(
-    png_files,
-    filter_summary="All records",
-):
-    """
-    Create a PDF containing the same displayed chart images
-    captured from the dashboard.
-    """
-
-    if not REPORTLAB_AVAILABLE:
-
-        raise RuntimeError(
-            "ReportLab is not available. "
-            "Please ensure the 'reportlab' package is installed."
-        )
-
-    if not png_files:
-
-        raise RuntimeError(
-            "No displayed charts are available for PDF export."
-        )
-
-    output = io.BytesIO()
-
-    document = SimpleDocTemplate(
-        output,
+    doc = SimpleDocTemplate(
+        buffer,
         pagesize=A4,
-        rightMargin=0.55 * inch,
-        leftMargin=0.55 * inch,
-        topMargin=0.55 * inch,
-        bottomMargin=0.65 * inch,
-        title=(
-            "MSU Mumbai Charts & Trends "
-            "Displayed Charts Export"
-        ),
-        author=(
-            "MSU Mumbai Public Health "
-            "Surveillance Dashboard"
-        ),
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
     )
+
 
     styles = getSampleStyleSheet()
 
+
     title_style = styles["Title"]
-    title_style.fontName = "Helvetica-Bold"
-    title_style.fontSize = 18
-    title_style.leading = 22
-    title_style.alignment = TA_LEFT
-    title_style.textColor = colors.HexColor(
-        "#1f2937"
-    )
+    title_style.alignment = TA_CENTER
 
-    subtitle_style = styles["Normal"]
-    subtitle_style.fontName = "Helvetica"
-    subtitle_style.fontSize = 9
-    subtitle_style.leading = 13
-    subtitle_style.textColor = colors.HexColor(
-        "#555555"
-    )
 
-    chart_title_style = styles["Heading2"]
-    chart_title_style.fontName = "Helvetica-Bold"
-    chart_title_style.fontSize = 13
-    chart_title_style.leading = 17
-    chart_title_style.textColor = colors.HexColor(
-        "#1f2937"
-    )
+    heading_style = styles["Heading2"]
+
+    body_style = styles["BodyText"]
+
 
     story = []
 
-    # --------------------------------------------------------
-    # PDF HEADER
-    # --------------------------------------------------------
+
+    # ========================================================
+    # REPORT HEADER
+    # ========================================================
 
     story.append(
         Paragraph(
@@ -690,470 +571,586 @@ def _create_pdf(
     story.append(
         Spacer(
             1,
-            0.12 * inch,
+            5 * mm,
         )
     )
+
 
     story.append(
         Paragraph(
-            "Charts & Trends — Displayed Charts Export",
-            chart_title_style,
+            "Charts & Trends — Displayed Charts Report",
+            heading_style,
         )
     )
 
-    story.append(
-        Spacer(
-            1,
-            0.08 * inch,
-        )
-    )
 
-    generated_time = datetime.now().strftime(
-        "%d %b %Y, %I:%M %p"
-    )
-
-    story.append(
-        Paragraph(
-            f"<b>Applied Filters:</b> "
-            f"{_escape_html(filter_summary)}",
-            subtitle_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"<b>Generated:</b> "
-            f"{generated_time}",
-            subtitle_style,
-        )
-    )
-
-    story.append(
-        Spacer(
-            1,
-            0.22 * inch,
-        )
-    )
-
-    # --------------------------------------------------------
-    # CHARTS
-    # --------------------------------------------------------
-
-    for index, item in enumerate(
-        png_files,
-        start=1,
-    ):
-
-        title = item.get(
-            "title",
-            f"Displayed Chart {index}",
-        )
-
-        png_bytes = item.get(
-            "png"
-        )
-
-        story.append(
-            Paragraph(
-                f"{index}. {_escape_html(title)}",
-                chart_title_style,
-            )
-        )
+    if filter_summary:
 
         story.append(
             Spacer(
                 1,
-                0.10 * inch,
+                2 * mm,
             )
         )
-
-        image_stream = io.BytesIO(
-            png_bytes
-        )
-
-        image_reader = ImageReader(
-            image_stream
-        )
-
-        image_width, image_height = (
-            image_reader.getSize()
-        )
-
-        available_width = document.width
-
-        available_height = (
-            document.height
-            - 0.65 * inch
-        )
-
-        width_scale = (
-            available_width
-            / float(image_width)
-        )
-
-        height_scale = (
-            available_height
-            / float(image_height)
-        )
-
-        scale = min(
-            width_scale,
-            height_scale,
-            1.0,
-        )
-
-        final_width = (
-            image_width * scale
-        )
-
-        final_height = (
-            image_height * scale
-        )
-
-        chart_image = Image(
-            image_stream,
-            width=final_width,
-            height=final_height,
-        )
-
-        chart_image.hAlign = "LEFT"
 
         story.append(
-            chart_image
-        )
-
-        if index < len(
-            png_files
-        ):
-
-            story.append(
-                PageBreak()
+            Paragraph(
+                f"<b>Filters:</b> "
+                f"{filter_summary}",
+                body_style,
             )
-
-    # --------------------------------------------------------
-    # BUILD PDF
-    # --------------------------------------------------------
-
-    document.build(
-        story,
-        onFirstPage=_draw_pdf_footer,
-        onLaterPages=_draw_pdf_footer,
-    )
-
-    output.seek(0)
-
-    return output.getvalue()
-
-
-# ============================================================
-# HTML ESCAPE
-# ============================================================
-
-def _escape_html(value):
-    """
-    Minimal HTML escaping for ReportLab Paragraph.
-    """
-
-    if value is None:
-        return ""
-
-    text = str(value)
-
-    text = text.replace(
-        "&",
-        "&amp;",
-    )
-
-    text = text.replace(
-        "<",
-        "&lt;",
-    )
-
-    text = text.replace(
-        ">",
-        "&gt;",
-    )
-
-    return text
-
-
-# ============================================================
-# CREATE EXPORTS
-# ============================================================
-
-def create_displayed_chart_exports(
-    charts,
-    filter_summary="All records",
-):
-    """
-    Create PDF and PNG ZIP exports for displayed charts.
-
-    Returns:
-        {
-            "pdf": bytes,
-            "zip": bytes,
-            "png_files": list,
-        }
-    """
-
-    if not charts:
-
-        raise RuntimeError(
-            "No displayed charts are available."
         )
 
-    png_files = _create_chart_png_files(
-        charts
-    )
 
-    pdf_bytes = _create_pdf(
-        png_files,
-        filter_summary=filter_summary,
-    )
-
-    zip_bytes = _create_png_zip(
-        png_files
-    )
-
-    return {
-        "pdf": pdf_bytes,
-        "zip": zip_bytes,
-        "png_files": png_files,
-    }
-
-
-# ============================================================
-# EXPORT CACHE
-# ============================================================
-
-def _build_export_fingerprint(
-    charts,
-    filter_summary,
-):
-    """
-    Build fingerprint for the complete displayed chart set.
-    """
-
-    parts = [
-        str(
-            filter_summary
+    story.append(
+        Spacer(
+            1,
+            7 * mm,
         )
-    ]
+    )
 
-    for item in charts:
+
+    # ========================================================
+    # CHARTS
+    # ========================================================
+
+    for index, item in enumerate(
+        charts,
+        start=1,
+    ):
 
         chart = item.get(
             "chart"
         )
 
         title = item.get(
-            "title",
-            "Displayed Chart",
-        )
+            "title"
+        ) or f"Chart {index}"
 
-        parts.append(
-            _chart_fingerprint(
-                chart,
-                title,
+
+        # ----------------------------------------------------
+        # Chart title
+        # ----------------------------------------------------
+
+        story.append(
+            Paragraph(
+                f"{index}. {title}",
+                heading_style,
             )
         )
 
-    payload = "|".join(
-        parts
+        story.append(
+            Spacer(
+                1,
+                2 * mm,
+            )
+        )
+
+
+        # ----------------------------------------------------
+        # Chart image
+        # ----------------------------------------------------
+
+        try:
+
+            png_bytes = _chart_to_png(
+                chart
+            )
+
+            image_buffer = io.BytesIO(
+                png_bytes
+            )
+
+            image = Image(
+                image_buffer,
+            )
+
+            # Fit landscape-ish chart into A4 width
+            image.drawWidth = 180 * mm
+            image.drawHeight = 90 * mm
+
+            story.append(
+                image
+            )
+
+            story.append(
+                Spacer(
+                    1,
+                    4 * mm,
+                )
+            )
+
+        except Exception as e:
+
+            story.append(
+                Paragraph(
+                    f"Chart image could not be rendered: {e}",
+                    body_style,
+                )
+            )
+
+
+        # ----------------------------------------------------
+        # TABLE
+        # ----------------------------------------------------
+
+        table_df = item.get(
+            "table"
+        )
+
+
+        if (
+            isinstance(
+                table_df,
+                pd.DataFrame,
+            )
+            and not table_df.empty
+        ):
+
+            story.append(
+                Paragraph(
+                    "<b>Data Table</b>",
+                    body_style,
+                )
+            )
+
+            story.append(
+                Spacer(
+                    1,
+                    2 * mm,
+                )
+            )
+
+
+            display_df = table_df.copy()
+
+
+            # Avoid extremely wide tables
+            if len(display_df.columns) > 12:
+
+                display_df = display_df.iloc[
+                    :,
+                    :12,
+                ]
+
+
+            # Limit very large chart tables
+            if len(display_df) > 100:
+
+                display_df = display_df.head(
+                    100
+                )
+
+
+            headers = [
+                str(column)
+                for column in display_df.columns
+            ]
+
+
+            table_data = [
+                headers
+            ]
+
+
+            for _, row in display_df.iterrows():
+
+                values = []
+
+                for value in row:
+
+                    if pd.isna(value):
+
+                        values.append("")
+
+                    elif isinstance(
+                        value,
+                        float,
+                    ):
+
+                        if value.is_integer():
+
+                            values.append(
+                                f"{int(value):,}"
+                            )
+
+                        else:
+
+                            values.append(
+                                f"{value:,.2f}"
+                            )
+
+                    else:
+
+                        values.append(
+                            str(value)
+                        )
+
+                table_data.append(
+                    values
+                )
+
+
+            report_table = Table(
+                table_data,
+                repeatRows=1,
+            )
+
+
+            report_table.setStyle(
+                TableStyle(
+                    [
+                        (
+                            "BACKGROUND",
+                            (0, 0),
+                            (-1, 0),
+                            colors.HexColor(
+                                "#E8EEF5"
+                            ),
+                        ),
+                        (
+                            "TEXTCOLOR",
+                            (0, 0),
+                            (-1, 0),
+                            colors.black,
+                        ),
+                        (
+                            "FONTNAME",
+                            (0, 0),
+                            (-1, 0),
+                            "Helvetica-Bold",
+                        ),
+                        (
+                            "FONTSIZE",
+                            (0, 0),
+                            (-1, -1),
+                            7,
+                        ),
+                        (
+                            "GRID",
+                            (0, 0),
+                            (-1, -1),
+                            0.35,
+                            colors.grey,
+                        ),
+                        (
+                            "VALIGN",
+                            (0, 0),
+                            (-1, -1),
+                            "MIDDLE",
+                        ),
+                        (
+                            "LEFTPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            3,
+                        ),
+                        (
+                            "RIGHTPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            3,
+                        ),
+                        (
+                            "TOPPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            3,
+                        ),
+                        (
+                            "BOTTOMPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            3,
+                        ),
+                    ]
+                )
+            )
+
+
+            story.append(
+                report_table
+            )
+
+            story.append(
+                Spacer(
+                    1,
+                    8 * mm,
+                )
+            )
+
+        else:
+
+            story.append(
+                Paragraph(
+                    "No underlying table data available for this chart.",
+                    body_style,
+                )
+            )
+
+            story.append(
+                Spacer(
+                    1,
+                    7 * mm,
+                )
+            )
+
+
+        # ----------------------------------------------------
+        # Page break after each chart section
+        # ----------------------------------------------------
+
+        if index < len(charts):
+
+            story.append(
+                PageBreak()
+            )
+
+
+    # ========================================================
+    # BUILD PDF
+    # ========================================================
+
+    doc.build(
+        story
     )
 
-    return hashlib.sha256(
-        payload.encode(
-            "utf-8"
-        )
-    ).hexdigest()
+
+    return buffer.getvalue()
 
 
 # ============================================================
-# RENDER DOWNLOAD CONTROLS
+# PNG ZIP
+# ============================================================
+
+def _build_png_zip(charts):
+
+    output = io.BytesIO()
+
+
+    with zipfile.ZipFile(
+        output,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as archive:
+
+        for index, item in enumerate(
+            charts,
+            start=1,
+        ):
+
+            chart = item.get(
+                "chart"
+            )
+
+            title = (
+                item.get("title")
+                or f"Chart {index}"
+            )
+
+
+            safe_title = (
+                str(title)
+                .strip()
+                .replace(
+                    "/",
+                    "_",
+                )
+                .replace(
+                    "\\",
+                    "_",
+                )
+                .replace(
+                    ":",
+                    "_",
+                )
+                .replace(
+                    " ",
+                    "_",
+                )
+            )
+
+
+            try:
+
+                png_bytes = _chart_to_png(
+                    chart
+                )
+
+                archive.writestr(
+                    f"{index:02d}_{safe_title}.png",
+                    png_bytes,
+                )
+
+            except Exception:
+
+                continue
+
+
+    return output.getvalue()
+
+
+# ============================================================
+# DOWNLOAD CONTROLS
 # ============================================================
 
 def render_displayed_chart_download_controls(
-    filter_summary="All records",
-    base_filename="MSU_Mumbai_Charts_Trends_Displayed_Charts",
+    filter_summary="",
+    base_filename="MSU_Mumbai_Displayed_Charts",
 ):
-    """
-    Render PDF and PNG download controls for the charts that
-    were actually displayed on the Charts & Trends page.
-    """
 
     charts = get_displayed_charts()
 
-    st.markdown(
-        "### 📥 Download Displayed Charts"
+
+    st.subheader(
+        "📊 Displayed Charts Report"
     )
+
 
     if not charts:
 
         st.info(
-            "No charts are currently available "
-            "for displayed-chart export."
+            "No displayed charts were captured on this page."
         )
 
         return
+
 
     st.caption(
-        f"{len(charts)} displayed chart(s) are available "
-        "for export. The export uses the same Altair chart "
-        "objects rendered on the dashboard."
+        f"{len(charts)} displayed chart(s) captured. "
+        "The PDF includes each chart followed by its data table."
     )
 
-    # --------------------------------------------------------
-    # Dependency check
-    # --------------------------------------------------------
 
-    if not VLC_AVAILABLE:
-
-        st.error(
-            "Displayed chart export requires "
-            "'vl-convert-python'. "
-            "Please add it to requirements.txt and redeploy "
-            "the application."
-        )
-
-        return
-
-    if not REPORTLAB_AVAILABLE:
-
-        st.error(
-            "PDF export requires the 'reportlab' package. "
-            "Please ensure reportlab is installed."
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # Build fingerprint
-    # --------------------------------------------------------
-
-    fingerprint = _build_export_fingerprint(
+    fingerprint = _make_fingerprint(
         charts,
         filter_summary,
     )
 
-    cached = st.session_state.get(
-        DISPLAYED_CHART_CACHE_KEY
+
+    cache_key = (
+        f"displayed_chart_export_cache_{fingerprint}"
     )
 
-    # --------------------------------------------------------
-    # Reuse cached export when possible
-    # --------------------------------------------------------
 
-    if (
-        isinstance(cached, dict)
-        and cached.get(
-            "fingerprint"
-        ) == fingerprint
-        and cached.get(
-            "pdf"
-        )
-        and cached.get(
-            "zip"
-        )
-    ):
+    # ========================================================
+    # BUILD EXPORTS ONLY WHEN REQUIRED
+    # ========================================================
 
-        export_data = cached
+    if cache_key not in st.session_state:
 
-    else:
+        with st.spinner(
+            "Preparing displayed chart report..."
+        ):
 
-        try:
-
-            with st.spinner(
-                "Preparing displayed charts for download..."
-            ):
-
-                created = (
-                    create_displayed_chart_exports(
-                        charts,
-                        filter_summary=filter_summary,
-                    )
-                )
-
-            export_data = {
-                "fingerprint": fingerprint,
-                "pdf": created["pdf"],
-                "zip": created["zip"],
-                "png_files": created[
-                    "png_files"
-                ],
-            }
-
-            st.session_state[
-                DISPLAYED_CHART_CACHE_KEY
-            ] = export_data
-
-        except Exception as exc:
-
-            st.error(
-                "Displayed chart export could not be created."
+            pdf_bytes = _build_pdf(
+                charts,
+                filter_summary,
             )
 
-            st.exception(
-                exc
+            zip_bytes = _build_png_zip(
+                charts
             )
 
-            return
 
-    # --------------------------------------------------------
-    # Download buttons
-    # --------------------------------------------------------
+        st.session_state[
+            cache_key
+        ] = {
+            "pdf": pdf_bytes,
+            "zip": zip_bytes,
+        }
 
-    pdf_filename = (
-        f"{base_filename}.pdf"
-    )
 
-    zip_filename = (
-        f"{base_filename}_PNG.zip"
-    )
+    cached = st.session_state[
+        cache_key
+    ]
 
-    download_columns = st.columns(
-        2
-    )
 
-    with download_columns[0]:
+    # ========================================================
+    # DOWNLOAD BUTTONS
+    # ========================================================
+
+    col1, col2 = st.columns(2)
+
+
+    with col1:
 
         st.download_button(
-            label="📄 Download Displayed Charts PDF",
-            data=export_data["pdf"],
-            file_name=pdf_filename,
+            label=(
+                "📄 Download Displayed Charts + Tables PDF"
+            ),
+            data=cached["pdf"],
+            file_name=(
+                f"{base_filename}_with_Tables.pdf"
+            ),
             mime="application/pdf",
             use_container_width=True,
-            key="download_displayed_charts_pdf",
+            key=(
+                f"download_displayed_chart_pdf_"
+                f"{fingerprint}"
+            ),
         )
 
-    with download_columns[1]:
+
+    with col2:
 
         st.download_button(
-            label="🖼️ Download Displayed Charts PNG Images",
-            data=export_data["zip"],
-            file_name=zip_filename,
+            label=(
+                "🖼️ Download Displayed Chart PNGs"
+            ),
+            data=cached["zip"],
+            file_name=(
+                f"{base_filename}_PNG.zip"
+            ),
             mime="application/zip",
             use_container_width=True,
-            key="download_displayed_charts_png",
+            key=(
+                f"download_displayed_chart_png_"
+                f"{fingerprint}"
+            ),
         )
 
-    # --------------------------------------------------------
-    # Export contents
-    # --------------------------------------------------------
+
+    # ========================================================
+    # CONTENT SUMMARY
+    # ========================================================
 
     with st.expander(
-        "View charts included in this export",
+        "📋 Report Contents",
         expanded=False,
     ):
 
         for index, item in enumerate(
-            export_data.get(
-                "png_files",
-                [],
-            ),
+            charts,
             start=1,
         ):
 
-            st.write(
-                f"{index}. {item.get('title', 'Displayed Chart')}"
+            title = (
+                item.get("title")
+                or f"Chart {index}"
             )
+
+            table_df = item.get(
+                "table"
+            )
+
+            if (
+                isinstance(
+                    table_df,
+                    pd.DataFrame,
+                )
+                and not table_df.empty
+            ):
+
+                st.write(
+                    f"**{index}. {title}** "
+                    f"— Chart + Table "
+                    f"({len(table_df):,} rows)"
+                )
+
+            else:
+
+                st.write(
+                    f"**{index}. {title}** "
+                    "— Chart"
+                )
