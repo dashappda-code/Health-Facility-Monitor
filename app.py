@@ -320,7 +320,7 @@ c1, c2, c3, c4 = st.columns(4)
 with c1:
 
 
-st.metric(
+    st.metric(
     "Total Records",
     f"{kpis.get('total_records', len(filtered_df)):,}",
 )
