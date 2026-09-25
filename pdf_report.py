@@ -1,3 +1,4 @@
+```python
 from io import BytesIO
 from datetime import datetime
 
@@ -7,7 +8,10 @@ import matplotlib.pyplot as plt
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import (
+    getSampleStyleSheet,
+    ParagraphStyle,
+)
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -17,8 +21,13 @@ from reportlab.platypus import (
     TableStyle,
     PageBreak,
     Image,
+    KeepTogether,
 )
 
+
+# ============================================================
+# DASHBOARD BRANDING
+# ============================================================
 
 DASHBOARD_TITLE = (
     "MSU Mumbai Public Health Surveillance Dashboard"
@@ -28,6 +37,10 @@ DASHBOARD_SUBTITLE = (
     "Surveillance • Monitoring • Analysis • Management"
 )
 
+
+# ============================================================
+# GENERAL HELPERS
+# ============================================================
 
 def _safe_text(value):
     if value is None:
@@ -84,7 +97,19 @@ def _styles():
             fontName="Helvetica-Bold",
             fontSize=11,
             leading=14,
-            spaceBefore=8,
+            spaceBefore=6,
+            spaceAfter=6,
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="SectionPageTitle",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            leading=18,
+            spaceBefore=3,
             spaceAfter=6,
         )
     )
@@ -110,22 +135,46 @@ def _styles():
         )
     )
 
+    styles.add(
+        ParagraphStyle(
+            name="TableTitleCustom",
+            parent=styles["Heading3"],
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            leading=11,
+            spaceBefore=4,
+            spaceAfter=4,
+        )
+    )
+
     return styles
 
+
+# ============================================================
+# HEADER / FOOTER
+# ============================================================
 
 def _header_footer(canvas, doc):
     canvas.saveState()
 
     width, height = A4
 
-    canvas.setFont("Helvetica-Bold", 7.5)
+    canvas.setFont(
+        "Helvetica-Bold",
+        7.5,
+    )
+
     canvas.drawString(
         15 * mm,
         10 * mm,
         DASHBOARD_TITLE,
     )
 
-    canvas.setFont("Helvetica", 7)
+    canvas.setFont(
+        "Helvetica",
+        7,
+    )
+
     canvas.drawRightString(
         width - 15 * mm,
         10 * mm,
@@ -135,11 +184,20 @@ def _header_footer(canvas, doc):
     canvas.restoreState()
 
 
-def _make_table(dataframe, max_rows=50):
+# ============================================================
+# TABLE CREATION
+# ============================================================
+
+def _make_table(
+    dataframe,
+    max_rows=50,
+):
     if dataframe is None or dataframe.empty:
         return None
 
-    df = dataframe.copy().head(max_rows)
+    df = dataframe.copy().head(
+        max_rows
+    )
 
     headers = [
         _safe_text(column)
@@ -149,6 +207,7 @@ def _make_table(dataframe, max_rows=50):
     rows = [headers]
 
     for _, row in df.iterrows():
+
         rows.append(
             [
                 _safe_text(value)
@@ -156,10 +215,29 @@ def _make_table(dataframe, max_rows=50):
             ]
         )
 
+    available_width = (
+        A4[0]
+        - 30 * mm
+    )
+
+    column_count = max(
+        len(headers),
+        1,
+    )
+
+    col_width = (
+        available_width
+        / column_count
+    )
+
     table = Table(
         rows,
         repeatRows=1,
         hAlign="LEFT",
+        colWidths=[
+            col_width
+            for _ in headers
+        ],
     )
 
     table.setStyle(
@@ -169,7 +247,9 @@ def _make_table(dataframe, max_rows=50):
                     "BACKGROUND",
                     (0, 0),
                     (-1, 0),
-                    colors.HexColor("#1f4e78"),
+                    colors.HexColor(
+                        "#1f4e78"
+                    ),
                 ),
                 (
                     "TEXTCOLOR",
@@ -214,7 +294,9 @@ def _make_table(dataframe, max_rows=50):
                     (-1, -1),
                     [
                         colors.white,
-                        colors.HexColor("#f3f6f9"),
+                        colors.HexColor(
+                            "#f3f6f9"
+                        ),
                     ],
                 ),
                 (
@@ -255,13 +337,16 @@ def _add_dataframe_section(
     dataframe,
     max_rows=50,
 ):
-    if dataframe is None or dataframe.empty:
+    if (
+        dataframe is None
+        or dataframe.empty
+    ):
         return
 
     story.append(
         Paragraph(
-            title,
-            styles["SectionCustom"],
+            _safe_text(title),
+            styles["TableTitleCustom"],
         )
     )
 
@@ -272,8 +357,14 @@ def _add_dataframe_section(
 
     if table is not None:
         story.append(table)
-        story.append(Spacer(1, 6))
+        story.append(
+            Spacer(1, 7)
+        )
 
+
+# ============================================================
+# KPI TABLE
+# ============================================================
 
 def _add_kpi_table(
     story,
@@ -295,9 +386,11 @@ def _add_kpi_table(
 
         if isinstance(
             value,
-            (int, float)
+            (int, float),
         ):
-            value = _format_number(value)
+            value = _format_number(
+                value
+            )
 
         rows.append(
             [
@@ -331,7 +424,9 @@ def _add_kpi_table(
                     "BACKGROUND",
                     (0, 0),
                     (0, -1),
-                    colors.HexColor("#eaf1f7"),
+                    colors.HexColor(
+                        "#eaf1f7"
+                    ),
                 ),
                 (
                     "FONTNAME",
@@ -381,8 +476,15 @@ def _add_kpi_table(
     )
 
     story.append(table)
-    story.append(Spacer(1, 8))
 
+    story.append(
+        Spacer(1, 8)
+    )
+
+
+# ============================================================
+# CHART IMAGE CREATION
+# ============================================================
 
 def _create_chart_image(
     dataframe,
@@ -390,7 +492,10 @@ def _create_chart_image(
     y_column,
     title,
 ):
-    if dataframe is None or dataframe.empty:
+    if (
+        dataframe is None
+        or dataframe.empty
+    ):
         return None
 
     if (
@@ -415,20 +520,49 @@ def _create_chart_image(
     if temp.empty:
         return None
 
+    # Keep report readable.
     temp = temp.head(20)
 
+    x_values = (
+        temp[x_column]
+        .astype(str)
+        .tolist()
+    )
+
+    y_values = (
+        temp[y_column]
+        .tolist()
+    )
+
+    # --------------------------------------------------------
+    # Adaptive figure size
+    # --------------------------------------------------------
+
+    count = len(temp)
+
+    if count <= 6:
+        figsize = (9.0, 4.6)
+
+    elif count <= 12:
+        figsize = (9.5, 4.8)
+
+    else:
+        figsize = (10.0, 5.0)
+
     fig, ax = plt.subplots(
-        figsize=(8, 4),
+        figsize=figsize
     )
 
     ax.bar(
-        temp[x_column].astype(str),
-        temp[y_column],
+        x_values,
+        y_values,
     )
 
     ax.set_title(
-        title,
-        fontsize=10,
+        _safe_text(title),
+        fontsize=11,
+        fontweight="bold",
+        pad=10,
     )
 
     ax.tick_params(
@@ -447,6 +581,8 @@ def _create_chart_image(
         alpha=0.2,
     )
 
+    ax.set_axisbelow(True)
+
     fig.tight_layout()
 
     image_buffer = BytesIO()
@@ -454,7 +590,7 @@ def _create_chart_image(
     fig.savefig(
         image_buffer,
         format="png",
-        dpi=150,
+        dpi=170,
         bbox_inches="tight",
     )
 
@@ -462,12 +598,46 @@ def _create_chart_image(
 
     image_buffer.seek(0)
 
-    return Image(
-        image_buffer,
-        width=175 * mm,
-        height=85 * mm,
+    # --------------------------------------------------------
+    # Use almost full A4 content width
+    # while retaining chart aspect ratio.
+    # --------------------------------------------------------
+
+    available_width = (
+        A4[0]
+        - 30 * mm
     )
 
+    original_width = (
+        figsize[0]
+    )
+
+    original_height = (
+        figsize[1]
+    )
+
+    image_height = (
+        available_width
+        * original_height
+        / original_width
+    )
+
+    # Prevent an excessively tall chart.
+    image_height = min(
+        image_height,
+        92 * mm,
+    )
+
+    return Image(
+        image_buffer,
+        width=available_width,
+        height=image_height,
+    )
+
+
+# ============================================================
+# REPORT HEADER
+# ============================================================
 
 def _add_report_header(
     story,
@@ -493,8 +663,8 @@ def _add_report_header(
 
     story.append(
         Paragraph(
-            report_title,
-            styles["Heading1"],
+            _safe_text(report_title),
+            styles["SectionPageTitle"],
         )
     )
 
@@ -513,28 +683,37 @@ def _add_report_header(
     )
 
     if report_period:
+
         story.append(
             Paragraph(
                 "Reporting Period: "
-                + _safe_text(report_period),
+                + _safe_text(
+                    report_period
+                ),
                 styles["SmallCustom"],
             )
         )
 
     if filter_summary:
+
         story.append(
             Paragraph(
                 "Filter Scope: "
-                + _safe_text(filter_summary),
+                + _safe_text(
+                    filter_summary
+                ),
                 styles["SmallCustom"],
             )
         )
 
     if record_count is not None:
+
         story.append(
             Paragraph(
                 "Records in current scope: "
-                + _format_number(record_count),
+                + _format_number(
+                    record_count
+                ),
                 styles["SmallCustom"],
             )
         )
@@ -543,6 +722,10 @@ def _add_report_header(
         Spacer(1, 8)
     )
 
+
+# ============================================================
+# SINGLE PAGE PDF
+# ============================================================
 
 def generate_pdf_report(
     report_title,
@@ -595,23 +778,41 @@ def generate_pdf_report(
         kpis,
     )
 
+    # --------------------------------------------------------
+    # CHARTS
+    # --------------------------------------------------------
+
     if charts:
-        for chart in charts:
+
+        for chart_index, chart in enumerate(
+            charts,
+            start=1,
+        ):
+
+            chart_title = chart.get(
+                "title",
+                f"Chart {chart_index}",
+            )
 
             chart_image = _create_chart_image(
-                chart.get("dataframe"),
-                chart.get("x_column"),
-                chart.get("y_column"),
-                chart.get("title", ""),
+                chart.get(
+                    "dataframe"
+                ),
+                chart.get(
+                    "x_column"
+                ),
+                chart.get(
+                    "y_column"
+                ),
+                chart_title,
             )
 
             if chart_image:
 
                 story.append(
                     Paragraph(
-                        chart.get(
-                            "title",
-                            "Chart",
+                        _safe_text(
+                            chart_title
                         ),
                         styles["SectionCustom"],
                     )
@@ -622,10 +823,15 @@ def generate_pdf_report(
                 )
 
                 story.append(
-                    Spacer(1, 6)
+                    Spacer(1, 8)
                 )
 
+    # --------------------------------------------------------
+    # TABLES
+    # --------------------------------------------------------
+
     if tables:
+
         for title, dataframe in tables:
 
             _add_dataframe_section(
@@ -635,7 +841,14 @@ def generate_pdf_report(
                 dataframe,
             )
 
-    if df is not None and not df.empty:
+    # --------------------------------------------------------
+    # REPORT SCOPE
+    # --------------------------------------------------------
+
+    if (
+        df is not None
+        and not df.empty
+    ):
 
         story.append(
             Paragraph(
@@ -682,6 +895,10 @@ def generate_pdf_report(
     return buffer.getvalue()
 
 
+# ============================================================
+# COMPLETE DASHBOARD PDF
+# ============================================================
+
 def generate_complete_dashboard_pdf(
     pages,
     report_period=None,
@@ -691,28 +908,17 @@ def generate_complete_dashboard_pdf(
     Generate one consolidated PDF containing
     all dashboard page reports.
 
-    Parameters
-    ----------
-    pages : list of dictionaries
+    Each dashboard section starts on a new page.
 
-        Example:
+    Expected page structure:
 
-        [
-            {
-                "title": "Overview",
-                "df": dataframe,
-                "kpis": {...},
-                "tables": [...],
-                "charts": [...],
-            },
-            ...
-        ]
-
-    report_period : str
-        Current reporting period.
-
-    filter_summary : str
-        Current dashboard filter scope.
+        {
+            "title": "Overview",
+            "df": dataframe,
+            "kpis": {...},
+            "tables": [...],
+            "charts": [...],
+        }
     """
 
     buffer = BytesIO()
@@ -735,9 +941,11 @@ def generate_complete_dashboard_pdf(
 
     story = []
 
-    # -------------------------------------------------
-    # COVER / EXECUTIVE HEADER
-    # -------------------------------------------------
+    pages = pages or []
+
+    # ========================================================
+    # COVER PAGE
+    # ========================================================
 
     story.append(
         Spacer(1, 25 * mm)
@@ -764,7 +972,7 @@ def generate_complete_dashboard_pdf(
     story.append(
         Paragraph(
             "Complete Dashboard Management Report",
-            styles["Heading1"],
+            styles["SectionPageTitle"],
         )
     )
 
@@ -787,7 +995,9 @@ def generate_complete_dashboard_pdf(
         story.append(
             Paragraph(
                 "Reporting Period: "
-                + _safe_text(report_period),
+                + _safe_text(
+                    report_period
+                ),
                 styles["SmallCustom"],
             )
         )
@@ -797,7 +1007,9 @@ def generate_complete_dashboard_pdf(
         story.append(
             Paragraph(
                 "Global Filter Scope: "
-                + _safe_text(filter_summary),
+                + _safe_text(
+                    filter_summary
+                ),
                 styles["SmallCustom"],
             )
         )
@@ -810,8 +1022,8 @@ def generate_complete_dashboard_pdf(
         Paragraph(
             "This consolidated report contains "
             "the available management outputs from "
-            "all dashboard sections under the "
-            "current Global Dashboard Control.",
+            "the dashboard sections under the current "
+            "Global Dashboard Control.",
             styles["ManagementCustom"],
         )
     )
@@ -819,6 +1031,10 @@ def generate_complete_dashboard_pdf(
     story.append(
         Spacer(1, 8)
     )
+
+    # ========================================================
+    # CONTENTS
+    # ========================================================
 
     story.append(
         Paragraph(
@@ -829,22 +1045,31 @@ def generate_complete_dashboard_pdf(
 
     page_names = []
 
-    for page in pages or []:
+    for page_index, page in enumerate(
+        pages,
+        start=1,
+    ):
 
         title = page.get(
             "title",
-            "Dashboard Section",
+            f"Dashboard Section {page_index}",
         )
 
         page_names.append(
-            [str(len(page_names) + 1), title]
+            [
+                str(page_index),
+                _safe_text(title),
+            ]
         )
 
     if page_names:
 
         contents_table = Table(
             [
-                ["No.", "Dashboard Section"]
+                [
+                    "No.",
+                    "Dashboard Section",
+                ]
             ]
             + page_names,
             colWidths=[
@@ -861,7 +1086,9 @@ def generate_complete_dashboard_pdf(
                         "BACKGROUND",
                         (0, 0),
                         (-1, 0),
-                        colors.HexColor("#1f4e78"),
+                        colors.HexColor(
+                            "#1f4e78"
+                        ),
                     ),
                     (
                         "TEXTCOLOR",
@@ -894,7 +1121,9 @@ def generate_complete_dashboard_pdf(
                         (-1, -1),
                         [
                             colors.white,
-                            colors.HexColor("#f3f6f9"),
+                            colors.HexColor(
+                                "#f3f6f9"
+                            ),
                         ],
                     ),
                     (
@@ -923,12 +1152,12 @@ def generate_complete_dashboard_pdf(
             contents_table
         )
 
-    # -------------------------------------------------
-    # EACH DASHBOARD PAGE
-    # -------------------------------------------------
+    # ========================================================
+    # EACH DASHBOARD SECTION
+    # ========================================================
 
     for page_index, page in enumerate(
-        pages or [],
+        pages,
         start=1,
     ):
 
@@ -937,13 +1166,25 @@ def generate_complete_dashboard_pdf(
             f"Dashboard Section {page_index}",
         )
 
-        df = page.get("df")
+        df = page.get(
+            "df"
+        )
 
-        kpis = page.get("kpis")
+        kpis = page.get(
+            "kpis"
+        )
 
-        tables = page.get("tables")
+        tables = page.get(
+            "tables"
+        )
 
-        charts = page.get("charts")
+        charts = page.get(
+            "charts"
+        )
+
+        # ----------------------------------------------------
+        # New page for every dashboard section
+        # ----------------------------------------------------
 
         story.append(
             PageBreak()
@@ -965,13 +1206,9 @@ def generate_complete_dashboard_pdf(
 
         story.append(
             Paragraph(
-                title,
-                styles["Heading1"],
+                _safe_text(title),
+                styles["SectionPageTitle"],
             )
-        )
-
-        story.append(
-            Spacer(1, 5)
         )
 
         story.append(
@@ -989,7 +1226,9 @@ def generate_complete_dashboard_pdf(
             story.append(
                 Paragraph(
                     "Reporting Period: "
-                    + _safe_text(report_period),
+                    + _safe_text(
+                        report_period
+                    ),
                     styles["SmallCustom"],
                 )
             )
@@ -999,7 +1238,9 @@ def generate_complete_dashboard_pdf(
             story.append(
                 Paragraph(
                     "Filter Scope: "
-                    + _safe_text(filter_summary),
+                    + _safe_text(
+                        filter_summary
+                    ),
                     styles["SmallCustom"],
                 )
             )
@@ -1009,7 +1250,9 @@ def generate_complete_dashboard_pdf(
             story.append(
                 Paragraph(
                     "Records in current scope: "
-                    + _format_number(len(df)),
+                    + _format_number(
+                        len(df)
+                    ),
                     styles["SmallCustom"],
                 )
             )
@@ -1018,33 +1261,51 @@ def generate_complete_dashboard_pdf(
             Spacer(1, 8)
         )
 
+        # ----------------------------------------------------
+        # KPI
+        # ----------------------------------------------------
+
         _add_kpi_table(
             story,
             styles,
             kpis,
         )
 
+        # ----------------------------------------------------
+        # CHARTS
+        # ----------------------------------------------------
+
         if charts:
 
-            for chart in charts:
+            for chart_index, chart in enumerate(
+                charts,
+                start=1,
+            ):
+
+                chart_title = chart.get(
+                    "title",
+                    f"Chart {chart_index}",
+                )
 
                 chart_image = _create_chart_image(
-                    chart.get("dataframe"),
-                    chart.get("x_column"),
-                    chart.get("y_column"),
                     chart.get(
-                        "title",
-                        "",
+                        "dataframe"
                     ),
+                    chart.get(
+                        "x_column"
+                    ),
+                    chart.get(
+                        "y_column"
+                    ),
+                    chart_title,
                 )
 
                 if chart_image:
 
                     story.append(
                         Paragraph(
-                            chart.get(
-                                "title",
-                                "Chart",
+                            _safe_text(
+                                chart_title
                             ),
                             styles["SectionCustom"],
                         )
@@ -1055,8 +1316,12 @@ def generate_complete_dashboard_pdf(
                     )
 
                     story.append(
-                        Spacer(1, 6)
+                        Spacer(1, 7)
                     )
+
+        # ----------------------------------------------------
+        # DATA / TABLES
+        # ----------------------------------------------------
 
         if tables:
 
@@ -1069,7 +1334,14 @@ def generate_complete_dashboard_pdf(
                     dataframe,
                 )
 
-        if df is not None and not df.empty:
+        # ----------------------------------------------------
+        # MANAGEMENT SCOPE
+        # ----------------------------------------------------
+
+        if (
+            df is not None
+            and not df.empty
+        ):
 
             story.append(
                 Paragraph(
@@ -1089,9 +1361,9 @@ def generate_complete_dashboard_pdf(
                 )
             )
 
-    # -------------------------------------------------
-    # FINAL PAGE NOTE
-    # -------------------------------------------------
+    # ========================================================
+    # FINAL PAGE
+    # ========================================================
 
     story.append(
         PageBreak()
@@ -1146,3 +1418,4 @@ def generate_complete_dashboard_pdf(
     buffer.seek(0)
 
     return buffer.getvalue()
+```
