@@ -463,7 +463,7 @@ def get_reporting_period(data):
     or "Reporting Date" not in data.columns
 ):
 
-    return None
+        return None
 
 dates = data[
     "Reporting Date"
