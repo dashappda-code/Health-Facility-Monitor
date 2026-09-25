@@ -1,4 +1,4 @@
-```python
+
 import io
 import html
 
@@ -2034,4 +2034,4 @@ def generate_dashboard_pdf(
         report_period=report_period,
         filter_summary=filter_summary,
     )
-```
+
