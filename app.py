@@ -151,7 +151,7 @@ st.caption(
 # ============================================================
 
 def get_data():
-return load_data()
+    return load_data()
 
 df = get_data()
 
