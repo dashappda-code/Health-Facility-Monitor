@@ -329,7 +329,7 @@ with c1:
 with c2:
 
 
-st.metric(
+    st.metric(
     "Diseases",
     f"{kpis.get('diseases', 0):,}",
 )
