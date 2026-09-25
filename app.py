@@ -279,7 +279,7 @@ key="global_filter_panel",
 ):
 
 
-filter_values = create_filters(df)
+    filter_values = create_filters(df)
 
 
 # ============================================================
