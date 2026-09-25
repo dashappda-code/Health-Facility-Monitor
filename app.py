@@ -245,7 +245,7 @@ help=(
 if show_data_labels:
 
 
-st.sidebar.success(
+    st.sidebar.success(
     "Data Labels: ON"
 )
 
