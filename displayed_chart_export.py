@@ -1,6 +1,4 @@
 import io
-import hashlib
-import zipfile
 import html
 import re
 from contextlib import contextmanager
@@ -14,19 +12,22 @@ import streamlit as st
 # ============================================================
 
 DISPLAYED_CHARTS_KEY = "displayed_chart_exports"
-CAPTURE_ACTIVE_KEY = "displayed_chart_capture_active"
 
 MAX_TABLE_ROWS = 300
 MAX_TABLE_COLUMNS = 14
 
 PDF_MARGIN_MM = 12
 
+# Normal export chart height limits
 MIN_CHART_HEIGHT_MM = 55
-MAX_CHART_HEIGHT_MM = 250
+MAX_CHART_HEIGHT_MM = 145
+
+# Special wide-chart export height
+MONTHLY_DISEASE_HEIGHT_MM = 88
 
 
 # ============================================================
-# REGISTRY HELPERS
+# REGISTRY
 # ============================================================
 
 def _get_registry():
@@ -41,34 +42,10 @@ def _clear_registry():
 
 
 # ============================================================
-# SAFE DATAFRAME
-# ============================================================
-
-def _safe_dataframe(value):
-    if isinstance(value, pd.DataFrame):
-        return value.copy()
-
-    if isinstance(value, pd.Series):
-        return value.to_frame()
-
-    if value is None:
-        return pd.DataFrame()
-
-    try:
-        return pd.DataFrame(value)
-    except Exception:
-        return pd.DataFrame()
-
-
-# ============================================================
-# TEXT CLEANING
+# TEXT HELPERS
 # ============================================================
 
 def _clean_heading_text(value):
-    """
-    Convert Streamlit heading content into a clean plain title.
-    """
-
     if value is None:
         return ""
 
@@ -80,48 +57,29 @@ def _clean_heading_text(value):
     if not text:
         return ""
 
-    # Remove common markdown heading markers
     text = re.sub(
         r"^\s*#{1,6}\s*",
         "",
         text,
     )
 
-    # Remove common divider-only content
-    if text in (
-        "---",
-        "***",
-        "___",
-    ):
-        return ""
-
     return text.strip()
 
 
 def _looks_like_heading(value):
-    """
-    Decide whether a captured markdown string looks like
-    a section heading rather than ordinary explanatory text.
-    """
-
     text = _clean_heading_text(value)
 
     if not text:
         return False
 
-    # Ignore very long paragraphs
     if len(text) > 120:
-        return False
-
-    # Ignore obvious normal text
-    if text.endswith(".") and len(text) > 45:
         return False
 
     return True
 
 
 # ============================================================
-# EXTRACT DATAFRAME FROM ALTAIR CHART
+# CHART DATA EXTRACTION
 # ============================================================
 
 def _extract_chart_dataframe(chart):
@@ -129,16 +87,17 @@ def _extract_chart_dataframe(chart):
         chart_dict = chart.to_dict()
 
         # ----------------------------------------------------
-        # Direct data
+        # Direct values
         # ----------------------------------------------------
 
         data = chart_dict.get("data")
 
         if isinstance(data, dict):
+
             values = data.get("values")
 
             if isinstance(values, list):
-                return _safe_dataframe(values)
+                return pd.DataFrame(values)
 
         # ----------------------------------------------------
         # Named datasets
@@ -147,38 +106,58 @@ def _extract_chart_dataframe(chart):
         datasets = chart_dict.get("datasets")
 
         if isinstance(datasets, dict):
+
             for _, values in datasets.items():
+
                 if isinstance(values, list):
-                    frame = _safe_dataframe(values)
+
+                    frame = pd.DataFrame(values)
 
                     if not frame.empty:
                         return frame
 
         # ----------------------------------------------------
-        # Layer
+        # Layers
         # ----------------------------------------------------
 
         layers = chart_dict.get("layer")
 
         if isinstance(layers, list):
+
             frames = []
 
             for layer in layers:
+
                 if not isinstance(layer, dict):
                     continue
 
                 layer_data = layer.get("data")
 
-                if isinstance(layer_data, dict):
-                    values = layer_data.get("values")
+                if isinstance(
+                    layer_data,
+                    dict,
+                ):
 
-                    if isinstance(values, list):
-                        frame = _safe_dataframe(values)
+                    values = layer_data.get(
+                        "values"
+                    )
+
+                    if isinstance(
+                        values,
+                        list,
+                    ):
+
+                        frame = pd.DataFrame(
+                            values
+                        )
 
                         if not frame.empty:
-                            frames.append(frame)
+                            frames.append(
+                                frame
+                            )
 
             if frames:
+
                 try:
                     return pd.concat(
                         frames,
@@ -196,27 +175,57 @@ def _extract_chart_dataframe(chart):
             "vconcat",
             "concat",
         ):
-            charts = chart_dict.get(key)
 
-            if isinstance(charts, list):
+            charts = chart_dict.get(
+                key
+            )
+
+            if isinstance(
+                charts,
+                list,
+            ):
+
                 frames = []
 
                 for child in charts:
-                    if not isinstance(child, dict):
+
+                    if not isinstance(
+                        child,
+                        dict,
+                    ):
                         continue
 
-                    child_data = child.get("data")
+                    child_data = child.get(
+                        "data"
+                    )
 
-                    if isinstance(child_data, dict):
-                        values = child_data.get("values")
+                    if isinstance(
+                        child_data,
+                        dict,
+                    ):
 
-                        if isinstance(values, list):
-                            frame = _safe_dataframe(values)
+                        values = (
+                            child_data.get(
+                                "values"
+                            )
+                        )
+
+                        if isinstance(
+                            values,
+                            list,
+                        ):
+
+                            frame = pd.DataFrame(
+                                values
+                            )
 
                             if not frame.empty:
-                                frames.append(frame)
+                                frames.append(
+                                    frame
+                                )
 
                 if frames:
+
                     try:
                         return pd.concat(
                             frames,
@@ -232,92 +241,120 @@ def _extract_chart_dataframe(chart):
 
 
 # ============================================================
-# FORMAT TABLE VALUE
+# CHART TITLE
 # ============================================================
 
-def _format_table_value(value):
-    if value is None:
-        return ""
-
+def _get_chart_title(chart):
     try:
-        if pd.isna(value):
-            return ""
+
+        chart_dict = chart.to_dict()
+
+        title = chart_dict.get(
+            "title"
+        )
+
+        if isinstance(
+            title,
+            str,
+        ):
+            return title.strip()
+
+        if isinstance(
+            title,
+            dict,
+        ):
+
+            return str(
+                title.get(
+                    "text",
+                    "",
+                )
+            ).strip()
+
     except Exception:
         pass
 
-    if isinstance(value, float):
-        if value.is_integer():
-            return str(int(value))
-
-        return f"{value:.2f}"
-
-    return str(value)
+    return ""
 
 
 # ============================================================
-# PREPARE REPORT TABLE
-# ============================================================
-
-def _prepare_report_table(df):
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    table = df.copy()
-
-    if len(table) > MAX_TABLE_ROWS:
-        table = table.head(MAX_TABLE_ROWS)
-
-    if len(table.columns) > MAX_TABLE_COLUMNS:
-        table = table.iloc[:, :MAX_TABLE_COLUMNS]
-
-    for column in table.columns:
-        try:
-            if pd.api.types.is_datetime64_any_dtype(
-                table[column]
-            ):
-                table[column] = table[column].dt.strftime(
-                    "%Y-%m-%d"
-                )
-            else:
-                table[column] = table[column].apply(
-                    _format_table_value
-                )
-        except Exception:
-            table[column] = table[column].astype(str)
-
-    return table
-
-
-# ============================================================
-# CAPTURE DISPLAYED CHARTS + SECTION HEADINGS
+# CAPTURE DISPLAYED CHARTS
 # ============================================================
 
 @contextmanager
 def capture_displayed_charts():
-    """
-    Capture:
-        - Altair charts
-        - Streamlit subheaders
-        - Markdown headings
 
-    The most recent detected section heading is attached
-    to the next displayed chart.
-    """
+    original_altair_chart = (
+        st.altair_chart
+    )
 
-    original_altair_chart = st.altair_chart
-    original_subheader = st.subheader
-    original_markdown = st.markdown
+    original_subheader = (
+        st.subheader
+    )
+
+    original_header = (
+        st.header
+    )
+
+    original_title = (
+        st.title
+    )
+
+    original_markdown = (
+        st.markdown
+    )
 
     _clear_registry()
 
-    # --------------------------------------------------------
-    # Local heading state
-    # --------------------------------------------------------
-
     heading_state = {
         "current": "",
-        "history": [],
     }
+
+    # --------------------------------------------------------
+    # Capture title
+    # --------------------------------------------------------
+
+    def _captured_title(
+        body,
+        *args,
+        **kwargs,
+    ):
+
+        text = _clean_heading_text(
+            body
+        )
+
+        if text:
+            heading_state["current"] = text
+
+        return original_title(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    # --------------------------------------------------------
+    # Capture header
+    # --------------------------------------------------------
+
+    def _captured_header(
+        body,
+        *args,
+        **kwargs,
+    ):
+
+        text = _clean_heading_text(
+            body
+        )
+
+        if text:
+            heading_state["current"] = text
+
+        return original_header(
+            body,
+            *args,
+            **kwargs,
+        )
 
     # --------------------------------------------------------
     # Capture subheader
@@ -328,15 +365,13 @@ def capture_displayed_charts():
         *args,
         **kwargs,
     ):
+
         text = _clean_heading_text(
             body
         )
 
         if text:
             heading_state["current"] = text
-            heading_state["history"].append(
-                text
-            )
 
         return original_subheader(
             body,
@@ -353,35 +388,44 @@ def capture_displayed_charts():
         *args,
         **kwargs,
     ):
-        text = ""
+
+        detected_heading = ""
 
         try:
+
             raw_text = str(body)
 
-            # Capture markdown H1-H6
             match = re.search(
                 r"(?m)^\s*#{1,6}\s+(.+?)\s*$",
                 raw_text,
             )
 
             if match:
-                candidate = match.group(1)
-                candidate = _clean_heading_text(
-                    candidate
+
+                candidate = (
+                    match.group(1)
+                )
+
+                candidate = (
+                    _clean_heading_text(
+                        candidate
+                    )
                 )
 
                 if _looks_like_heading(
                     candidate
                 ):
-                    text = candidate
+
+                    detected_heading = (
+                        candidate
+                    )
 
         except Exception:
-            text = ""
+            pass
 
-        if text:
-            heading_state["current"] = text
-            heading_state["history"].append(
-                text
+        if detected_heading:
+            heading_state["current"] = (
+                detected_heading
             )
 
         return original_markdown(
@@ -391,7 +435,7 @@ def capture_displayed_charts():
         )
 
     # --------------------------------------------------------
-    # Capture Altair
+    # Capture Altair chart
     # --------------------------------------------------------
 
     def _captured_altair_chart(
@@ -399,67 +443,29 @@ def capture_displayed_charts():
         *args,
         **kwargs,
     ):
+
         registry = _get_registry()
 
-        try:
-            chart_data = _extract_chart_dataframe(
+        chart_title = (
+            _get_chart_title(
                 chart
             )
-        except Exception:
-            chart_data = pd.DataFrame()
+        )
 
-        chart_title = ""
-
-        try:
-            chart_dict = chart.to_dict()
-
-            title_data = chart_dict.get(
-                "title"
+        chart_data = (
+            _extract_chart_dataframe(
+                chart
             )
-
-            if isinstance(
-                title_data,
-                str,
-            ):
-                chart_title = title_data
-
-            elif isinstance(
-                title_data,
-                dict,
-            ):
-                chart_title = str(
-                    title_data.get(
-                        "text",
-                        "",
-                    )
-                )
-
-        except Exception:
-            pass
-
-        # ----------------------------------------------------
-        # Actual dashboard section heading
-        # ----------------------------------------------------
+        )
 
         section_name = (
             heading_state["current"]
         )
 
-        # ----------------------------------------------------
-        # If there is no captured heading,
-        # fall back to Altair title.
-        # ----------------------------------------------------
-
         if not section_name:
             section_name = (
-                _clean_heading_text(
-                    chart_title
-                )
+                chart_title
             )
-
-        # ----------------------------------------------------
-        # Final fallback
-        # ----------------------------------------------------
 
         if not section_name:
             section_name = (
@@ -482,84 +488,183 @@ def capture_displayed_charts():
         )
 
     # --------------------------------------------------------
-    # Activate monkey patches
+    # Activate capture
     # --------------------------------------------------------
 
-    st.altair_chart = (
-        _captured_altair_chart
-    )
-
-    st.subheader = (
-        _captured_subheader
-    )
-
-    st.markdown = (
-        _captured_markdown
-    )
+    st.title = _captured_title
+    st.header = _captured_header
+    st.subheader = _captured_subheader
+    st.markdown = _captured_markdown
+    st.altair_chart = _captured_altair_chart
 
     try:
         yield
 
     finally:
-        st.altair_chart = (
-            original_altair_chart
-        )
 
-        st.subheader = (
-            original_subheader
-        )
+        st.title = original_title
+        st.header = original_header
+        st.subheader = original_subheader
+        st.markdown = original_markdown
+        st.altair_chart = original_altair_chart
 
-        st.markdown = (
-            original_markdown
+
+# ============================================================
+# MONTHLY DISEASE COMPARISON DETECTION
+# ============================================================
+
+def _is_monthly_disease_comparison(item):
+    section_name = str(
+        item.get(
+            "section_name",
+            "",
         )
+    ).lower()
+
+    chart_title = str(
+        item.get(
+            "title",
+            "",
+        )
+    ).lower()
+
+    combined = (
+        section_name
+        + " "
+        + chart_title
+    )
+
+    return (
+        "monthly disease comparison"
+        in combined
+    )
+
+
+# ============================================================
+# PREPARE EXPORT CHART SPEC
+# ============================================================
+
+def _prepare_chart_for_export(item):
+    """
+    Creates an export-only version of the Altair chart.
+
+    Original dashboard chart is never modified.
+    """
+
+    chart = item.get(
+        "chart"
+    )
+
+    if chart is None:
+        return None
+
+    try:
+
+        export_chart = chart
+
+        # ----------------------------------------------------
+        # Monthly Disease Comparison
+        # ----------------------------------------------------
+        # Force a wide presentation-friendly layout.
+        # This affects PDF export only.
+        # ----------------------------------------------------
+
+        if _is_monthly_disease_comparison(
+            item
+        ):
+
+            export_chart = chart.properties(
+                width=1000,
+                height=320,
+            )
+
+        else:
+
+            # ------------------------------------------------
+            # For other charts, give Altair a wide canvas.
+            # Height is kept from the original chart where
+            # possible.
+            # ------------------------------------------------
+
+            chart_dict = chart.to_dict()
+
+            original_height = (
+                chart_dict.get(
+                    "height"
+                )
+            )
+
+            if isinstance(
+                original_height,
+                (int, float),
+            ):
+
+                height = int(
+                    original_height
+                )
+
+                height = max(
+                    260,
+                    min(
+                        height,
+                        520,
+                    ),
+                )
+
+            else:
+                height = 360
+
+            export_chart = chart.properties(
+                width=1000,
+                height=height,
+            )
+
+        return export_chart
+
+    except Exception:
+        return chart
 
 
 # ============================================================
 # CHART TO PNG
 # ============================================================
 
-def _chart_to_png(chart):
+def _chart_to_png(item):
     try:
+
         import vl_convert as vlc
 
-        chart_dict = chart.to_dict()
+        export_chart = (
+            _prepare_chart_for_export(
+                item
+            )
+        )
 
-        png_bytes = vlc.vegalite_to_png(
+        if export_chart is None:
+            return None
+
+        chart_dict = (
+            export_chart.to_dict()
+        )
+
+        return vlc.vegalite_to_png(
             chart_dict,
             scale=2,
         )
 
-        if png_bytes:
-            return png_bytes
-
     except Exception:
-        pass
-
-    return None
-
-
-# ============================================================
-# FINGERPRINT
-# ============================================================
-
-def _make_fingerprint(chart):
-    try:
-        payload = chart.to_json()
-
-        return hashlib.md5(
-            payload.encode("utf-8")
-        ).hexdigest()
-
-    except Exception:
-        return str(id(chart))
+        return None
 
 
 # ============================================================
 # IMAGE DIMENSIONS
 # ============================================================
 
-def _get_image_dimensions(png_bytes):
+def _get_image_dimensions(
+    png_bytes
+):
     try:
+
         from PIL import Image
 
         image = Image.open(
@@ -570,7 +675,10 @@ def _get_image_dimensions(png_bytes):
 
         width, height = image.size
 
-        if width > 0 and height > 0:
+        if (
+            width > 0
+            and height > 0
+        ):
             return (
                 float(width),
                 float(height),
@@ -586,21 +694,18 @@ def _get_image_dimensions(png_bytes):
 
 
 # ============================================================
-# CHART IMAGE SIZE
+# IMAGE SIZE FOR PDF
 # ============================================================
 
 def _get_chart_image_size(
+    item,
     png_bytes,
     available_width,
     available_height,
 ):
     """
-    Preserve the actual rendered chart aspect ratio.
-
-    The chart is NOT stretched.
-
-    Width is maximized first.
-    Height is calculated automatically.
+    Full available PDF width.
+    Height calculated from actual image aspect ratio.
     """
 
     image_width, image_height = (
@@ -609,12 +714,16 @@ def _get_chart_image_size(
         )
     )
 
-    if not image_width or not image_height:
+    if (
+        not image_width
+        or not image_height
+    ):
+
         return (
             available_width,
             min(
                 available_height,
-                100,
+                100 * 2.834645669,
             ),
         )
 
@@ -622,10 +731,6 @@ def _get_chart_image_size(
         image_height
         / image_width
     )
-
-    # --------------------------------------------------------
-    # Start with full report width.
-    # --------------------------------------------------------
 
     width = available_width
 
@@ -635,22 +740,79 @@ def _get_chart_image_size(
     )
 
     # --------------------------------------------------------
-    # Minimum height
+    # Monthly Disease Comparison
     # --------------------------------------------------------
 
-    min_height = (
-        MIN_CHART_HEIGHT_MM
-        * 2.834645669
-    )
+    if _is_monthly_disease_comparison(
+        item
+    ):
 
-    if height < min_height:
-
-        height = min_height
-
-        width = (
-            height
-            / ratio
+        preferred_height = (
+            MONTHLY_DISEASE_HEIGHT_MM
+            * 2.834645669
         )
+
+        if height > preferred_height:
+
+            height = preferred_height
+
+            width = (
+                height
+                / ratio
+            )
+
+            # If width becomes too small,
+            # return to full width.
+            if width < (
+                available_width
+                * 0.75
+            ):
+
+                width = available_width
+
+                height = (
+                    width
+                    * ratio
+                )
+
+    # --------------------------------------------------------
+    # Normal charts
+    # --------------------------------------------------------
+
+    else:
+
+        min_height = (
+            MIN_CHART_HEIGHT_MM
+            * 2.834645669
+        )
+
+        max_height = (
+            MAX_CHART_HEIGHT_MM
+            * 2.834645669
+        )
+
+        max_height = min(
+            max_height,
+            available_height,
+        )
+
+        if height < min_height:
+
+            height = min_height
+
+            width = (
+                height
+                / ratio
+            )
+
+        if height > max_height:
+
+            height = max_height
+
+            width = (
+                height
+                / ratio
+            )
 
         if width > available_width:
 
@@ -661,25 +823,6 @@ def _get_chart_image_size(
                 * ratio
             )
 
-    # --------------------------------------------------------
-    # Maximum height
-    # --------------------------------------------------------
-
-    max_height = min(
-        available_height,
-        MAX_CHART_HEIGHT_MM
-        * 2.834645669,
-    )
-
-    if height > max_height:
-
-        height = max_height
-
-        width = (
-            height
-            / ratio
-        )
-
     return (
         width,
         height,
@@ -687,14 +830,112 @@ def _get_chart_image_size(
 
 
 # ============================================================
-# REPORT TABLE
+# FORMAT TABLE VALUE
+# ============================================================
+
+def _format_table_value(
+    value
+):
+    if value is None:
+        return ""
+
+    try:
+
+        if pd.isna(value):
+            return ""
+
+    except Exception:
+        pass
+
+    if isinstance(
+        value,
+        float,
+    ):
+
+        if value.is_integer():
+            return str(
+                int(value)
+            )
+
+        return f"{value:.2f}"
+
+    return str(value)
+
+
+# ============================================================
+# PREPARE TABLE
+# ============================================================
+
+def _prepare_report_table(
+    df
+):
+    if (
+        df is None
+        or df.empty
+    ):
+        return pd.DataFrame()
+
+    table = df.copy()
+
+    if len(table) > MAX_TABLE_ROWS:
+
+        table = table.head(
+            MAX_TABLE_ROWS
+        )
+
+    if (
+        len(table.columns)
+        > MAX_TABLE_COLUMNS
+    ):
+
+        table = table.iloc[
+            :,
+            :MAX_TABLE_COLUMNS,
+        ]
+
+    for column in table.columns:
+
+        try:
+
+            if pd.api.types.is_datetime64_any_dtype(
+                table[column]
+            ):
+
+                table[column] = (
+                    table[column]
+                    .dt.strftime(
+                        "%Y-%m-%d"
+                    )
+                )
+
+            else:
+
+                table[column] = (
+                    table[column]
+                    .apply(
+                        _format_table_value
+                    )
+                )
+
+        except Exception:
+
+            table[column] = (
+                table[column]
+                .astype(str)
+            )
+
+    return table
+
+
+# ============================================================
+# BUILD REPORT TABLE
 # ============================================================
 
 def _build_report_table(
     df,
     table_width,
 ):
-    from reportlab.lib import colors
+    from reportlab import colors
     from reportlab.lib.enums import TA_LEFT
     from reportlab.lib.styles import (
         getSampleStyleSheet,
@@ -706,17 +947,24 @@ def _build_report_table(
         TableStyle,
     )
 
-    if df is None or df.empty:
+    if (
+        df is None
+        or df.empty
+    ):
         return None
 
-    table_df = _prepare_report_table(
-        df
+    table_df = (
+        _prepare_report_table(
+            df
+        )
     )
 
     if table_df.empty:
         return None
 
-    styles = getSampleStyleSheet()
+    styles = (
+        getSampleStyleSheet()
+    )
 
     header_style = ParagraphStyle(
         "ReportTableHeader",
@@ -749,6 +997,7 @@ def _build_report_table(
     ]
 
     for _, row in table_df.iterrows():
+
         data.append(
             [
                 Paragraph(
@@ -763,8 +1012,10 @@ def _build_report_table(
             ]
         )
 
-    number_of_columns = len(
-        table_df.columns
+    number_of_columns = (
+        len(
+            table_df.columns
+        )
     )
 
     if number_of_columns <= 0:
@@ -868,21 +1119,185 @@ def _build_report_table(
 
 
 # ============================================================
+# PDF STYLES
+# ============================================================
+
+def _get_pdf_styles():
+    from reportlab import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.styles import (
+        getSampleStyleSheet,
+        ParagraphStyle,
+    )
+
+    styles = (
+        getSampleStyleSheet()
+    )
+
+    return {
+        "title": ParagraphStyle(
+            "PDFTitle",
+            parent=styles["Heading1"],
+            alignment=TA_CENTER,
+            fontName="Helvetica-Bold",
+            fontSize=16,
+            leading=19,
+            spaceAfter=8,
+        ),
+        "section_number": ParagraphStyle(
+            "SectionNumber",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            leading=11,
+            textColor=colors.HexColor(
+                "#4B5563"
+            ),
+            spaceAfter=3,
+        ),
+        "section_name": ParagraphStyle(
+            "SectionName",
+            parent=styles["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=13,
+            leading=16,
+            textColor=colors.HexColor(
+                "#111827"
+            ),
+            spaceAfter=7,
+        ),
+        "chart_title": ParagraphStyle(
+            "ChartTitle",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=13,
+            textColor=colors.HexColor(
+                "#374151"
+            ),
+            spaceAfter=6,
+        ),
+        "table_heading": ParagraphStyle(
+            "TableHeading",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            leading=11,
+            textColor=colors.HexColor(
+                "#374151"
+            ),
+            spaceAfter=5,
+        ),
+        "filter": ParagraphStyle(
+            "FilterSummary",
+            parent=styles["Normal"],
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor(
+                "#555555"
+            ),
+            spaceAfter=10,
+        ),
+        "footer": ParagraphStyle(
+            "Footer",
+            parent=styles["Normal"],
+            fontSize=7,
+            leading=9,
+            textColor=colors.HexColor(
+                "#777777"
+            ),
+        ),
+    }
+
+
+# ============================================================
+# FILTER SUMMARY
+# ============================================================
+
+def _add_filter_summary(
+    story,
+    filter_summary,
+    style,
+):
+    if not filter_summary:
+        return
+
+    if isinstance(
+        filter_summary,
+        dict,
+    ):
+
+        summary_parts = []
+
+        for key, value in (
+            filter_summary.items()
+        ):
+
+            if value in (
+                None,
+                "",
+                "All",
+                "All records",
+            ):
+                continue
+
+            summary_parts.append(
+                f"<b>{html.escape(str(key))}</b>: "
+                f"{html.escape(str(value))}"
+            )
+
+        if summary_parts:
+
+            from reportlab.platypus import (
+                Paragraph,
+            )
+
+            story.append(
+                Paragraph(
+                    "<br/>".join(
+                        summary_parts
+                    ),
+                    style,
+                )
+            )
+
+    else:
+
+        from reportlab.platypus import (
+            Paragraph,
+        )
+
+        story.append(
+            Paragraph(
+                html.escape(
+                    str(
+                        filter_summary
+                    )
+                ),
+                style,
+            )
+        )
+
+
+# ============================================================
 # BUILD PDF
 # ============================================================
 
 def _build_pdf(
     charts,
-    report_title="Displayed Charts & Tables Report",
-    filter_summary=None,
+    report_title,
+    filter_summary,
+    mode,
 ):
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER
+    """
+    mode:
+
+        "charts_only"
+        "charts_and_data"
+        "table_only"
+    """
+
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import (
-        getSampleStyleSheet,
-        ParagraphStyle,
-    )
     from reportlab.lib.units import mm
     from reportlab.platypus import (
         Image,
@@ -917,7 +1332,7 @@ def _build_pdf(
         )
     )
 
-    available_page_height = (
+    available_height = (
         page_height
         - (
             PDF_MARGIN_MM
@@ -926,86 +1341,7 @@ def _build_pdf(
         )
     )
 
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "DisplayedChartTitle",
-        parent=styles["Heading1"],
-        alignment=TA_CENTER,
-        fontName="Helvetica-Bold",
-        fontSize=16,
-        leading=19,
-        spaceAfter=8,
-    )
-
-    section_style = ParagraphStyle(
-        "SectionLabel",
-        parent=styles["Normal"],
-        fontName="Helvetica-Bold",
-        fontSize=9,
-        leading=11,
-        textColor=colors.HexColor(
-            "#4B5563"
-        ),
-        spaceAfter=3,
-    )
-
-    section_name_style = ParagraphStyle(
-        "SectionName",
-        parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
-        fontSize=13,
-        leading=16,
-        textColor=colors.HexColor(
-            "#111827"
-        ),
-        spaceAfter=5,
-    )
-
-    chart_title_style = ParagraphStyle(
-        "ChartTitle",
-        parent=styles["Normal"],
-        fontName="Helvetica-Bold",
-        fontSize=10,
-        leading=13,
-        textColor=colors.HexColor(
-            "#374151"
-        ),
-        spaceAfter=7,
-    )
-
-    table_heading_style = ParagraphStyle(
-        "TableHeading",
-        parent=styles["Normal"],
-        fontName="Helvetica-Bold",
-        fontSize=9,
-        leading=11,
-        textColor=colors.HexColor(
-            "#374151"
-        ),
-        spaceAfter=5,
-    )
-
-    filter_style = ParagraphStyle(
-        "FilterSummary",
-        parent=styles["Normal"],
-        fontSize=8,
-        leading=10,
-        textColor=colors.HexColor(
-            "#555555"
-        ),
-        spaceAfter=10,
-    )
-
-    footer_style = ParagraphStyle(
-        "FooterNote",
-        parent=styles["Normal"],
-        fontSize=7,
-        leading=9,
-        textColor=colors.HexColor(
-            "#777777"
-        ),
-    )
+    styles = _get_pdf_styles()
 
     story = []
 
@@ -1016,7 +1352,7 @@ def _build_pdf(
     story.append(
         Spacer(
             1,
-            18,
+            15,
         )
     )
 
@@ -1025,86 +1361,37 @@ def _build_pdf(
             html.escape(
                 report_title
             ),
-            title_style,
+            styles["title"],
         )
     )
 
     story.append(
         Spacer(
             1,
-            6,
+            4,
         )
     )
 
-    if filter_summary:
-
-        if isinstance(
-            filter_summary,
-            dict,
-        ):
-            summary_parts = []
-
-            for key, value in (
-                filter_summary.items()
-            ):
-                if value in (
-                    None,
-                    "",
-                    "All",
-                    "All records",
-                ):
-                    continue
-
-                summary_parts.append(
-                    f"<b>{html.escape(str(key))}</b>: "
-                    f"{html.escape(str(value))}"
-                )
-
-            if summary_parts:
-
-                story.append(
-                    Paragraph(
-                        "<br/>".join(
-                            summary_parts
-                        ),
-                        filter_style,
-                    )
-                )
-
-        else:
-
-            story.append(
-                Paragraph(
-                    html.escape(
-                        str(
-                            filter_summary
-                        )
-                    ),
-                    filter_style,
-                )
-            )
+    _add_filter_summary(
+        story,
+        filter_summary,
+        styles["filter"],
+    )
 
     # ========================================================
-    # EACH CHART SECTION
+    # EACH SECTION
     # ========================================================
 
     for index, item in enumerate(
         charts,
         start=1,
     ):
-        chart = item.get(
-            "chart"
-        )
-
-        data = item.get(
-            "data"
-        )
 
         section_name = (
             item.get(
                 "section_name"
             )
-            or ""
+            or f"Chart {index}"
         )
 
         chart_title = (
@@ -1114,29 +1401,12 @@ def _build_pdf(
             or ""
         )
 
-        if chart is None:
-            continue
-
-        png_bytes = _chart_to_png(
-            chart
+        data = item.get(
+            "data"
         )
 
-        if not png_bytes:
-            continue
-
         # ----------------------------------------------------
-        # Fallback section name
-        # ----------------------------------------------------
-
-        if not section_name:
-
-            section_name = (
-                chart_title
-                or f"Chart {index}"
-            )
-
-        # ----------------------------------------------------
-        # New page
+        # Every section starts on new page
         # ----------------------------------------------------
 
         story.append(
@@ -1150,7 +1420,7 @@ def _build_pdf(
         story.append(
             Paragraph(
                 f"Section {index}",
-                section_style,
+                styles["section_number"],
             )
         )
 
@@ -1165,116 +1435,99 @@ def _build_pdf(
                         section_name
                     )
                 ),
-                section_name_style,
+                styles["section_name"],
             )
         )
 
-        # ----------------------------------------------------
-        # If chart has a different title, show it separately.
-        # ----------------------------------------------------
+        # ====================================================
+        # OPTION 1 / OPTION 2
+        # ====================================================
 
-        if (
-            chart_title
-            and chart_title.strip()
-            and chart_title.strip()
-            != str(
-                section_name
-            ).strip()
+        if mode in (
+            "charts_only",
+            "charts_and_data",
         ):
 
-            story.append(
-                Paragraph(
-                    html.escape(
-                        str(
-                            chart_title
-                        )
-                    ),
-                    chart_title_style,
+            png_bytes = _chart_to_png(
+                item
+            )
+
+            if png_bytes:
+
+                reserved_height = (
+                    70 * mm
+                )
+
+                max_chart_height = (
+                    available_height
+                    - reserved_height
+                )
+
+                if max_chart_height < (
+                    50 * mm
+                ):
+                    max_chart_height = (
+                        50 * mm
+                    )
+
+                chart_width, chart_height = (
+                    _get_chart_image_size(
+                        item,
+                        png_bytes,
+                        available_width,
+                        max_chart_height,
+                    )
+                )
+
+                story.append(
+                    Image(
+                        io.BytesIO(
+                            png_bytes
+                        ),
+                        width=chart_width,
+                        height=chart_height,
+                    )
+                )
+
+                story.append(
+                    Spacer(
+                        1,
+                        8,
+                    )
+                )
+
+        # ====================================================
+        # OPTION 2 / OPTION 3
+        # ====================================================
+
+        if mode in (
+            "charts_and_data",
+            "table_only",
+        ):
+
+            table = (
+                _build_report_table(
+                    data,
+                    available_width,
                 )
             )
 
-        # ----------------------------------------------------
-        # Chart available height
-        # ----------------------------------------------------
+            if table is not None:
 
-        reserved_height = (
-            65 * mm
-        )
-
-        max_chart_height = (
-            available_page_height
-            - reserved_height
-        )
-
-        if max_chart_height < (
-            MIN_CHART_HEIGHT_MM
-            * mm
-        ):
-            max_chart_height = (
-                MIN_CHART_HEIGHT_MM
-                * mm
-            )
-
-        # ----------------------------------------------------
-        # Calculate natural image size
-        # ----------------------------------------------------
-
-        chart_width, chart_height = (
-            _get_chart_image_size(
-                png_bytes,
-                available_width,
-                max_chart_height,
-            )
-        )
-
-        # ----------------------------------------------------
-        # CHART
-        # ----------------------------------------------------
-
-        story.append(
-            Image(
-                io.BytesIO(
-                    png_bytes
-                ),
-                width=chart_width,
-                height=chart_height,
-            )
-        )
-
-        story.append(
-            Spacer(
-                1,
-                8,
-            )
-        )
-
-        # ----------------------------------------------------
-        # TABLE
-        # ----------------------------------------------------
-
-        report_table = (
-            _build_report_table(
-                data,
-                available_width,
-            )
-        )
-
-        if report_table is not None:
-
-            story.append(
-                Paragraph(
-                    "Displayed Data",
-                    table_heading_style,
+                story.append(
+                    Paragraph(
+                        "Displayed Data",
+                        styles["table_heading"],
+                    )
                 )
-            )
 
-            story.append(
-                report_table
-            )
+                story.append(
+                    table
+                )
 
-        # ----------------------------------------------------
+        # ====================================================
         # FOOTER
-        # ----------------------------------------------------
+        # ====================================================
 
         story.append(
             Spacer(
@@ -1286,13 +1539,9 @@ def _build_pdf(
         story.append(
             Paragraph(
                 "MSU Mumbai Health Programme Management Dashboard",
-                footer_style,
+                styles["footer"],
             )
         )
-
-    # ========================================================
-    # BUILD
-    # ========================================================
 
     doc.build(
         story
@@ -1304,7 +1553,7 @@ def _build_pdf(
 
 
 # ============================================================
-# SAFE FILENAME
+# FILENAME
 # ============================================================
 
 def _safe_filename(
@@ -1352,109 +1601,31 @@ def _safe_filename(
 
 
 # ============================================================
-# BUILD PNG ZIP
-# ============================================================
-
-def _build_png_zip(charts):
-    if not charts:
-        return None
-
-    zip_buffer = io.BytesIO()
-
-    used_names = set()
-
-    with zipfile.ZipFile(
-        zip_buffer,
-        mode="w",
-        compression=zipfile.ZIP_DEFLATED,
-    ) as archive:
-
-        for index, item in enumerate(
-            charts,
-            start=1,
-        ):
-            chart = item.get(
-                "chart"
-            )
-
-            if chart is None:
-                continue
-
-            png_bytes = _chart_to_png(
-                chart
-            )
-
-            if not png_bytes:
-                continue
-
-            section_name = (
-                item.get(
-                    "section_name"
-                )
-                or ""
-            )
-
-            title = (
-                item.get(
-                    "title"
-                )
-                or ""
-            )
-
-            base_title = (
-                section_name
-                or title
-                or f"Chart_{index}"
-            )
-
-            base_name = _safe_filename(
-                base_title,
-                ".png",
-            )
-
-            if base_name in used_names:
-
-                base_name = _safe_filename(
-                    f"{base_title}_{index}",
-                    ".png",
-                )
-
-            used_names.add(
-                base_name
-            )
-
-            archive.writestr(
-                base_name,
-                png_bytes,
-            )
-
-    zip_buffer.seek(0)
-
-    return zip_buffer.getvalue()
-
-
-# ============================================================
 # DOWNLOAD CONTROLS
 # ============================================================
 
 def render_displayed_chart_download_controls(
     filter_summary=None,
-    base_filename="Displayed_Charts",
+    base_filename=(
+        "MSU_Mumbai_Charts_Trends_Displayed_Charts"
+    ),
 ):
     charts = _get_registry()
 
     if not charts:
+
         st.info(
             "No displayed charts were captured on this page."
         )
+
         return
 
     st.subheader(
-        "Download Displayed Charts & Tables"
+        "Download Charts & Tables"
     )
 
     st.caption(
-        f"{len(charts)} displayed chart(s) captured from this page."
+        f"{len(charts)} chart section(s) available for export."
     )
 
     # ========================================================
@@ -1470,90 +1641,66 @@ def render_displayed_chart_download_controls(
             charts,
             start=1,
         ):
+
             section_name = (
                 item.get(
                     "section_name"
                 )
-                or ""
-            )
-
-            title = (
-                item.get(
-                    "title"
-                )
-                or ""
-            )
-
-            if section_name:
-                display_name = section_name
-            elif title:
-                display_name = title
-            else:
-                display_name = (
-                    f"Chart {index}"
-                )
-
-            data = item.get(
-                "data"
-            )
-
-            rows = (
-                len(data)
-                if isinstance(
-                    data,
-                    pd.DataFrame,
-                )
-                else 0
-            )
-
-            columns = (
-                len(data.columns)
-                if isinstance(
-                    data,
-                    pd.DataFrame,
-                )
-                else 0
+                or f"Chart {index}"
             )
 
             st.write(
-                f"{index}. {display_name} "
-                f"({rows} rows × {columns} columns)"
+                f"{index}. {section_name}"
             )
 
+    st.divider()
+
     # ========================================================
-    # PDF DOWNLOAD
+    # OPTION 1
     # ========================================================
+
+    st.markdown(
+        "### 1️⃣ Charts with Section Name"
+    )
+
+    st.caption(
+        "PDF contains the actual section name and chart only."
+    )
 
     try:
 
-        pdf_bytes = _build_pdf(
+        pdf_charts_only = _build_pdf(
             charts=charts,
             report_title=(
                 "MSU Mumbai - "
-                "Displayed Charts & Tables Report"
+                "Charts with Section Name"
             ),
             filter_summary=filter_summary,
+            mode="charts_only",
         )
 
-        if pdf_bytes:
+        if pdf_charts_only:
 
             st.download_button(
                 label=(
-                    "📊 Download Chart + Displayed Table PDF"
+                    "📊 Download Charts + Section Name PDF"
                 ),
-                data=pdf_bytes,
+                data=pdf_charts_only,
                 file_name=_safe_filename(
-                    base_filename,
+                    f"{base_filename}_Charts_Section_Name",
                     ".pdf",
                 ),
                 mime="application/pdf",
                 use_container_width=True,
+                key=(
+                    "download_charts_section_name_pdf"
+                ),
             )
 
     except Exception as exc:
 
         st.error(
-            "Combined Chart + Table PDF could not be generated."
+            "Charts with Section Name PDF could not be generated."
         )
 
         with st.expander(
@@ -1564,34 +1711,106 @@ def render_displayed_chart_download_controls(
             )
 
     # ========================================================
-    # PNG ZIP DOWNLOAD
+    # OPTION 2
     # ========================================================
+
+    st.markdown(
+        "### 2️⃣ Charts with Data & Section Name"
+    )
+
+    st.caption(
+        "PDF contains section name, chart and the corresponding data table."
+    )
 
     try:
 
-        zip_bytes = _build_png_zip(
-            charts
+        pdf_charts_data = _build_pdf(
+            charts=charts,
+            report_title=(
+                "MSU Mumbai - "
+                "Charts with Data & Section Name"
+            ),
+            filter_summary=filter_summary,
+            mode="charts_and_data",
         )
 
-        if zip_bytes:
+        if pdf_charts_data:
 
             st.download_button(
                 label=(
-                    "🖼️ Download Displayed Charts PNGs"
+                    "📊 Download Charts + Data PDF"
                 ),
-                data=zip_bytes,
+                data=pdf_charts_data,
                 file_name=_safe_filename(
-                    f"{base_filename}_PNGs",
-                    ".zip",
+                    f"{base_filename}_Charts_Data_Section_Name",
+                    ".pdf",
                 ),
-                mime="application/zip",
+                mime="application/pdf",
                 use_container_width=True,
+                key=(
+                    "download_charts_data_section_name_pdf"
+                ),
             )
 
     except Exception as exc:
 
         st.error(
-            "Displayed chart PNG export could not be generated."
+            "Charts with Data & Section Name PDF could not be generated."
+        )
+
+        with st.expander(
+            "Technical details"
+        ):
+            st.code(
+                str(exc)
+            )
+
+    # ========================================================
+    # OPTION 3
+    # ========================================================
+
+    st.markdown(
+        "### 3️⃣ Only Table"
+    )
+
+    st.caption(
+        "PDF contains the section name and corresponding data table only."
+    )
+
+    try:
+
+        pdf_table_only = _build_pdf(
+            charts=charts,
+            report_title=(
+                "MSU Mumbai - "
+                "Tables with Section Name"
+            ),
+            filter_summary=filter_summary,
+            mode="table_only",
+        )
+
+        if pdf_table_only:
+
+            st.download_button(
+                label=(
+                    "📋 Download Only Tables PDF"
+                ),
+                data=pdf_table_only,
+                file_name=_safe_filename(
+                    f"{base_filename}_Only_Tables",
+                    ".pdf",
+                ),
+                mime="application/pdf",
+                use_container_width=True,
+                key=(
+                    "download_only_tables_pdf"
+                ),
+            )
+
+    except Exception as exc:
+
+        st.error(
+            "Only Table PDF could not be generated."
         )
 
         with st.expander(
