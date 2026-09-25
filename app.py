@@ -253,7 +253,7 @@ if show_data_labels:
 else:
 
 
-st.sidebar.info(
+    st.sidebar.info(
     "Data Labels: OFF"
 )
 
