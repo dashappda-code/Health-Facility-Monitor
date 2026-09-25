@@ -18,11 +18,9 @@ MAX_TABLE_COLUMNS = 14
 
 PDF_MARGIN_MM = 12
 
-# Normal export chart height limits
 MIN_CHART_HEIGHT_MM = 55
 MAX_CHART_HEIGHT_MM = 145
 
-# Special wide-chart export height
 MONTHLY_DISEASE_HEIGHT_MM = 88
 
 
@@ -93,7 +91,6 @@ def _extract_chart_dataframe(chart):
         data = chart_dict.get("data")
 
         if isinstance(data, dict):
-
             values = data.get("values")
 
             if isinstance(values, list):
@@ -106,11 +103,9 @@ def _extract_chart_dataframe(chart):
         datasets = chart_dict.get("datasets")
 
         if isinstance(datasets, dict):
-
             for _, values in datasets.items():
 
                 if isinstance(values, list):
-
                     frame = pd.DataFrame(values)
 
                     if not frame.empty:
@@ -133,28 +128,20 @@ def _extract_chart_dataframe(chart):
 
                 layer_data = layer.get("data")
 
-                if isinstance(
-                    layer_data,
-                    dict,
-                ):
+                if isinstance(layer_data, dict):
 
                     values = layer_data.get(
                         "values"
                     )
 
-                    if isinstance(
-                        values,
-                        list,
-                    ):
+                    if isinstance(values, list):
 
                         frame = pd.DataFrame(
                             values
                         )
 
                         if not frame.empty:
-                            frames.append(
-                                frame
-                            )
+                            frames.append(frame)
 
             if frames:
 
@@ -176,14 +163,9 @@ def _extract_chart_dataframe(chart):
             "concat",
         ):
 
-            charts = chart_dict.get(
-                key
-            )
+            charts = chart_dict.get(key)
 
-            if isinstance(
-                charts,
-                list,
-            ):
+            if isinstance(charts, list):
 
                 frames = []
 
@@ -204,10 +186,8 @@ def _extract_chart_dataframe(chart):
                         dict,
                     ):
 
-                        values = (
-                            child_data.get(
-                                "values"
-                            )
+                        values = child_data.get(
+                            "values"
                         )
 
                         if isinstance(
@@ -463,9 +443,7 @@ def capture_displayed_charts():
         )
 
         if not section_name:
-            section_name = (
-                chart_title
-            )
+            section_name = chart_title
 
         if not section_name:
             section_name = (
@@ -514,6 +492,7 @@ def capture_displayed_charts():
 # ============================================================
 
 def _is_monthly_disease_comparison(item):
+
     section_name = str(
         item.get(
             "section_name",
@@ -541,15 +520,10 @@ def _is_monthly_disease_comparison(item):
 
 
 # ============================================================
-# PREPARE EXPORT CHART SPEC
+# PREPARE EXPORT CHART
 # ============================================================
 
 def _prepare_chart_for_export(item):
-    """
-    Creates an export-only version of the Altair chart.
-
-    Original dashboard chart is never modified.
-    """
 
     chart = item.get(
         "chart"
@@ -560,66 +534,47 @@ def _prepare_chart_for_export(item):
 
     try:
 
-        export_chart = chart
-
-        # ----------------------------------------------------
-        # Monthly Disease Comparison
-        # ----------------------------------------------------
-        # Force a wide presentation-friendly layout.
-        # This affects PDF export only.
-        # ----------------------------------------------------
-
         if _is_monthly_disease_comparison(
             item
         ):
 
-            export_chart = chart.properties(
+            return chart.properties(
                 width=1000,
                 height=320,
             )
 
+        chart_dict = chart.to_dict()
+
+        original_height = (
+            chart_dict.get(
+                "height"
+            )
+        )
+
+        if isinstance(
+            original_height,
+            (int, float),
+        ):
+
+            height = int(
+                original_height
+            )
+
+            height = max(
+                260,
+                min(
+                    height,
+                    520,
+                ),
+            )
+
         else:
+            height = 360
 
-            # ------------------------------------------------
-            # For other charts, give Altair a wide canvas.
-            # Height is kept from the original chart where
-            # possible.
-            # ------------------------------------------------
-
-            chart_dict = chart.to_dict()
-
-            original_height = (
-                chart_dict.get(
-                    "height"
-                )
-            )
-
-            if isinstance(
-                original_height,
-                (int, float),
-            ):
-
-                height = int(
-                    original_height
-                )
-
-                height = max(
-                    260,
-                    min(
-                        height,
-                        520,
-                    ),
-                )
-
-            else:
-                height = 360
-
-            export_chart = chart.properties(
-                width=1000,
-                height=height,
-            )
-
-        return export_chart
+        return chart.properties(
+            width=1000,
+            height=height,
+        )
 
     except Exception:
         return chart
@@ -630,6 +585,7 @@ def _prepare_chart_for_export(item):
 # ============================================================
 
 def _chart_to_png(item):
+
     try:
 
         import vl_convert as vlc
@@ -663,6 +619,7 @@ def _chart_to_png(item):
 def _get_image_dimensions(
     png_bytes
 ):
+
     try:
 
         from PIL import Image
@@ -679,6 +636,7 @@ def _get_image_dimensions(
             width > 0
             and height > 0
         ):
+
             return (
                 float(width),
                 float(height),
@@ -694,7 +652,7 @@ def _get_image_dimensions(
 
 
 # ============================================================
-# IMAGE SIZE FOR PDF
+# IMAGE SIZE
 # ============================================================
 
 def _get_chart_image_size(
@@ -703,10 +661,6 @@ def _get_chart_image_size(
     available_width,
     available_height,
 ):
-    """
-    Full available PDF width.
-    Height calculated from actual image aspect ratio.
-    """
 
     image_width, image_height = (
         _get_image_dimensions(
@@ -761,8 +715,6 @@ def _get_chart_image_size(
                 / ratio
             )
 
-            # If width becomes too small,
-            # return to full width.
             if width < (
                 available_width
                 * 0.75
@@ -836,6 +788,7 @@ def _get_chart_image_size(
 def _format_table_value(
     value
 ):
+
     if value is None:
         return ""
 
@@ -869,6 +822,7 @@ def _format_table_value(
 def _prepare_report_table(
     df
 ):
+
     if (
         df is None
         or df.empty
@@ -928,14 +882,15 @@ def _prepare_report_table(
 
 
 # ============================================================
-# BUILD REPORT TABLE
+# BUILD TABLE
 # ============================================================
 
 def _build_report_table(
     df,
     table_width,
 ):
-    from reportlab import colors
+
+    from reportlab.lib import colors
     from reportlab.lib.enums import TA_LEFT
     from reportlab.lib.styles import (
         getSampleStyleSheet,
@@ -1123,7 +1078,8 @@ def _build_report_table(
 # ============================================================
 
 def _get_pdf_styles():
-    from reportlab import colors
+
+    from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.styles import (
         getSampleStyleSheet,
@@ -1165,17 +1121,6 @@ def _get_pdf_styles():
                 "#111827"
             ),
             spaceAfter=7,
-        ),
-        "chart_title": ParagraphStyle(
-            "ChartTitle",
-            parent=styles["Normal"],
-            fontName="Helvetica-Bold",
-            fontSize=10,
-            leading=13,
-            textColor=colors.HexColor(
-                "#374151"
-            ),
-            spaceAfter=6,
         ),
         "table_heading": ParagraphStyle(
             "TableHeading",
@@ -1219,6 +1164,11 @@ def _add_filter_summary(
     filter_summary,
     style,
 ):
+
+    from reportlab.platypus import (
+        Paragraph,
+    )
+
     if not filter_summary:
         return
 
@@ -1248,10 +1198,6 @@ def _add_filter_summary(
 
         if summary_parts:
 
-            from reportlab.platypus import (
-                Paragraph,
-            )
-
             story.append(
                 Paragraph(
                     "<br/>".join(
@@ -1262,10 +1208,6 @@ def _add_filter_summary(
             )
 
     else:
-
-        from reportlab.platypus import (
-            Paragraph,
-        )
 
         story.append(
             Paragraph(
@@ -1289,13 +1231,6 @@ def _build_pdf(
     filter_summary,
     mode,
 ):
-    """
-    mode:
-
-        "charts_only"
-        "charts_and_data"
-        "table_only"
-    """
 
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
@@ -1379,7 +1314,7 @@ def _build_pdf(
     )
 
     # ========================================================
-    # EACH SECTION
+    # SECTIONS
     # ========================================================
 
     for index, item in enumerate(
@@ -1394,19 +1329,12 @@ def _build_pdf(
             or f"Chart {index}"
         )
 
-        chart_title = (
-            item.get(
-                "title"
-            )
-            or ""
-        )
-
         data = item.get(
             "data"
         )
 
         # ----------------------------------------------------
-        # Every section starts on new page
+        # New page
         # ----------------------------------------------------
 
         story.append(
@@ -1414,7 +1342,7 @@ def _build_pdf(
         )
 
         # ----------------------------------------------------
-        # SECTION NUMBER
+        # Section number
         # ----------------------------------------------------
 
         story.append(
@@ -1425,7 +1353,7 @@ def _build_pdf(
         )
 
         # ----------------------------------------------------
-        # ACTUAL SECTION NAME
+        # Actual section name
         # ----------------------------------------------------
 
         story.append(
@@ -1440,7 +1368,7 @@ def _build_pdf(
         )
 
         # ====================================================
-        # OPTION 1 / OPTION 2
+        # CHART
         # ====================================================
 
         if mode in (
@@ -1497,7 +1425,7 @@ def _build_pdf(
                 )
 
         # ====================================================
-        # OPTION 2 / OPTION 3
+        # TABLE
         # ====================================================
 
         if mode in (
@@ -1553,13 +1481,14 @@ def _build_pdf(
 
 
 # ============================================================
-# FILENAME
+# SAFE FILENAME
 # ============================================================
 
 def _safe_filename(
     filename,
     extension,
 ):
+
     filename = str(
         filename
         or "export"
@@ -1610,6 +1539,7 @@ def render_displayed_chart_download_controls(
         "MSU_Mumbai_Charts_Trends_Displayed_Charts"
     ),
 ):
+
     charts = _get_registry()
 
     if not charts:
@@ -1664,7 +1594,7 @@ def render_displayed_chart_download_controls(
     )
 
     st.caption(
-        "PDF contains the actual section name and chart only."
+        "Section name + chart only."
     )
 
     try:
@@ -1719,7 +1649,7 @@ def render_displayed_chart_download_controls(
     )
 
     st.caption(
-        "PDF contains section name, chart and the corresponding data table."
+        "Section name + chart + corresponding data table."
     )
 
     try:
@@ -1774,7 +1704,7 @@ def render_displayed_chart_download_controls(
     )
 
     st.caption(
-        "PDF contains the section name and corresponding data table only."
+        "Section name + corresponding data table only."
     )
 
     try:
