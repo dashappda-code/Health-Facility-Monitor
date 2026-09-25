@@ -169,6 +169,7 @@ CAPTURE_CURRENT_PAGE_KEY = (
 
 
 def get_captured_page_registry():
+
     if (
         CAPTURED_PAGE_REGISTRY_KEY
         not in st.session_state
@@ -186,6 +187,7 @@ def store_current_page_capture(
     page_name,
     captured_charts,
 ):
+
     registry = get_captured_page_registry()
 
     registry[page_name] = {
@@ -193,7 +195,10 @@ def store_current_page_capture(
     }
 
 
-def get_page_captured_charts(page_name):
+def get_page_captured_charts(
+    page_name,
+):
+
     registry = get_captured_page_registry()
 
     page_record = registry.get(
@@ -210,6 +215,7 @@ def get_page_captured_charts(page_name):
 
 
 def is_complete_pdf_capture_active():
+
     return bool(
         st.session_state.get(
             CAPTURE_ACTIVE_KEY,
@@ -219,6 +225,7 @@ def is_complete_pdf_capture_active():
 
 
 def start_complete_pdf_capture():
+
     st.session_state[
         CAPTURED_PAGE_REGISTRY_KEY
     ] = {}
@@ -247,6 +254,7 @@ def start_complete_pdf_capture():
 
 
 def finish_complete_pdf_capture():
+
     st.session_state[
         CAPTURE_ACTIVE_KEY
     ] = False
@@ -279,6 +287,7 @@ st.caption(
 # ============================================================
 
 def get_data():
+
     return load_data()
 
 
@@ -290,6 +299,7 @@ df = get_data()
 # ============================================================
 
 if df is None or df.empty:
+
     st.error(
         "No data available from the Google Sheet."
     )
@@ -305,6 +315,10 @@ if df is None or df.empty:
 
 # ============================================================
 # AUTOMATIC CAPTURE PAGE CONTROL
+#
+# IMPORTANT:
+# dashboard_page is updated ONLY BEFORE the radio widget
+# is created.
 # ============================================================
 
 capture_active = (
@@ -322,6 +336,7 @@ if capture_active:
 
         capture_page = capture_queue[0]
 
+        # Safe because the radio widget has NOT been created yet.
         st.session_state[
             "dashboard_page"
         ] = capture_page
@@ -332,11 +347,11 @@ if capture_active:
 
     else:
 
-        capture_active = False
-
         st.session_state[
             CAPTURE_ACTIVE_KEY
         ] = False
+
+        capture_active = False
 
 
 # ============================================================
@@ -389,10 +404,13 @@ show_data_labels = st.sidebar.checkbox(
 )
 
 if show_data_labels:
+
     st.sidebar.success(
         "Data Labels: ON"
     )
+
 else:
+
     st.sidebar.info(
         "Data Labels: OFF"
     )
@@ -415,7 +433,10 @@ with st.container(
     border=True,
     key="global_filter_panel",
 ):
-    filter_values = create_filters(df)
+
+    filter_values = create_filters(
+        df
+    )
 
 
 # ============================================================
@@ -450,24 +471,28 @@ kpis = calculate_kpis(
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
+
     st.metric(
         "Total Records",
         f"{kpis.get('total_records', len(filtered_df)):,}",
     )
 
 with c2:
+
     st.metric(
         "Diseases",
         f"{kpis.get('diseases', 0):,}",
     )
 
 with c3:
+
     st.metric(
         "Facilities",
         f"{kpis.get('facilities', 0):,}",
     )
 
 with c4:
+
     st.metric(
         "Wards",
         f"{kpis.get('wards', 0):,}",
@@ -481,6 +506,7 @@ st.divider()
 # ============================================================
 
 def get_filter_summary():
+
     labels = {
         "year": "Year",
         "month": "Month",
@@ -505,11 +531,14 @@ def get_filter_summary():
         if values:
 
             if len(values) <= 5:
+
                 value_text = ", ".join(
                     str(value)
                     for value in values
                 )
+
             else:
+
                 value_text = (
                     f"{len(values)} selected"
                 )
@@ -552,25 +581,32 @@ def get_filter_summary():
                 )
 
         except Exception:
+
             pass
 
     if not selected:
+
         return "All records"
 
-    return " | ".join(selected)
+    return " | ".join(
+        selected
+    )
 
 
 # ============================================================
 # REPORTING PERIOD
 # ============================================================
 
-def get_reporting_period(data):
+def get_reporting_period(
+    data
+):
 
     if (
         data is None
         or data.empty
         or "Reporting Date" not in data.columns
     ):
+
         return None
 
     dates = data[
@@ -578,6 +614,7 @@ def get_reporting_period(data):
     ].dropna()
 
     if dates.empty:
+
         return None
 
     try:
@@ -595,6 +632,7 @@ def get_reporting_period(data):
         )
 
     except Exception:
+
         return None
 
 
@@ -614,6 +652,7 @@ def make_frequency_table(
         or data.empty
         or column not in data.columns
     ):
+
         return None
 
     values = (
@@ -629,13 +668,16 @@ def make_frequency_table(
     ]
 
     if values.empty:
+
         return None
 
     return (
         values
         .value_counts()
         .head(limit)
-        .rename_axis(output_name)
+        .rename_axis(
+            output_name
+        )
         .reset_index(
             name="Records"
         )
@@ -655,6 +697,7 @@ def build_individual_page_report_data(
     charts = []
 
     if data is None or data.empty:
+
         return tables, charts
 
     disease_table = make_frequency_table(
@@ -708,9 +751,11 @@ def build_individual_page_report_data(
     ward_column = None
 
     if "Ward Name" in data.columns:
+
         ward_column = "Ward Name"
 
     elif "Ward" in data.columns:
+
         ward_column = "Ward"
 
     if ward_column:
@@ -1041,6 +1086,7 @@ captured_chart_count = sum(
     for record in captured_pages.values()
 )
 
+
 if is_complete_pdf_capture_active():
 
     capture_queue = st.session_state.get(
@@ -1048,10 +1094,13 @@ if is_complete_pdf_capture_active():
         [],
     )
 
-    total_pages = len(PAGE_OPTIONS)
+    total_pages = len(
+        PAGE_OPTIONS
+    )
 
     completed_pages = (
-        total_pages - len(capture_queue)
+        total_pages
+        - len(capture_queue)
     )
 
     st.sidebar.info(
@@ -1060,7 +1109,8 @@ if is_complete_pdf_capture_active():
 
     st.sidebar.caption(
         f"Captured pages: "
-        f"{completed_pages} / {total_pages}"
+        f"{completed_pages} / "
+        f"{total_pages}"
     )
 
     st.sidebar.caption(
@@ -1278,6 +1328,7 @@ try:
                 filtered_df,
             )
 
+
     # ========================================================
     # CHARTS & TRENDS
     # ========================================================
@@ -1320,6 +1371,7 @@ try:
                 filtered_df,
             )
 
+
     # ========================================================
     # LABORATORY & PATHOGEN
     # ========================================================
@@ -1352,6 +1404,7 @@ try:
                 "Laboratory & Pathogen Analysis",
                 filtered_df,
             )
+
 
     # ========================================================
     # DEMOGRAPHICS
@@ -1386,6 +1439,7 @@ try:
                 filtered_df,
             )
 
+
     # ========================================================
     # WARD ANALYSIS
     # ========================================================
@@ -1418,6 +1472,7 @@ try:
                 "Ward Analysis",
                 filtered_df,
             )
+
 
     # ========================================================
     # MAP
@@ -1452,6 +1507,7 @@ try:
                 filtered_df,
             )
 
+
     # ========================================================
     # GEOGRAPHIC MAP
     # ========================================================
@@ -1476,6 +1532,7 @@ try:
             "Geographic Map",
             current_captured,
         )
+
 
     # ========================================================
     # DATA EXPLORER
@@ -1510,6 +1567,7 @@ try:
                 filtered_df,
             )
 
+
     # ========================================================
     # PREDICTION
     # ========================================================
@@ -1543,6 +1601,7 @@ try:
                 filtered_df,
             )
 
+
     # ========================================================
     # USER MANUAL
     # ========================================================
@@ -1573,6 +1632,7 @@ try:
                 "User Manual",
                 filtered_df,
             )
+
 
     # ========================================================
     # VALIDATION & KPI
@@ -1606,6 +1666,7 @@ try:
                 "Validation & KPI",
                 filtered_df,
             )
+
 
     # ========================================================
     # DRILL-DOWN & EXPORT
@@ -1652,6 +1713,10 @@ except Exception as e:
 
 # ============================================================
 # AUTOMATIC CAPTURE SEQUENCE CONTROLLER
+#
+# IMPORTANT:
+# Never modify st.session_state["dashboard_page"]
+# after the radio widget has been created.
 # ============================================================
 
 if is_complete_pdf_capture_active():
@@ -1667,30 +1732,44 @@ if is_complete_pdf_capture_active():
         )
     )
 
+    # --------------------------------------------------------
+    # Verify that the currently rendered page is the page
+    # currently expected by the capture queue.
+    # --------------------------------------------------------
+
     if (
         capture_queue
         and current_capture_page == capture_queue[0]
     ):
 
-        capture_queue = capture_queue[1:]
+        # Remove the page that has just been rendered.
+        remaining_queue = capture_queue[1:]
 
         st.session_state[
             CAPTURE_QUEUE_KEY
-        ] = capture_queue
+        ] = remaining_queue
 
-        if capture_queue:
+        # ----------------------------------------------------
+        # More pages remain.
+        #
+        # DO NOT change dashboard_page here.
+        # The next rerun will set it safely BEFORE the
+        # radio widget is instantiated.
+        # ----------------------------------------------------
 
-            next_page = capture_queue[0]
+        if remaining_queue:
+
+            next_page = remaining_queue[0]
 
             st.session_state[
                 CAPTURE_CURRENT_PAGE_KEY
             ] = next_page
 
-            st.session_state[
-                "dashboard_page"
-            ] = next_page
-
             st.rerun()
+
+        # ----------------------------------------------------
+        # All pages have been captured.
+        # ----------------------------------------------------
 
         else:
 
