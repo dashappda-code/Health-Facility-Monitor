@@ -27,9 +27,12 @@ from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
-from pdf_report import (
-    generate_pdf_report,
-    generate_complete_dashboard_pdf,
+# Existing individual page PDF system
+from pdf_report import generate_pdf_report
+
+# New Complete Dashboard PDF system
+from dashboard_pdf_export import (
+    generate_captured_dashboard_pdf,
 )
 
 from ppt_report import generate_ppt_report
@@ -521,10 +524,10 @@ def make_frequency_table(
 
 
 # ============================================================
-# BUILD PAGE REPORT DATA
+# EXISTING INDIVIDUAL PAGE PDF
 # ============================================================
 
-def build_page_report_data(
+def build_individual_page_report_data(
     page_name,
     data,
 ):
@@ -599,29 +602,39 @@ def build_page_report_data(
     # WARD
     # --------------------------------------------------------
 
-    ward_table = make_frequency_table(
-        data,
-        "Ward Name",
-        "Ward",
-    )
+    ward_column = None
 
-    if ward_table is not None:
+    if "Ward Name" in data.columns:
+        ward_column = "Ward Name"
 
-        tables.append(
-            (
-                "Ward-wise Burden",
-                ward_table,
+    elif "Ward" in data.columns:
+        ward_column = "Ward"
+
+    if ward_column:
+
+        ward_table = make_frequency_table(
+            data,
+            ward_column,
+            "Ward",
+        )
+
+        if ward_table is not None:
+
+            tables.append(
+                (
+                    "Ward-wise Burden",
+                    ward_table,
+                )
             )
-        )
 
-        charts.append(
-            {
-                "dataframe": ward_table,
-                "x_column": "Ward",
-                "y_column": "Records",
-                "title": "Ward-wise Burden",
-            }
-        )
+            charts.append(
+                {
+                    "dataframe": ward_table,
+                    "x_column": "Ward",
+                    "y_column": "Records",
+                    "title": "Ward-wise Burden",
+                }
+            )
 
 
     # --------------------------------------------------------
@@ -742,16 +755,12 @@ def build_page_report_data(
     return tables, charts
 
 
-# ============================================================
-# PAGE PDF
-# ============================================================
-
 def create_page_pdf(
     page_name,
     data,
 ):
 
-    tables, charts = build_page_report_data(
+    tables, charts = build_individual_page_report_data(
         page_name,
         data,
     )
@@ -762,7 +771,7 @@ def create_page_pdf(
 
     filter_summary = get_filter_summary()
 
-    pdf_bytes = generate_pdf_report(
+    return generate_pdf_report(
         report_title=page_name,
         df=data,
         kpis=kpis,
@@ -771,8 +780,6 @@ def create_page_pdf(
         report_period=report_period,
         filter_summary=filter_summary,
     )
-
-    return pdf_bytes
 
 
 # ============================================================
@@ -830,11 +837,28 @@ def create_complete_dashboard_pdf():
 
     filter_summary = get_filter_summary()
 
+    # --------------------------------------------------------
+    # IMPORTANT
+    #
+    # The Complete Dashboard PDF now uses the new
+    # dashboard_pdf_export.py engine.
+    #
+    # The existing generic matplotlib PDF is NOT used here.
+    # --------------------------------------------------------
+
     dashboard_pages = []
+
+    # --------------------------------------------------------
+    # Base management pages.
+    #
+    # These are intentionally kept as page records so that
+    # the new PDF engine has a stable dashboard structure.
+    # --------------------------------------------------------
 
     page_names = [
         "Overview",
         "Charts & Trends",
+        "Laboratory & Pathogen Analysis",
         "Demographics",
         "Ward Analysis",
         "Map",
@@ -846,12 +870,13 @@ def create_complete_dashboard_pdf():
         "Drill-down & Export",
     ]
 
-
     for page_name in page_names:
 
-        page_tables, page_charts = build_page_report_data(
-            page_name,
-            filtered_df,
+        page_tables, page_charts = (
+            build_individual_page_report_data(
+                page_name,
+                filtered_df,
+            )
         )
 
         dashboard_pages.append(
@@ -859,13 +884,21 @@ def create_complete_dashboard_pdf():
                 "title": page_name,
                 "df": filtered_df,
                 "kpis": kpis,
-                "tables": page_tables,
-                "charts": page_charts,
+                "tables": [
+                    {
+                        "title": title,
+                        "dataframe": dataframe,
+                    }
+                    for title, dataframe
+                    in page_tables
+                ],
+                "charts": [],
+                "images": [],
+                "notes": [],
             }
         )
 
-
-    return generate_complete_dashboard_pdf(
+    return generate_captured_dashboard_pdf(
         pages=dashboard_pages,
         report_period=report_period,
         filter_summary=filter_summary,
@@ -932,11 +965,9 @@ if st.sidebar.button(
                 "complete_dashboard_pdf_filter"
             ] = get_filter_summary()
 
-
         st.sidebar.success(
             "Complete PDF generated."
         )
-
 
     except Exception as e:
 
@@ -962,7 +993,6 @@ if (
         "complete_dashboard_pdf_filter",
         "",
     )
-
 
     if current_filter == generated_filter:
 
@@ -1026,11 +1056,9 @@ if st.sidebar.button(
                 "complete_dashboard_ppt_filter"
             ] = get_filter_summary()
 
-
         st.sidebar.success(
             "PowerPoint generated successfully."
         )
-
 
     except Exception as e:
 
@@ -1056,7 +1084,6 @@ if (
         "complete_dashboard_ppt_filter",
         "",
     )
-
 
     if current_filter == generated_ppt_filter:
 
@@ -1114,20 +1141,11 @@ try:
 
     elif page == "Charts & Trends":
 
-        # ----------------------------------------------------
-        # Capture only the charts actually rendered on screen.
-        # This keeps export aligned with the current dashboard.
-        # ----------------------------------------------------
-
         with capture_displayed_charts():
 
             render_charts(
                 filtered_df
             )
-
-        # ----------------------------------------------------
-        # Displayed chart export controls
-        # ----------------------------------------------------
 
         st.divider()
 
@@ -1137,10 +1155,6 @@ try:
                 "MSU_Mumbai_Charts_Trends_Displayed_Charts"
             ),
         )
-
-        # ----------------------------------------------------
-        # Existing page PDF
-        # ----------------------------------------------------
 
         st.divider()
 
@@ -1350,7 +1364,6 @@ if st.sidebar.button(
         from phase1_data import refresh_data
 
         refresh_data()
-
 
     st.success(
         "Google Sheet data refreshed successfully."
