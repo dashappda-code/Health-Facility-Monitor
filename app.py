@@ -15,12 +15,7 @@ from phase3_b_lab_pathogen import render_lab_pathogen
 from phase4_demographics import render_demographics
 from phase5_ward import render_ward
 
-# Existing patient/location hotspot map
-
 from phase6_map import render_map
-
-# New Mumbai ward geographic map
-
 from geographic_map import render_geographic_map
 
 from phase7_explorer import render_explorer
@@ -29,17 +24,13 @@ from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
-# Existing individual page PDF system
-
 from pdf_report import generate_pdf_report
 
-# Complete Dashboard PDF system
-
-from dashboard_pdf_export import generate_captured_dashboard_pdf
+from dashboard_pdf_export import (
+generate_captured_dashboard_pdf,
+)
 
 from ppt_report import generate_ppt_report
-
-# Displayed chart export
 
 from displayed_chart_export import (
 capture_displayed_charts,
@@ -554,14 +545,6 @@ return (
 
 # CAPTURED PAGE REGISTRY
 
-#
-
-# Each dashboard page that is actually opened is captured.
-
-# This keeps the normal dashboard UI unchanged while allowing
-
-# the Complete Dashboard PDF to reuse the exact chart objects.
-
 # ============================================================
 
 CAPTURED_PAGE_REGISTRY_KEY = (
@@ -635,7 +618,6 @@ if data is None or data.empty:
 
     return tables, charts
 
-
 # --------------------------------------------------------
 # DISEASE
 # --------------------------------------------------------
@@ -664,7 +646,6 @@ if disease_table is not None:
         }
     )
 
-
 # --------------------------------------------------------
 # FACILITY
 # --------------------------------------------------------
@@ -692,7 +673,6 @@ if facility_table is not None:
             "title": "Facility-wise Burden",
         }
     )
-
 
 # --------------------------------------------------------
 # WARD
@@ -734,7 +714,6 @@ if ward_column:
             }
         )
 
-
 # --------------------------------------------------------
 # GENDER
 # --------------------------------------------------------
@@ -753,7 +732,6 @@ if gender_table is not None:
             gender_table,
         )
     )
-
 
 # --------------------------------------------------------
 # AGE
@@ -774,7 +752,6 @@ if age_table is not None:
         )
     )
 
-
 # --------------------------------------------------------
 # OPD / IPD
 # --------------------------------------------------------
@@ -793,7 +770,6 @@ if opd_table is not None:
             opd_table,
         )
     )
-
 
 # --------------------------------------------------------
 # MONTH-WISE ANALYSIS
@@ -848,7 +824,6 @@ if (
                 "title": "Month-wise Analysis",
             }
         )
-
 
 return tables, charts
 
