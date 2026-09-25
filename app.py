@@ -128,6 +128,140 @@ st.markdown(
 
 
 # ============================================================
+# PAGE LIST
+# ============================================================
+
+PAGE_OPTIONS = [
+    "Overview",
+    "Charts & Trends",
+    "Laboratory & Pathogen Analysis",
+    "Demographics",
+    "Ward Analysis",
+    "Map",
+    "Geographic Map",
+    "Data Explorer",
+    "Prediction",
+    "User Manual",
+    "Validation & KPI",
+    "Drill-down & Export",
+]
+
+
+# ============================================================
+# AUTOMATIC COMPLETE PDF CAPTURE STATE
+# ============================================================
+
+CAPTURED_PAGE_REGISTRY_KEY = (
+    "complete_dashboard_captured_pages"
+)
+
+CAPTURE_QUEUE_KEY = (
+    "complete_dashboard_capture_queue"
+)
+
+CAPTURE_ACTIVE_KEY = (
+    "complete_dashboard_capture_active"
+)
+
+CAPTURE_CURRENT_PAGE_KEY = (
+    "complete_dashboard_capture_current_page"
+)
+
+
+def get_captured_page_registry():
+    if (
+        CAPTURED_PAGE_REGISTRY_KEY
+        not in st.session_state
+    ):
+        st.session_state[
+            CAPTURED_PAGE_REGISTRY_KEY
+        ] = {}
+
+    return st.session_state[
+        CAPTURED_PAGE_REGISTRY_KEY
+    ]
+
+
+def store_current_page_capture(
+    page_name,
+    captured_charts,
+):
+    registry = get_captured_page_registry()
+
+    registry[page_name] = {
+        "charts": list(captured_charts),
+    }
+
+
+def get_page_captured_charts(page_name):
+    registry = get_captured_page_registry()
+
+    page_record = registry.get(
+        page_name,
+        {},
+    )
+
+    return list(
+        page_record.get(
+            "charts",
+            [],
+        )
+    )
+
+
+def is_complete_pdf_capture_active():
+    return bool(
+        st.session_state.get(
+            CAPTURE_ACTIVE_KEY,
+            False,
+        )
+    )
+
+
+def start_complete_pdf_capture():
+    st.session_state[
+        CAPTURED_PAGE_REGISTRY_KEY
+    ] = {}
+
+    st.session_state[
+        CAPTURE_QUEUE_KEY
+    ] = list(PAGE_OPTIONS)
+
+    st.session_state[
+        CAPTURE_ACTIVE_KEY
+    ] = True
+
+    st.session_state[
+        CAPTURE_CURRENT_PAGE_KEY
+    ] = PAGE_OPTIONS[0]
+
+    st.session_state.pop(
+        "complete_dashboard_pdf",
+        None,
+    )
+
+    st.session_state.pop(
+        "complete_dashboard_pdf_filter",
+        None,
+    )
+
+
+def finish_complete_pdf_capture():
+    st.session_state[
+        CAPTURE_ACTIVE_KEY
+    ] = False
+
+    st.session_state[
+        CAPTURE_QUEUE_KEY
+    ] = []
+
+    st.session_state.pop(
+        CAPTURE_CURRENT_PAGE_KEY,
+        None,
+    )
+
+
+# ============================================================
 # DASHBOARD HEADER
 # ============================================================
 
@@ -170,6 +304,42 @@ if df is None or df.empty:
 
 
 # ============================================================
+# AUTOMATIC CAPTURE PAGE CONTROL
+# ============================================================
+
+capture_active = (
+    is_complete_pdf_capture_active()
+)
+
+if capture_active:
+
+    capture_queue = st.session_state.get(
+        CAPTURE_QUEUE_KEY,
+        [],
+    )
+
+    if capture_queue:
+
+        capture_page = capture_queue[0]
+
+        st.session_state[
+            "dashboard_page"
+        ] = capture_page
+
+        st.session_state[
+            CAPTURE_CURRENT_PAGE_KEY
+        ] = capture_page
+
+    else:
+
+        capture_active = False
+
+        st.session_state[
+            CAPTURE_ACTIVE_KEY
+        ] = False
+
+
+# ============================================================
 # SIDEBAR
 # ============================================================
 
@@ -179,20 +349,8 @@ st.sidebar.title(
 
 page = st.sidebar.radio(
     "Select Section",
-    [
-        "Overview",
-        "Charts & Trends",
-        "Laboratory & Pathogen Analysis",
-        "Demographics",
-        "Ward Analysis",
-        "Map",
-        "Geographic Map",
-        "Data Explorer",
-        "Prediction",
-        "User Manual",
-        "Validation & KPI",
-        "Drill-down & Export",
-    ],
+    PAGE_OPTIONS,
+    key="dashboard_page",
 )
 
 
@@ -338,12 +496,14 @@ def get_filter_summary():
     selected = []
 
     for key, label in labels.items():
+
         values = filter_values.get(
             key,
             [],
         )
 
         if values:
+
             if len(values) <= 5:
                 value_text = ", ".join(
                     str(value)
@@ -363,10 +523,13 @@ def get_filter_summary():
     )
 
     if reporting_date:
+
         try:
+
             start_date, end_date = reporting_date
 
             if start_date and end_date:
+
                 selected.append(
                     "Date: "
                     f"{start_date.strftime('%d-%m-%Y')}"
@@ -375,12 +538,14 @@ def get_filter_summary():
                 )
 
             elif start_date:
+
                 selected.append(
                     "From Date: "
                     f"{start_date.strftime('%d-%m-%Y')}"
                 )
 
             elif end_date:
+
                 selected.append(
                     "To Date: "
                     f"{end_date.strftime('%d-%m-%Y')}"
@@ -400,6 +565,7 @@ def get_filter_summary():
 # ============================================================
 
 def get_reporting_period(data):
+
     if (
         data is None
         or data.empty
@@ -415,6 +581,7 @@ def get_reporting_period(data):
         return None
 
     try:
+
         start_date = dates.min().strftime(
             "%d-%m-%Y"
         )
@@ -441,6 +608,7 @@ def make_frequency_table(
     output_name,
     limit=20,
 ):
+
     if (
         data is None
         or data.empty
@@ -475,72 +643,19 @@ def make_frequency_table(
 
 
 # ============================================================
-# CAPTURED PAGE REGISTRY
-# ============================================================
-
-CAPTURED_PAGE_REGISTRY_KEY = (
-    "complete_dashboard_captured_pages"
-)
-
-
-def get_captured_page_registry():
-    if (
-        CAPTURED_PAGE_REGISTRY_KEY
-        not in st.session_state
-    ):
-        st.session_state[
-            CAPTURED_PAGE_REGISTRY_KEY
-        ] = {}
-
-    return st.session_state[
-        CAPTURED_PAGE_REGISTRY_KEY
-    ]
-
-
-def store_current_page_capture(
-    page_name,
-    captured_charts,
-):
-    registry = get_captured_page_registry()
-
-    registry[page_name] = {
-        "charts": list(captured_charts),
-    }
-
-
-def get_page_captured_charts(page_name):
-    registry = get_captured_page_registry()
-
-    page_record = registry.get(
-        page_name,
-        {},
-    )
-
-    return list(
-        page_record.get(
-            "charts",
-            [],
-        )
-    )
-
-
-# ============================================================
-# INDIVIDUAL PAGE PDF
+# INDIVIDUAL PAGE REPORT DATA
 # ============================================================
 
 def build_individual_page_report_data(
     page_name,
     data,
 ):
+
     tables = []
     charts = []
 
     if data is None or data.empty:
         return tables, charts
-
-    # --------------------------------------------------------
-    # DISEASE
-    # --------------------------------------------------------
 
     disease_table = make_frequency_table(
         data,
@@ -549,6 +664,7 @@ def build_individual_page_report_data(
     )
 
     if disease_table is not None:
+
         tables.append(
             (
                 "Disease-wise Burden",
@@ -565,10 +681,6 @@ def build_individual_page_report_data(
             }
         )
 
-    # --------------------------------------------------------
-    # FACILITY
-    # --------------------------------------------------------
-
     facility_table = make_frequency_table(
         data,
         "Facility Name",
@@ -576,6 +688,7 @@ def build_individual_page_report_data(
     )
 
     if facility_table is not None:
+
         tables.append(
             (
                 "Facility-wise Burden",
@@ -592,10 +705,6 @@ def build_individual_page_report_data(
             }
         )
 
-    # --------------------------------------------------------
-    # WARD
-    # --------------------------------------------------------
-
     ward_column = None
 
     if "Ward Name" in data.columns:
@@ -605,6 +714,7 @@ def build_individual_page_report_data(
         ward_column = "Ward"
 
     if ward_column:
+
         ward_table = make_frequency_table(
             data,
             ward_column,
@@ -612,6 +722,7 @@ def build_individual_page_report_data(
         )
 
         if ward_table is not None:
+
             tables.append(
                 (
                     "Ward-wise Burden",
@@ -628,10 +739,6 @@ def build_individual_page_report_data(
                 }
             )
 
-    # --------------------------------------------------------
-    # GENDER
-    # --------------------------------------------------------
-
     gender_table = make_frequency_table(
         data,
         "Gender",
@@ -639,16 +746,13 @@ def build_individual_page_report_data(
     )
 
     if gender_table is not None:
+
         tables.append(
             (
                 "Gender-wise Distribution",
                 gender_table,
             )
         )
-
-    # --------------------------------------------------------
-    # AGE
-    # --------------------------------------------------------
 
     age_table = make_frequency_table(
         data,
@@ -657,16 +761,13 @@ def build_individual_page_report_data(
     )
 
     if age_table is not None:
+
         tables.append(
             (
                 "Age Group-wise Distribution",
                 age_table,
             )
         )
-
-    # --------------------------------------------------------
-    # OPD / IPD
-    # --------------------------------------------------------
 
     opd_table = make_frequency_table(
         data,
@@ -675,6 +776,7 @@ def build_individual_page_report_data(
     )
 
     if opd_table is not None:
+
         tables.append(
             (
                 "OPD / IPD Distribution",
@@ -682,14 +784,11 @@ def build_individual_page_report_data(
             )
         )
 
-    # --------------------------------------------------------
-    # MONTH-WISE ANALYSIS
-    # --------------------------------------------------------
-
     if (
         "Month" in data.columns
         and "Year" in data.columns
     ):
+
         monthly = (
             data
             .groupby(
@@ -703,6 +802,7 @@ def build_individual_page_report_data(
         )
 
         if not monthly.empty:
+
             monthly["Period"] = (
                 monthly["Year"]
                 .astype(str)
@@ -737,13 +837,20 @@ def build_individual_page_report_data(
     return tables, charts
 
 
+# ============================================================
+# INDIVIDUAL PAGE PDF
+# ============================================================
+
 def create_page_pdf(
     page_name,
     data,
 ):
-    tables, charts = build_individual_page_report_data(
-        page_name,
-        data,
+
+    tables, charts = (
+        build_individual_page_report_data(
+            page_name,
+            data,
+        )
     )
 
     report_period = get_reporting_period(
@@ -763,15 +870,13 @@ def create_page_pdf(
     )
 
 
-# ============================================================
-# PAGE PDF DOWNLOAD BUTTON
-# ============================================================
-
 def render_page_pdf_button(
     page_name,
     data,
 ):
+
     try:
+
         pdf_bytes = create_page_pdf(
             page_name,
             data,
@@ -796,6 +901,7 @@ def render_page_pdf_button(
         )
 
     except Exception as e:
+
         st.error(
             "PDF report could not be generated."
         )
@@ -808,20 +914,6 @@ def render_page_pdf_button(
 # ============================================================
 
 def build_complete_dashboard_pages():
-    page_names = [
-        "Overview",
-        "Charts & Trends",
-        "Laboratory & Pathogen Analysis",
-        "Demographics",
-        "Ward Analysis",
-        "Map",
-        "Geographic Map",
-        "Data Explorer",
-        "Prediction",
-        "User Manual",
-        "Validation & KPI",
-        "Drill-down & Export",
-    ]
 
     captured_registry = (
         get_captured_page_registry()
@@ -829,7 +921,8 @@ def build_complete_dashboard_pages():
 
     dashboard_pages = []
 
-    for page_name in page_names:
+    for page_name in PAGE_OPTIONS:
+
         page_tables, page_charts = (
             build_individual_page_report_data(
                 page_name,
@@ -837,23 +930,22 @@ def build_complete_dashboard_pages():
             )
         )
 
-        captured_charts = []
-
-        if page_name in captured_registry:
-            captured_charts = list(
-                captured_registry[
-                    page_name
-                ].get(
-                    "charts",
-                    [],
-                )
+        captured_charts = list(
+            captured_registry.get(
+                page_name,
+                {},
+            ).get(
+                "charts",
+                [],
             )
+        )
 
         dashboard_pages.append(
             {
                 "title": page_name,
                 "df": filtered_df,
                 "kpis": kpis,
+
                 "tables": [
                     {
                         "title": title,
@@ -862,8 +954,11 @@ def build_complete_dashboard_pages():
                     for title, dataframe
                     in page_tables
                 ],
+
                 "charts": captured_charts,
+
                 "images": [],
+
                 "notes": [],
             }
         )
@@ -876,6 +971,7 @@ def build_complete_dashboard_pages():
 # ============================================================
 
 def create_complete_dashboard_pdf():
+
     report_period = get_reporting_period(
         filtered_df
     )
@@ -894,23 +990,22 @@ def create_complete_dashboard_pdf():
 
 
 # ============================================================
-# COMPLETE DASHBOARD POWERPOINT
+# COMPLETE POWERPOINT
 # ============================================================
 
 def create_complete_dashboard_ppt():
+
     report_period = get_reporting_period(
         filtered_df
     )
 
     filter_summary = get_filter_summary()
 
-    ppt_bytes = generate_ppt_report(
+    return generate_ppt_report(
         df=filtered_df,
         report_period=report_period,
         filter_summary=filter_summary,
     )
-
-    return ppt_bytes
 
 
 # ============================================================
@@ -924,8 +1019,7 @@ st.sidebar.subheader(
 )
 
 st.sidebar.caption(
-    "Download the current dashboard view as "
-    "a complete consolidated PDF."
+    "Generate a complete consolidated dashboard report."
 )
 
 
@@ -933,7 +1027,9 @@ st.sidebar.caption(
 # CAPTURE STATUS
 # ============================================================
 
-captured_pages = get_captured_page_registry()
+captured_pages = (
+    get_captured_page_registry()
+)
 
 captured_chart_count = sum(
     len(
@@ -945,7 +1041,35 @@ captured_chart_count = sum(
     for record in captured_pages.values()
 )
 
-if captured_pages:
+if is_complete_pdf_capture_active():
+
+    capture_queue = st.session_state.get(
+        CAPTURE_QUEUE_KEY,
+        [],
+    )
+
+    total_pages = len(PAGE_OPTIONS)
+
+    completed_pages = (
+        total_pages - len(capture_queue)
+    )
+
+    st.sidebar.info(
+        "Automatic PDF capture running..."
+    )
+
+    st.sidebar.caption(
+        f"Captured pages: "
+        f"{completed_pages} / {total_pages}"
+    )
+
+    st.sidebar.caption(
+        f"Captured charts: "
+        f"{captured_chart_count}"
+    )
+
+elif captured_pages:
+
     st.sidebar.caption(
         f"Captured dashboard pages: "
         f"{len(captured_pages)}"
@@ -961,32 +1085,16 @@ if captured_pages:
 # GENERATE COMPLETE PDF
 # ============================================================
 
-if st.sidebar.button(
-    "📚 Generate Complete Dashboard PDF",
-    use_container_width=True,
-):
-    try:
-        with st.spinner(
-            "Generating complete dashboard PDF..."
-        ):
-            st.session_state[
-                "complete_dashboard_pdf"
-            ] = create_complete_dashboard_pdf()
+if not is_complete_pdf_capture_active():
 
-            st.session_state[
-                "complete_dashboard_pdf_filter"
-            ] = get_filter_summary()
+    if st.sidebar.button(
+        "📚 Generate Complete Dashboard PDF",
+        use_container_width=True,
+    ):
 
-        st.sidebar.success(
-            "Complete PDF generated."
-        )
+        start_complete_pdf_capture()
 
-    except Exception as e:
-        st.sidebar.error(
-            "Complete dashboard PDF could not be generated."
-        )
-
-        st.sidebar.exception(e)
+        st.rerun()
 
 
 # ============================================================
@@ -997,16 +1105,24 @@ if (
     "complete_dashboard_pdf"
     in st.session_state
 ):
-    current_filter = get_filter_summary()
 
-    generated_filter = st.session_state.get(
-        "complete_dashboard_pdf_filter",
-        "",
+    current_filter = (
+        get_filter_summary()
+    )
+
+    generated_filter = (
+        st.session_state.get(
+            "complete_dashboard_pdf_filter",
+            "",
+        )
     )
 
     if current_filter == generated_filter:
+
         st.sidebar.download_button(
-            label="⬇️ Download Complete Dashboard PDF",
+            label=(
+                "⬇️ Download Complete Dashboard PDF"
+            ),
             data=st.session_state[
                 "complete_dashboard_pdf"
             ],
@@ -1019,6 +1135,7 @@ if (
         )
 
     else:
+
         st.sidebar.info(
             "Dashboard filters have changed. "
             "Generate the complete PDF again."
@@ -1026,7 +1143,7 @@ if (
 
 
 # ============================================================
-# SIDEBAR POWERPOINT SECTION
+# POWERPOINT SECTION
 # ============================================================
 
 st.sidebar.markdown("---")
@@ -1041,18 +1158,20 @@ st.sidebar.caption(
 )
 
 
-# ============================================================
-# GENERATE POWERPOINT
-# ============================================================
-
-if st.sidebar.button(
-    "📊 Generate PowerPoint",
-    use_container_width=True,
+if (
+    not is_complete_pdf_capture_active()
+    and st.sidebar.button(
+        "📊 Generate PowerPoint",
+        use_container_width=True,
+    )
 ):
+
     try:
+
         with st.spinner(
             "Generating PowerPoint report..."
         ):
+
             st.session_state[
                 "complete_dashboard_ppt"
             ] = create_complete_dashboard_ppt()
@@ -1066,6 +1185,7 @@ if st.sidebar.button(
         )
 
     except Exception as e:
+
         st.sidebar.error(
             "PowerPoint report could not be generated."
         )
@@ -1081,14 +1201,20 @@ if (
     "complete_dashboard_ppt"
     in st.session_state
 ):
-    current_filter = get_filter_summary()
 
-    generated_ppt_filter = st.session_state.get(
-        "complete_dashboard_ppt_filter",
-        "",
+    current_filter = (
+        get_filter_summary()
+    )
+
+    generated_ppt_filter = (
+        st.session_state.get(
+            "complete_dashboard_ppt_filter",
+            "",
+        )
     )
 
     if current_filter == generated_ppt_filter:
+
         st.sidebar.download_button(
             label="⬇️ Download PowerPoint",
             data=st.session_state[
@@ -1106,6 +1232,7 @@ if (
         )
 
     else:
+
         st.sidebar.info(
             "Dashboard filters have changed. "
             "Generate the PowerPoint again."
@@ -1124,16 +1251,32 @@ try:
 
     if page == "Overview":
 
-        render_overview(
-            filtered_df
+        with capture_displayed_charts():
+
+            render_overview(
+                filtered_df
+            )
+
+        current_captured = (
+            st.session_state.get(
+                "displayed_chart_exports",
+                [],
+            )
         )
 
-        st.divider()
-
-        render_page_pdf_button(
+        store_current_page_capture(
             "Overview",
-            filtered_df,
+            current_captured,
         )
+
+        if not capture_active:
+
+            st.divider()
+
+            render_page_pdf_button(
+                "Overview",
+                filtered_df,
+            )
 
     # ========================================================
     # CHARTS & TRENDS
@@ -1159,24 +1302,26 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_displayed_chart_download_controls(
-            filter_summary=get_filter_summary(),
-            base_filename=(
-                "MSU_Mumbai_Charts_Trends_Displayed_Charts"
-            ),
-        )
+            st.divider()
 
-        st.divider()
+            render_displayed_chart_download_controls(
+                filter_summary=get_filter_summary(),
+                base_filename=(
+                    "MSU_Mumbai_Charts_Trends_Displayed_Charts"
+                ),
+            )
 
-        render_page_pdf_button(
-            "Charts & Trends",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Charts & Trends",
+                filtered_df,
+            )
 
     # ========================================================
-    # LABORATORY & PATHOGEN ANALYSIS
+    # LABORATORY & PATHOGEN
     # ========================================================
 
     elif page == "Laboratory & Pathogen Analysis":
@@ -1199,12 +1344,14 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_page_pdf_button(
-            "Laboratory & Pathogen Analysis",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Laboratory & Pathogen Analysis",
+                filtered_df,
+            )
 
     # ========================================================
     # DEMOGRAPHICS
@@ -1230,12 +1377,14 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_page_pdf_button(
-            "Demographics",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Demographics",
+                filtered_df,
+            )
 
     # ========================================================
     # WARD ANALYSIS
@@ -1261,39 +1410,71 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_page_pdf_button(
-            "Ward Analysis",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Ward Analysis",
+                filtered_df,
+            )
 
     # ========================================================
-    # EXISTING MAP
+    # MAP
     # ========================================================
 
     elif page == "Map":
 
-        render_map(
-            filtered_df
+        with capture_displayed_charts():
+
+            render_map(
+                filtered_df
+            )
+
+        current_captured = (
+            st.session_state.get(
+                "displayed_chart_exports",
+                [],
+            )
         )
 
-        st.divider()
-
-        render_page_pdf_button(
+        store_current_page_capture(
             "Map",
-            filtered_df,
+            current_captured,
         )
+
+        if not capture_active:
+
+            st.divider()
+
+            render_page_pdf_button(
+                "Map",
+                filtered_df,
+            )
 
     # ========================================================
-    # NEW GEOGRAPHIC MAP
+    # GEOGRAPHIC MAP
     # ========================================================
 
     elif page == "Geographic Map":
 
-        render_geographic_map(
-            filtered_df,
-            df,
+        with capture_displayed_charts():
+
+            render_geographic_map(
+                filtered_df,
+                df,
+            )
+
+        current_captured = (
+            st.session_state.get(
+                "displayed_chart_exports",
+                [],
+            )
+        )
+
+        store_current_page_capture(
+            "Geographic Map",
+            current_captured,
         )
 
     # ========================================================
@@ -1320,12 +1501,14 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_page_pdf_button(
-            "Data Explorer",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Data Explorer",
+                filtered_df,
+            )
 
     # ========================================================
     # PREDICTION
@@ -1351,12 +1534,14 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_page_pdf_button(
-            "Prediction",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Prediction",
+                filtered_df,
+            )
 
     # ========================================================
     # USER MANUAL
@@ -1364,14 +1549,30 @@ try:
 
     elif page == "User Manual":
 
-        render_manual()
+        with capture_displayed_charts():
 
-        st.divider()
+            render_manual()
 
-        render_page_pdf_button(
-            "User Manual",
-            filtered_df,
+        current_captured = (
+            st.session_state.get(
+                "displayed_chart_exports",
+                [],
+            )
         )
+
+        store_current_page_capture(
+            "User Manual",
+            current_captured,
+        )
+
+        if not capture_active:
+
+            st.divider()
+
+            render_page_pdf_button(
+                "User Manual",
+                filtered_df,
+            )
 
     # ========================================================
     # VALIDATION & KPI
@@ -1397,12 +1598,14 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_page_pdf_button(
-            "Validation & KPI",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Validation & KPI",
+                filtered_df,
+            )
 
     # ========================================================
     # DRILL-DOWN & EXPORT
@@ -1428,12 +1631,14 @@ try:
             current_captured,
         )
 
-        st.divider()
+        if not capture_active:
 
-        render_page_pdf_button(
-            "Drill-down & Export",
-            filtered_df,
-        )
+            st.divider()
+
+            render_page_pdf_button(
+                "Drill-down & Export",
+                filtered_df,
+            )
 
 
 except Exception as e:
@@ -1446,29 +1651,108 @@ except Exception as e:
 
 
 # ============================================================
+# AUTOMATIC CAPTURE SEQUENCE CONTROLLER
+# ============================================================
+
+if is_complete_pdf_capture_active():
+
+    capture_queue = st.session_state.get(
+        CAPTURE_QUEUE_KEY,
+        [],
+    )
+
+    current_capture_page = (
+        st.session_state.get(
+            CAPTURE_CURRENT_PAGE_KEY
+        )
+    )
+
+    if (
+        capture_queue
+        and current_capture_page == capture_queue[0]
+    ):
+
+        capture_queue = capture_queue[1:]
+
+        st.session_state[
+            CAPTURE_QUEUE_KEY
+        ] = capture_queue
+
+        if capture_queue:
+
+            next_page = capture_queue[0]
+
+            st.session_state[
+                CAPTURE_CURRENT_PAGE_KEY
+            ] = next_page
+
+            st.session_state[
+                "dashboard_page"
+            ] = next_page
+
+            st.rerun()
+
+        else:
+
+            try:
+
+                with st.spinner(
+                    "Building Complete Dashboard PDF..."
+                ):
+
+                    pdf_bytes = (
+                        create_complete_dashboard_pdf()
+                    )
+
+                    st.session_state[
+                        "complete_dashboard_pdf"
+                    ] = pdf_bytes
+
+                    st.session_state[
+                        "complete_dashboard_pdf_filter"
+                    ] = get_filter_summary()
+
+                finish_complete_pdf_capture()
+
+                st.rerun()
+
+            except Exception as e:
+
+                finish_complete_pdf_capture()
+
+                st.error(
+                    "Complete dashboard PDF could not be generated."
+                )
+
+                st.exception(e)
+
+
+# ============================================================
 # GOOGLE SHEET REFRESH
 # ============================================================
 
-st.sidebar.markdown("---")
+if not is_complete_pdf_capture_active():
 
-if st.sidebar.button(
-    "🔄 Refresh Google Sheet Data",
-    use_container_width=True,
-):
+    st.sidebar.markdown("---")
 
-    with st.spinner(
-        "Refreshing Google Sheet data..."
+    if st.sidebar.button(
+        "🔄 Refresh Google Sheet Data",
+        use_container_width=True,
     ):
 
-        from phase1_data import refresh_data
+        with st.spinner(
+            "Refreshing Google Sheet data..."
+        ):
 
-        refresh_data()
+            from phase1_data import refresh_data
 
-    st.success(
-        "Google Sheet data refreshed successfully."
-    )
+            refresh_data()
 
-    st.rerun()
+        st.success(
+            "Google Sheet data refreshed successfully."
+        )
+
+        st.rerun()
 
 
 # ============================================================
