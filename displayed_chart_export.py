@@ -2,6 +2,7 @@ import io
 import hashlib
 import zipfile
 import html
+import re
 from contextlib import contextmanager
 
 import pandas as pd
@@ -20,12 +21,7 @@ MAX_TABLE_COLUMNS = 14
 
 PDF_MARGIN_MM = 12
 
-# Minimum useful chart height.
-# This is NOT used as a fixed chart height.
 MIN_CHART_HEIGHT_MM = 55
-
-# Maximum chart height only acts as a page-safety limit.
-# The chart's original aspect ratio is always preserved.
 MAX_CHART_HEIGHT_MM = 250
 
 
@@ -42,15 +38,6 @@ def _get_registry():
 
 def _clear_registry():
     st.session_state[DISPLAYED_CHARTS_KEY] = []
-
-
-def _is_capture_active():
-    return bool(
-        st.session_state.get(
-            CAPTURE_ACTIVE_KEY,
-            False,
-        )
-    )
 
 
 # ============================================================
@@ -74,20 +61,70 @@ def _safe_dataframe(value):
 
 
 # ============================================================
+# TEXT CLEANING
+# ============================================================
+
+def _clean_heading_text(value):
+    """
+    Convert Streamlit heading content into a clean plain title.
+    """
+
+    if value is None:
+        return ""
+
+    try:
+        text = str(value).strip()
+    except Exception:
+        return ""
+
+    if not text:
+        return ""
+
+    # Remove common markdown heading markers
+    text = re.sub(
+        r"^\s*#{1,6}\s*",
+        "",
+        text,
+    )
+
+    # Remove common divider-only content
+    if text in (
+        "---",
+        "***",
+        "___",
+    ):
+        return ""
+
+    return text.strip()
+
+
+def _looks_like_heading(value):
+    """
+    Decide whether a captured markdown string looks like
+    a section heading rather than ordinary explanatory text.
+    """
+
+    text = _clean_heading_text(value)
+
+    if not text:
+        return False
+
+    # Ignore very long paragraphs
+    if len(text) > 120:
+        return False
+
+    # Ignore obvious normal text
+    if text.endswith(".") and len(text) > 45:
+        return False
+
+    return True
+
+
+# ============================================================
 # EXTRACT DATAFRAME FROM ALTAIR CHART
 # ============================================================
 
 def _extract_chart_dataframe(chart):
-    """
-    Extract chart data from an Altair/Vega-Lite chart.
-
-    Supports:
-    - Inline data
-    - Named datasets
-    - Layered charts
-    - HConcat / VConcat / Concat
-    """
-
     try:
         chart_dict = chart.to_dict()
 
@@ -252,21 +289,110 @@ def _prepare_report_table(df):
 
 
 # ============================================================
-# CAPTURE DISPLAYED CHARTS
+# CAPTURE DISPLAYED CHARTS + SECTION HEADINGS
 # ============================================================
 
 @contextmanager
 def capture_displayed_charts():
     """
-    Capture every Altair chart rendered through
-    st.altair_chart() while this context is active.
+    Capture:
+        - Altair charts
+        - Streamlit subheaders
+        - Markdown headings
+
+    The most recent detected section heading is attached
+    to the next displayed chart.
     """
 
     original_altair_chart = st.altair_chart
+    original_subheader = st.subheader
+    original_markdown = st.markdown
 
     _clear_registry()
 
-    st.session_state[CAPTURE_ACTIVE_KEY] = True
+    # --------------------------------------------------------
+    # Local heading state
+    # --------------------------------------------------------
+
+    heading_state = {
+        "current": "",
+        "history": [],
+    }
+
+    # --------------------------------------------------------
+    # Capture subheader
+    # --------------------------------------------------------
+
+    def _captured_subheader(
+        body,
+        *args,
+        **kwargs,
+    ):
+        text = _clean_heading_text(
+            body
+        )
+
+        if text:
+            heading_state["current"] = text
+            heading_state["history"].append(
+                text
+            )
+
+        return original_subheader(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    # --------------------------------------------------------
+    # Capture markdown headings
+    # --------------------------------------------------------
+
+    def _captured_markdown(
+        body,
+        *args,
+        **kwargs,
+    ):
+        text = ""
+
+        try:
+            raw_text = str(body)
+
+            # Capture markdown H1-H6
+            match = re.search(
+                r"(?m)^\s*#{1,6}\s+(.+?)\s*$",
+                raw_text,
+            )
+
+            if match:
+                candidate = match.group(1)
+                candidate = _clean_heading_text(
+                    candidate
+                )
+
+                if _looks_like_heading(
+                    candidate
+                ):
+                    text = candidate
+
+        except Exception:
+            text = ""
+
+        if text:
+            heading_state["current"] = text
+            heading_state["history"].append(
+                text
+            )
+
+        return original_markdown(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    # --------------------------------------------------------
+    # Capture Altair
+    # --------------------------------------------------------
 
     def _captured_altair_chart(
         chart,
@@ -282,7 +408,7 @@ def capture_displayed_charts():
         except Exception:
             chart_data = pd.DataFrame()
 
-        title = ""
+        chart_title = ""
 
         try:
             chart_dict = chart.to_dict()
@@ -295,26 +421,57 @@ def capture_displayed_charts():
                 title_data,
                 str,
             ):
-                title = title_data
+                chart_title = title_data
 
             elif isinstance(
                 title_data,
                 dict,
             ):
-                title = str(
+                chart_title = str(
                     title_data.get(
                         "text",
                         "",
                     )
                 )
+
         except Exception:
             pass
+
+        # ----------------------------------------------------
+        # Actual dashboard section heading
+        # ----------------------------------------------------
+
+        section_name = (
+            heading_state["current"]
+        )
+
+        # ----------------------------------------------------
+        # If there is no captured heading,
+        # fall back to Altair title.
+        # ----------------------------------------------------
+
+        if not section_name:
+            section_name = (
+                _clean_heading_text(
+                    chart_title
+                )
+            )
+
+        # ----------------------------------------------------
+        # Final fallback
+        # ----------------------------------------------------
+
+        if not section_name:
+            section_name = (
+                f"Chart {len(registry) + 1}"
+            )
 
         registry.append(
             {
                 "chart": chart,
                 "data": chart_data,
-                "title": title,
+                "title": chart_title,
+                "section_name": section_name,
             }
         )
 
@@ -324,13 +481,37 @@ def capture_displayed_charts():
             **kwargs,
         )
 
-    st.altair_chart = _captured_altair_chart
+    # --------------------------------------------------------
+    # Activate monkey patches
+    # --------------------------------------------------------
+
+    st.altair_chart = (
+        _captured_altair_chart
+    )
+
+    st.subheader = (
+        _captured_subheader
+    )
+
+    st.markdown = (
+        _captured_markdown
+    )
 
     try:
         yield
+
     finally:
-        st.altair_chart = original_altair_chart
-        st.session_state[CAPTURE_ACTIVE_KEY] = False
+        st.altair_chart = (
+            original_altair_chart
+        )
+
+        st.subheader = (
+            original_subheader
+        )
+
+        st.markdown = (
+            original_markdown
+        )
 
 
 # ============================================================
@@ -338,14 +519,6 @@ def capture_displayed_charts():
 # ============================================================
 
 def _chart_to_png(chart):
-    """
-    Convert Altair chart to PNG using vl-convert.
-
-    The chart is rendered from its actual Vega-Lite
-    specification so its natural width/height ratio
-    is preserved.
-    """
-
     try:
         import vl_convert as vlc
 
@@ -382,14 +555,10 @@ def _make_fingerprint(chart):
 
 
 # ============================================================
-# GET ORIGINAL IMAGE DIMENSIONS
+# IMAGE DIMENSIONS
 # ============================================================
 
 def _get_image_dimensions(png_bytes):
-    """
-    Return the original rendered PNG dimensions.
-    """
-
     try:
         from PIL import Image
 
@@ -417,7 +586,7 @@ def _get_image_dimensions(png_bytes):
 
 
 # ============================================================
-# GET NATURAL CHART SIZE
+# CHART IMAGE SIZE
 # ============================================================
 
 def _get_chart_image_size(
@@ -426,14 +595,12 @@ def _get_chart_image_size(
     available_height,
 ):
     """
-    Calculate the PDF chart size from the actual rendered
-    image dimensions.
+    Preserve the actual rendered chart aspect ratio.
 
-    IMPORTANT:
-    - Original aspect ratio is preserved.
-    - Width is maximized.
-    - Height is NOT arbitrarily forced.
-    - The chart is reduced only if it cannot fit.
+    The chart is NOT stretched.
+
+    Width is maximized first.
+    Height is calculated automatically.
     """
 
     image_width, image_height = (
@@ -447,67 +614,70 @@ def _get_chart_image_size(
             available_width,
             min(
                 available_height,
-                90,
+                100,
             ),
         )
 
-    # --------------------------------------------------------
-    # Natural aspect ratio
-    # --------------------------------------------------------
-
-    aspect_ratio = (
+    ratio = (
         image_height
         / image_width
     )
 
     # --------------------------------------------------------
-    # Start with complete report width.
+    # Start with full report width.
     # --------------------------------------------------------
 
     width = available_width
 
     height = (
         width
-        * aspect_ratio
+        * ratio
     )
 
     # --------------------------------------------------------
-    # Prevent an extremely small chart.
-    #
-    # This does NOT distort the image.
-    # It simply allows the chart to occupy its natural
-    # proportional height.
+    # Minimum height
     # --------------------------------------------------------
 
-    minimum_height = (
+    min_height = (
         MIN_CHART_HEIGHT_MM
         * 2.834645669
     )
 
-    if height < minimum_height:
-        height = minimum_height
+    if height < min_height:
+
+        height = min_height
 
         width = (
             height
-            / aspect_ratio
+            / ratio
         )
 
         if width > available_width:
+
             width = available_width
+
             height = (
                 width
-                * aspect_ratio
+                * ratio
             )
 
     # --------------------------------------------------------
-    # Maximum safety limit.
+    # Maximum height
     # --------------------------------------------------------
 
-    if height > available_height:
-        height = available_height
+    max_height = min(
+        available_height,
+        MAX_CHART_HEIGHT_MM
+        * 2.834645669,
+    )
+
+    if height > max_height:
+
+        height = max_height
+
         width = (
             height
-            / aspect_ratio
+            / ratio
         )
 
     return (
@@ -517,7 +687,7 @@ def _get_chart_image_size(
 
 
 # ============================================================
-# BUILD REPORT TABLE
+# REPORT TABLE
 # ============================================================
 
 def _build_report_table(
@@ -566,10 +736,6 @@ def _build_report_table(
         alignment=TA_LEFT,
     )
 
-    # --------------------------------------------------------
-    # Header
-    # --------------------------------------------------------
-
     data = [
         [
             Paragraph(
@@ -581,10 +747,6 @@ def _build_report_table(
             for column in table_df.columns
         ]
     ]
-
-    # --------------------------------------------------------
-    # Body
-    # --------------------------------------------------------
 
     for _, row in table_df.iterrows():
         data.append(
@@ -613,16 +775,14 @@ def _build_report_table(
         / number_of_columns
     )
 
-    col_widths = [
-        column_width
-        for _ in range(
-            number_of_columns
-        )
-    ]
-
     table = Table(
         data,
-        colWidths=col_widths,
+        colWidths=[
+            column_width
+            for _ in range(
+                number_of_columns
+            )
+        ],
         repeatRows=1,
         hAlign="LEFT",
     )
@@ -748,10 +908,6 @@ def _build_pdf(
 
     page_width, page_height = A4
 
-    # ========================================================
-    # EXACT REPORT WIDTH
-    # ========================================================
-
     available_width = (
         page_width
         - (
@@ -760,10 +916,6 @@ def _build_pdf(
             * mm
         )
     )
-
-    # ========================================================
-    # PAGE CONTENT HEIGHT
-    # ========================================================
 
     available_page_height = (
         page_height
@@ -795,19 +947,31 @@ def _build_pdf(
         textColor=colors.HexColor(
             "#4B5563"
         ),
-        spaceAfter=4,
+        spaceAfter=3,
+    )
+
+    section_name_style = ParagraphStyle(
+        "SectionName",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=13,
+        leading=16,
+        textColor=colors.HexColor(
+            "#111827"
+        ),
+        spaceAfter=5,
     )
 
     chart_title_style = ParagraphStyle(
         "ChartTitle",
-        parent=styles["Heading2"],
+        parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=15,
-        spaceAfter=8,
+        fontSize=10,
+        leading=13,
         textColor=colors.HexColor(
-            "#111827"
+            "#374151"
         ),
+        spaceAfter=7,
     )
 
     table_heading_style = ParagraphStyle(
@@ -897,6 +1061,7 @@ def _build_pdf(
                 )
 
             if summary_parts:
+
                 story.append(
                     Paragraph(
                         "<br/>".join(
@@ -907,6 +1072,7 @@ def _build_pdf(
                 )
 
         else:
+
             story.append(
                 Paragraph(
                     html.escape(
@@ -919,7 +1085,7 @@ def _build_pdf(
             )
 
     # ========================================================
-    # EACH SECTION
+    # EACH CHART SECTION
     # ========================================================
 
     for index, item in enumerate(
@@ -934,9 +1100,18 @@ def _build_pdf(
             "data"
         )
 
-        title = item.get(
-            "title",
-            "",
+        section_name = (
+            item.get(
+                "section_name"
+            )
+            or ""
+        )
+
+        chart_title = (
+            item.get(
+                "title"
+            )
+            or ""
         )
 
         if chart is None:
@@ -949,13 +1124,19 @@ def _build_pdf(
         if not png_bytes:
             continue
 
-        if not title:
-            title = (
-                f"Chart {index}"
+        # ----------------------------------------------------
+        # Fallback section name
+        # ----------------------------------------------------
+
+        if not section_name:
+
+            section_name = (
+                chart_title
+                or f"Chart {index}"
             )
 
         # ----------------------------------------------------
-        # NEW PAGE FOR EVERY SECTION
+        # New page
         # ----------------------------------------------------
 
         story.append(
@@ -963,7 +1144,7 @@ def _build_pdf(
         )
 
         # ----------------------------------------------------
-        # SECTION NAME
+        # SECTION NUMBER
         # ----------------------------------------------------
 
         story.append(
@@ -974,24 +1155,50 @@ def _build_pdf(
         )
 
         # ----------------------------------------------------
-        # CHART TITLE
+        # ACTUAL SECTION NAME
         # ----------------------------------------------------
 
         story.append(
             Paragraph(
                 html.escape(
-                    str(title)
+                    str(
+                        section_name
+                    )
                 ),
-                chart_title_style,
+                section_name_style,
             )
         )
 
         # ----------------------------------------------------
-        # Calculate chart dimensions
+        # If chart has a different title, show it separately.
+        # ----------------------------------------------------
+
+        if (
+            chart_title
+            and chart_title.strip()
+            and chart_title.strip()
+            != str(
+                section_name
+            ).strip()
+        ):
+
+            story.append(
+                Paragraph(
+                    html.escape(
+                        str(
+                            chart_title
+                        )
+                    ),
+                    chart_title_style,
+                )
+            )
+
+        # ----------------------------------------------------
+        # Chart available height
         # ----------------------------------------------------
 
         reserved_height = (
-            70 * mm
+            65 * mm
         )
 
         max_chart_height = (
@@ -1000,12 +1207,17 @@ def _build_pdf(
         )
 
         if max_chart_height < (
-            MIN_CHART_HEIGHT_MM * mm
+            MIN_CHART_HEIGHT_MM
+            * mm
         ):
             max_chart_height = (
                 MIN_CHART_HEIGHT_MM
                 * mm
             )
+
+        # ----------------------------------------------------
+        # Calculate natural image size
+        # ----------------------------------------------------
 
         chart_width, chart_height = (
             _get_chart_image_size(
@@ -1019,16 +1231,14 @@ def _build_pdf(
         # CHART
         # ----------------------------------------------------
 
-        chart_image = Image(
-            io.BytesIO(
-                png_bytes
-            ),
-            width=chart_width,
-            height=chart_height,
-        )
-
         story.append(
-            chart_image
+            Image(
+                io.BytesIO(
+                    png_bytes
+                ),
+                width=chart_width,
+                height=chart_height,
+            )
         )
 
         story.append(
@@ -1039,7 +1249,7 @@ def _build_pdf(
         )
 
         # ----------------------------------------------------
-        # TABLE TITLE
+        # TABLE
         # ----------------------------------------------------
 
         report_table = (
@@ -1177,24 +1387,35 @@ def _build_png_zip(charts):
             if not png_bytes:
                 continue
 
-            title = item.get(
-                "title",
-                "",
+            section_name = (
+                item.get(
+                    "section_name"
+                )
+                or ""
             )
 
-            if not title:
-                title = (
-                    f"Chart_{index}"
+            title = (
+                item.get(
+                    "title"
                 )
+                or ""
+            )
+
+            base_title = (
+                section_name
+                or title
+                or f"Chart_{index}"
+            )
 
             base_name = _safe_filename(
-                title,
+                base_title,
                 ".png",
             )
 
             if base_name in used_names:
+
                 base_name = _safe_filename(
-                    f"{title}_{index}",
+                    f"{base_title}_{index}",
                     ".png",
                 )
 
@@ -1244,16 +1465,33 @@ def render_displayed_chart_download_controls(
         "📋 Report Contents",
         expanded=False,
     ):
+
         for index, item in enumerate(
             charts,
             start=1,
         ):
+            section_name = (
+                item.get(
+                    "section_name"
+                )
+                or ""
+            )
+
             title = (
                 item.get(
                     "title"
                 )
-                or f"Chart {index}"
+                or ""
             )
+
+            if section_name:
+                display_name = section_name
+            elif title:
+                display_name = title
+            else:
+                display_name = (
+                    f"Chart {index}"
+                )
 
             data = item.get(
                 "data"
@@ -1278,7 +1516,7 @@ def render_displayed_chart_download_controls(
             )
 
             st.write(
-                f"{index}. {title} "
+                f"{index}. {display_name} "
                 f"({rows} rows × {columns} columns)"
             )
 
