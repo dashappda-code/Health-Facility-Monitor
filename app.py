@@ -347,13 +347,13 @@ with c3:
 with c4:
 
 
-st.metric(
+    st.metric(
     "Wards",
     f"{kpis.get('wards', 0):,}",
 )
 
 
-st.divider()
+    st.divider()
 
 # ============================================================
 
@@ -364,7 +364,7 @@ st.divider()
 def get_filter_summary():
 
 
-labels = {
+    labels = {
     "year": "Year",
     "month": "Month",
     "week": "Week",
