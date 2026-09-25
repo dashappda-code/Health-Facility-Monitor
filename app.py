@@ -338,7 +338,7 @@ with c2:
 with c3:
 
 
-st.metric(
+    st.metric(
     "Facilities",
     f"{kpis.get('facilities', 0):,}",
 )
