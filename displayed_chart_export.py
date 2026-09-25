@@ -19,9 +19,6 @@ MAX_TABLE_ROWS = 300
 MAX_TABLE_COLUMNS = 14
 
 PDF_MARGIN_MM = 12
-
-# Maximum chart height.
-# Width is always aligned with the table/report width.
 MAX_CHART_HEIGHT_MM = 140
 
 
@@ -79,9 +76,9 @@ def _extract_chart_dataframe(chart):
 
     Supports:
     - Inline data
-    - DataFrame-backed Altair charts
+    - Named datasets
     - Layered charts
-    - Concatenated charts where possible
+    - Concatenated charts
     """
 
     try:
@@ -108,7 +105,10 @@ def _extract_chart_dataframe(chart):
         if isinstance(datasets, dict):
             for _, values in datasets.items():
                 if isinstance(values, list):
-                    return _safe_dataframe(values)
+                    frame = _safe_dataframe(values)
+
+                    if not frame.empty:
+                        return frame
 
         # ----------------------------------------------------
         # Layer
@@ -188,6 +188,29 @@ def _extract_chart_dataframe(chart):
 
 
 # ============================================================
+# FORMAT TABLE VALUE
+# ============================================================
+
+def _format_table_value(value):
+    if value is None:
+        return ""
+
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+
+        return f"{value:.2f}"
+
+    return str(value)
+
+
+# ============================================================
 # PREPARE REPORT TABLE
 # ============================================================
 
@@ -197,15 +220,12 @@ def _prepare_report_table(df):
 
     table = df.copy()
 
-    # Limit rows
     if len(table) > MAX_TABLE_ROWS:
         table = table.head(MAX_TABLE_ROWS)
 
-    # Limit columns
     if len(table.columns) > MAX_TABLE_COLUMNS:
         table = table.iloc[:, :MAX_TABLE_COLUMNS]
 
-    # Convert problematic values
     for column in table.columns:
         try:
             if pd.api.types.is_datetime64_any_dtype(
@@ -231,8 +251,8 @@ def _prepare_report_table(df):
 @contextmanager
 def capture_displayed_charts():
     """
-    Captures charts rendered using st.altair_chart()
-    while the context manager is active.
+    Captures every Altair chart rendered through
+    st.altair_chart() while this context is active.
     """
 
     original_altair_chart = st.altair_chart
@@ -351,32 +371,6 @@ def _make_fingerprint(chart):
 
 
 # ============================================================
-# FORMAT TABLE VALUE
-# ============================================================
-
-def _format_table_value(value):
-    if value is None:
-        return ""
-
-    try:
-        if pd.isna(value):
-            return ""
-    except Exception:
-        pass
-
-    if isinstance(
-        value,
-        float,
-    ):
-        if value.is_integer():
-            return str(int(value))
-
-        return f"{value:.2f}"
-
-    return str(value)
-
-
-# ============================================================
 # BUILD REPORT TABLE
 # ============================================================
 
@@ -426,10 +420,6 @@ def _build_report_table(
         alignment=TA_LEFT,
     )
 
-    # --------------------------------------------------------
-    # Header
-    # --------------------------------------------------------
-
     data = [
         [
             Paragraph(
@@ -441,10 +431,6 @@ def _build_report_table(
             for column in table_df.columns
         ]
     ]
-
-    # --------------------------------------------------------
-    # Body
-    # --------------------------------------------------------
 
     for _, row in table_df.iterrows():
         data.append(
@@ -460,12 +446,6 @@ def _build_report_table(
                 for value in row.tolist()
             ]
         )
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # Every column shares the total available width.
-    # Therefore table width is EXACTLY the same as chart width.
-    # --------------------------------------------------------
 
     number_of_columns = len(
         table_df.columns
@@ -583,14 +563,13 @@ def _get_chart_image_size(
     max_height,
 ):
     """
-    Preserve chart aspect ratio.
+    Preserve original chart aspect ratio.
 
-    The chart always tries to use the complete available width.
-    Height is calculated automatically from the original
-    image aspect ratio.
+    Chart uses the available width first.
+    Height is automatically calculated.
 
-    If the calculated height is too large for the page,
-    the chart is proportionally reduced.
+    If required height is too large,
+    chart is proportionally reduced.
     """
 
     try:
@@ -620,19 +599,10 @@ def _get_chart_image_size(
             / pixel_width
         )
 
-        # ----------------------------------------------------
-        # Use full available width first.
-        # ----------------------------------------------------
-
         width = max_width
         height = (
             width * ratio
         )
-
-        # ----------------------------------------------------
-        # If chart becomes too tall, scale both dimensions
-        # proportionally.
-        # ----------------------------------------------------
 
         if height > max_height:
             height = max_height
@@ -654,14 +624,24 @@ def _get_chart_image_size(
 
 
 # ============================================================
-# BUILD PDF
+# BUILD COMBINED CHART + TABLE PDF
 # ============================================================
 
 def _build_pdf(
     charts,
-    report_title="Displayed Charts Report",
+    report_title="Displayed Charts & Tables Report",
     filter_summary=None,
 ):
+    """
+    Builds a presentation-ready PDF where every section
+    contains:
+
+        1. Chart
+        2. The chart's displayed data table
+
+    Chart and table share the same report width.
+    """
+
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4
@@ -676,6 +656,7 @@ def _build_pdf(
         SimpleDocTemplate,
         Spacer,
         PageBreak,
+        KeepTogether,
     )
 
     if not charts:
@@ -694,11 +675,6 @@ def _build_pdf(
 
     page_width, page_height = A4
 
-    # --------------------------------------------------------
-    # Exact available report width.
-    # Chart and table both use this same width.
-    # --------------------------------------------------------
-
     available_width = (
         page_width
         - (
@@ -711,7 +687,7 @@ def _build_pdf(
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle(
-        "DisplayedChartTitle",
+        "CombinedReportTitle",
         parent=styles["Heading1"],
         alignment=TA_CENTER,
         fontName="Helvetica-Bold",
@@ -720,8 +696,20 @@ def _build_pdf(
         spaceAfter=8,
     )
 
+    section_style = ParagraphStyle(
+        "CombinedSection",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8.5,
+        leading=10,
+        textColor=colors.HexColor(
+            "#6B7280"
+        ),
+        spaceAfter=3,
+    )
+
     chart_title_style = ParagraphStyle(
-        "ChartTitle",
+        "CombinedChartTitle",
         parent=styles["Heading2"],
         fontName="Helvetica-Bold",
         fontSize=11.5,
@@ -732,8 +720,20 @@ def _build_pdf(
         ),
     )
 
+    table_heading_style = ParagraphStyle(
+        "TableHeading",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=11,
+        textColor=colors.HexColor(
+            "#374151"
+        ),
+        spaceAfter=5,
+    )
+
     filter_style = ParagraphStyle(
-        "FilterSummary",
+        "CombinedFilterSummary",
         parent=styles["Normal"],
         fontSize=8,
         leading=10,
@@ -744,7 +744,7 @@ def _build_pdf(
     )
 
     footer_style = ParagraphStyle(
-        "FooterNote",
+        "CombinedFooter",
         parent=styles["Normal"],
         fontSize=7,
         leading=9,
@@ -756,7 +756,7 @@ def _build_pdf(
     story = []
 
     # ========================================================
-    # COVER / REPORT HEADER
+    # REPORT HEADER
     # ========================================================
 
     story.append(
@@ -836,7 +836,7 @@ def _build_pdf(
     )
 
     # ========================================================
-    # EACH CHART = NEW PAGE
+    # EACH CHART + TABLE SECTION
     # ========================================================
 
     for index, item in enumerate(
@@ -872,45 +872,19 @@ def _build_pdf(
             )
 
         # ----------------------------------------------------
-        # Every NEW section starts on a NEW PAGE.
+        # Every chart-table section starts on new page.
         # ----------------------------------------------------
 
         story.append(
             PageBreak()
         )
 
-        # ----------------------------------------------------
-        # Section number
-        # ----------------------------------------------------
-
-        section_label = (
-            f"Section {index}"
-        )
-
-        section_style = ParagraphStyle(
-            "SectionLabel",
-            parent=styles["Normal"],
-            fontName="Helvetica-Bold",
-            fontSize=8.5,
-            leading=10,
-            textColor=colors.HexColor(
-                "#6B7280"
-            ),
-            spaceAfter=3,
-        )
-
         story.append(
             Paragraph(
-                html.escape(
-                    section_label
-                ),
+                f"Section {index}",
                 section_style,
             )
         )
-
-        # ----------------------------------------------------
-        # Chart title
-        # ----------------------------------------------------
 
         story.append(
             Paragraph(
@@ -922,7 +896,7 @@ def _build_pdf(
         )
 
         # ----------------------------------------------------
-        # Chart
+        # CHART
         # ----------------------------------------------------
 
         chart_width, chart_height = (
@@ -933,7 +907,7 @@ def _build_pdf(
             )
         )
 
-        image = Image(
+        chart_image = Image(
             io.BytesIO(
                 png_bytes
             ),
@@ -941,28 +915,8 @@ def _build_pdf(
             height=chart_height,
         )
 
-        # IMPORTANT:
-        # If chart was reduced because of aspect ratio,
-        # table remains at the exact report width.
-        # For normal/wide charts chart width == table width.
-
-        story.append(
-            image
-        )
-
         # ----------------------------------------------------
-        # Space between chart and table
-        # ----------------------------------------------------
-
-        story.append(
-            Spacer(
-                1,
-                8,
-            )
-        )
-
-        # ----------------------------------------------------
-        # Data table
+        # TABLE
         # ----------------------------------------------------
 
         report_table = (
@@ -972,32 +926,48 @@ def _build_pdf(
             )
         )
 
-        if report_table is not None:
-
-            story.append(
-                report_table
-            )
-
-        # ----------------------------------------------------
-        # Small footer
-        # ----------------------------------------------------
-
-        story.append(
+        section_items = [
+            chart_image,
             Spacer(
                 1,
                 8,
+            ),
+        ]
+
+        if report_table is not None:
+
+            section_items.extend(
+                [
+                    Paragraph(
+                        "Displayed Data",
+                        table_heading_style,
+                    ),
+                    report_table,
+                ]
             )
+
+        section_items.extend(
+            [
+                Spacer(
+                    1,
+                    8,
+                ),
+                Paragraph(
+                    "MSU Mumbai Health Programme Management Dashboard",
+                    footer_style,
+                ),
+            ]
         )
 
+        # Keep chart + table together when possible.
         story.append(
-            Paragraph(
-                "MSU Mumbai Health Programme Management Dashboard",
-                footer_style,
+            KeepTogether(
+                section_items
             )
         )
 
     # ========================================================
-    # BUILD
+    # BUILD PDF
     # ========================================================
 
     doc.build(
@@ -1145,7 +1115,7 @@ def render_displayed_chart_download_controls(
         return
 
     st.subheader(
-        "Download Displayed Charts"
+        "Download Displayed Charts & Tables"
     )
 
     st.caption(
@@ -1199,15 +1169,16 @@ def render_displayed_chart_download_controls(
             )
 
     # ========================================================
-    # PDF DOWNLOAD
+    # COMBINED PDF
     # ========================================================
 
     try:
+
         pdf_bytes = _build_pdf(
             charts=charts,
             report_title=(
                 "MSU Mumbai - "
-                "Displayed Charts Report"
+                "Displayed Charts & Tables Report"
             ),
             filter_summary=filter_summary,
         )
@@ -1216,7 +1187,7 @@ def render_displayed_chart_download_controls(
 
             st.download_button(
                 label=(
-                    "📄 Download Displayed Charts PDF"
+                    "📊 Download Chart + Displayed Table PDF"
                 ),
                 data=pdf_bytes,
                 file_name=_safe_filename(
@@ -1230,7 +1201,7 @@ def render_displayed_chart_download_controls(
     except Exception as exc:
 
         st.error(
-            "Displayed Charts PDF could not be generated."
+            "Combined Chart + Table PDF could not be generated."
         )
 
         with st.expander(
@@ -1241,10 +1212,11 @@ def render_displayed_chart_download_controls(
             )
 
     # ========================================================
-    # PNG ZIP DOWNLOAD
+    # PNG ZIP
     # ========================================================
 
     try:
+
         zip_bytes = _build_png_zip(
             charts
         )
