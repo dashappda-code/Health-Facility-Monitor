@@ -164,7 +164,7 @@ df = get_data()
 if df is None or df.empty:
 
 
-st.error(
+    st.error(
     "No data available from the Google Sheet."
 )
 
