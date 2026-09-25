@@ -457,7 +457,7 @@ return " | ".join(selected)
 def get_reporting_period(data):
 
 
-if (
+    if (
     data is None
     or data.empty
     or "Reporting Date" not in data.columns
@@ -469,7 +469,7 @@ dates = data[
     "Reporting Date"
 ].dropna()
 
-if dates.empty:
+    if dates.empty:
 
     return None
 
