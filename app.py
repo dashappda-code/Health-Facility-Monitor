@@ -68,7 +68,7 @@ initial_sidebar_state="expanded",
 st.markdown(
 """ <style>
 
-```
+
 .block-container {
     padding-top: 0.65rem;
     padding-bottom: 1rem;
@@ -135,7 +135,7 @@ div[data-testid="stHorizontalBlock"] {
 </style>
 """,
 unsafe_allow_html=True,
-```
+
 
 )
 
@@ -172,7 +172,7 @@ df = get_data()
 
 if df is None or df.empty:
 
-```
+
 st.error(
     "No data available from the Google Sheet."
 )
@@ -184,7 +184,7 @@ st.info(
 )
 
 st.stop()
-```
+
 
 # ============================================================
 
@@ -253,19 +253,19 @@ help=(
 
 if show_data_labels:
 
-```
+
 st.sidebar.success(
     "Data Labels: ON"
 )
-```
+
 
 else:
 
-```
+
 st.sidebar.info(
     "Data Labels: OFF"
 )
-```
+
 
 # ============================================================
 
@@ -287,9 +287,9 @@ border=True,
 key="global_filter_panel",
 ):
 
-```
+
 filter_values = create_filters(df)
-```
+
 
 # ============================================================
 
@@ -328,39 +328,39 @@ c1, c2, c3, c4 = st.columns(4)
 
 with c1:
 
-```
+
 st.metric(
     "Total Records",
     f"{kpis.get('total_records', len(filtered_df)):,}",
 )
-```
+
 
 with c2:
 
-```
+
 st.metric(
     "Diseases",
     f"{kpis.get('diseases', 0):,}",
 )
-```
+
 
 with c3:
 
-```
+
 st.metric(
     "Facilities",
     f"{kpis.get('facilities', 0):,}",
 )
-```
+
 
 with c4:
 
-```
+
 st.metric(
     "Wards",
     f"{kpis.get('wards', 0):,}",
 )
-```
+
 
 st.divider()
 
@@ -372,7 +372,7 @@ st.divider()
 
 def get_filter_summary():
 
-```
+
 labels = {
     "year": "Year",
     "month": "Month",
@@ -455,7 +455,7 @@ if not selected:
     return "All records"
 
 return " | ".join(selected)
-```
+
 
 # ============================================================
 
@@ -465,7 +465,7 @@ return " | ".join(selected)
 
 def get_reporting_period(data):
 
-```
+
 if (
     data is None
     or data.empty
@@ -499,7 +499,7 @@ try:
 except Exception:
 
     return None
-```
+
 
 # ============================================================
 
@@ -514,7 +514,7 @@ output_name,
 limit=20,
 ):
 
-```
+
 if (
     data is None
     or data.empty
@@ -548,7 +548,7 @@ return (
         name="Records"
     )
 )
-```
+
 
 # ============================================================
 
@@ -570,7 +570,7 @@ CAPTURED_PAGE_REGISTRY_KEY = (
 
 def get_captured_page_registry():
 
-```
+
 if (
     CAPTURED_PAGE_REGISTRY_KEY
     not in st.session_state
@@ -583,24 +583,24 @@ if (
 return st.session_state[
     CAPTURED_PAGE_REGISTRY_KEY
 ]
-```
+
 
 def store_current_page_capture(
 page_name,
 captured_charts,
 ):
 
-```
+
 registry = get_captured_page_registry()
 
 registry[page_name] = {
     "charts": list(captured_charts),
 }
-```
+
 
 def get_page_captured_charts(page_name):
 
-```
+
 registry = get_captured_page_registry()
 
 page_record = registry.get(
@@ -614,7 +614,7 @@ return list(
         [],
     )
 )
-```
+
 
 # ============================================================
 
@@ -627,7 +627,7 @@ page_name,
 data,
 ):
 
-```
+
 tables = []
 charts = []
 
@@ -851,14 +851,14 @@ if (
 
 
 return tables, charts
-```
+
 
 def create_page_pdf(
 page_name,
 data,
 ):
 
-```
+
 tables, charts = build_individual_page_report_data(
     page_name,
     data,
@@ -879,7 +879,7 @@ return generate_pdf_report(
     report_period=report_period,
     filter_summary=filter_summary,
 )
-```
+
 
 # ============================================================
 
@@ -892,7 +892,7 @@ page_name,
 data,
 ):
 
-```
+
 try:
 
     pdf_bytes = create_page_pdf(
@@ -925,7 +925,7 @@ except Exception as e:
     )
 
     st.exception(e)
-```
+
 
 # ============================================================
 
@@ -935,7 +935,7 @@ except Exception as e:
 
 def build_complete_dashboard_pages():
 
-```
+
 page_names = [
     "Overview",
     "Charts & Trends",
@@ -999,7 +999,7 @@ for page_name in page_names:
     )
 
 return dashboard_pages
-```
+
 
 # ============================================================
 
@@ -1009,7 +1009,7 @@ return dashboard_pages
 
 def create_complete_dashboard_pdf():
 
-```
+
 report_period = get_reporting_period(
     filtered_df
 )
@@ -1025,7 +1025,7 @@ return generate_captured_dashboard_pdf(
     report_period=report_period,
     filter_summary=filter_summary,
 )
-```
+
 
 # ============================================================
 
@@ -1035,7 +1035,7 @@ return generate_captured_dashboard_pdf(
 
 def create_complete_dashboard_ppt():
 
-```
+
 report_period = get_reporting_period(
     filtered_df
 )
@@ -1049,7 +1049,7 @@ ppt_bytes = generate_ppt_report(
 )
 
 return ppt_bytes
-```
+
 
 # ============================================================
 
@@ -1088,7 +1088,7 @@ for record in captured_pages.values()
 
 if captured_pages:
 
-```
+
 st.sidebar.caption(
     f"Captured dashboard pages: "
     f"{len(captured_pages)}"
@@ -1098,7 +1098,7 @@ st.sidebar.caption(
     f"Captured charts: "
     f"{captured_chart_count}"
 )
-```
+
 
 # ============================================================
 
@@ -1111,7 +1111,7 @@ if st.sidebar.button(
 use_container_width=True,
 ):
 
-```
+
 try:
 
     with st.spinner(
@@ -1137,7 +1137,7 @@ except Exception as e:
     )
 
     st.sidebar.exception(e)
-```
+
 
 # ============================================================
 
@@ -1150,7 +1150,7 @@ if (
 in st.session_state
 ):
 
-```
+
 current_filter = get_filter_summary()
 
 generated_filter = st.session_state.get(
@@ -1179,7 +1179,7 @@ else:
         "Dashboard filters have changed. "
         "Generate the complete PDF again."
     )
-```
+
 
 # ============================================================
 
@@ -1209,7 +1209,7 @@ if st.sidebar.button(
 use_container_width=True,
 ):
 
-```
+
 try:
 
     with st.spinner(
@@ -1235,7 +1235,7 @@ except Exception as e:
     )
 
     st.sidebar.exception(e)
-```
+
 
 # ============================================================
 
@@ -1248,7 +1248,7 @@ if (
 in st.session_state
 ):
 
-```
+
 current_filter = get_filter_summary()
 
 generated_ppt_filter = st.session_state.get(
@@ -1280,7 +1280,7 @@ else:
         "Dashboard filters have changed. "
         "Generate the PowerPoint again."
     )
-```
+
 
 # ============================================================
 
@@ -1290,7 +1290,7 @@ else:
 
 try:
 
-```
+
 # ========================================================
 # OVERVIEW
 # ========================================================
@@ -1618,17 +1618,17 @@ elif page == "Drill-down & Export":
         "Drill-down & Export",
         filtered_df,
     )
-```
+
 
 except Exception as e:
 
-```
+
 st.error(
     "This dashboard section could not be loaded."
 )
 
 st.exception(e)
-```
+
 
 # ============================================================
 
@@ -1643,7 +1643,7 @@ if st.sidebar.button(
 use_container_width=True,
 ):
 
-```
+
 with st.spinner(
     "Refreshing Google Sheet data..."
 ):
@@ -1657,7 +1657,7 @@ st.success(
 )
 
 st.rerun()
-```
+
 
 # ============================================================
 
