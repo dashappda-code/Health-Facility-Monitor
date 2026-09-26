@@ -1,6 +1,8 @@
 import io
 import html
 import re
+import hashlib
+import json
 from contextlib import contextmanager
 
 import pandas as pd
@@ -12,6 +14,7 @@ import streamlit as st
 # ============================================================
 
 DISPLAYED_CHARTS_KEY = "displayed_chart_exports"
+CAPTURED_DASHBOARD_CONTENT_KEY = "captured_dashboard_content"
 
 MAX_TABLE_ROWS = 300
 MAX_TABLE_COLUMNS = 14
@@ -25,6 +28,20 @@ MONTHLY_DISEASE_HEIGHT_MM = 88
 
 
 # ============================================================
+# EMPTY CAPTURE STRUCTURE
+# ============================================================
+
+def _empty_capture_content():
+    return {
+        "charts": [],
+        "tables": [],
+        "metrics": [],
+        "notes": [],
+        "images": [],
+    }
+
+
+# ============================================================
 # REGISTRY
 # ============================================================
 
@@ -35,8 +52,85 @@ def _get_registry():
     return st.session_state[DISPLAYED_CHARTS_KEY]
 
 
+def _get_capture_registry():
+    if CAPTURED_DASHBOARD_CONTENT_KEY not in st.session_state:
+        st.session_state[CAPTURED_DASHBOARD_CONTENT_KEY] = (
+            _empty_capture_content()
+        )
+
+    registry = st.session_state[
+        CAPTURED_DASHBOARD_CONTENT_KEY
+    ]
+
+    if not isinstance(registry, dict):
+        registry = _empty_capture_content()
+
+        st.session_state[
+            CAPTURED_DASHBOARD_CONTENT_KEY
+        ] = registry
+
+    for key in (
+        "charts",
+        "tables",
+        "metrics",
+        "notes",
+        "images",
+    ):
+        if key not in registry:
+            registry[key] = []
+
+    return registry
+
+
 def _clear_registry():
     st.session_state[DISPLAYED_CHARTS_KEY] = []
+
+    st.session_state[
+        CAPTURED_DASHBOARD_CONTENT_KEY
+    ] = _empty_capture_content()
+
+
+# ============================================================
+# SAFE COPY HELPERS
+# ============================================================
+
+def _safe_dataframe_copy(value):
+    if value is None:
+        return pd.DataFrame()
+
+    if isinstance(value, pd.DataFrame):
+        try:
+            return value.copy()
+        except Exception:
+            return value
+
+    if isinstance(value, pd.Series):
+        try:
+            return value.to_frame().reset_index(drop=True)
+        except Exception:
+            return pd.DataFrame()
+
+    try:
+        return pd.DataFrame(value)
+
+    except Exception:
+        return pd.DataFrame()
+
+
+def _safe_text(value):
+    if value is None:
+        return ""
+
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+
+    try:
+        return str(value).strip()
+    except Exception:
+        return ""
 
 
 # ============================================================
@@ -61,6 +155,20 @@ def _clean_heading_text(value):
         text,
     )
 
+    text = re.sub(
+        r"<[^>]+>",
+        " ",
+        text,
+    )
+
+    text = html.unescape(text)
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
+
     return text.strip()
 
 
@@ -70,10 +178,136 @@ def _looks_like_heading(value):
     if not text:
         return False
 
-    if len(text) > 120:
+    if len(text) > 160:
         return False
 
     return True
+
+
+def _extract_markdown_heading(body):
+    if body is None:
+        return ""
+
+    try:
+        raw_text = str(body)
+    except Exception:
+        return ""
+
+    match = re.search(
+        r"(?m)^\s*#{1,6}\s+(.+?)\s*$",
+        raw_text,
+    )
+
+    if match:
+        candidate = _clean_heading_text(
+            match.group(1)
+        )
+
+        if _looks_like_heading(candidate):
+            return candidate
+
+    return ""
+
+
+# ============================================================
+# SIGNATURE / FINGERPRINT
+# ============================================================
+
+def _signature_value(value):
+    if value is None:
+        return ""
+
+    if isinstance(value, pd.DataFrame):
+        try:
+            work = value.copy().fillna("")
+
+            payload = {
+                "columns": [
+                    str(column)
+                    for column in work.columns
+                ],
+                "data": (
+                    work.astype(str)
+                    .to_dict(orient="records")
+                ),
+            }
+
+            return json.dumps(
+                payload,
+                sort_keys=True,
+                default=str,
+            )
+
+        except Exception:
+            return repr(value)
+
+    if isinstance(value, pd.Series):
+        try:
+            return _signature_value(
+                value.to_frame()
+            )
+        except Exception:
+            return repr(value)
+
+    if isinstance(value, dict):
+        try:
+            return json.dumps(
+                value,
+                sort_keys=True,
+                default=str,
+            )
+        except Exception:
+            return repr(value)
+
+    if isinstance(value, (list, tuple)):
+        try:
+            return json.dumps(
+                value,
+                sort_keys=True,
+                default=str,
+            )
+        except Exception:
+            return repr(value)
+
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            return hashlib.sha256(
+                bytes(value)
+            ).hexdigest()
+        except Exception:
+            return repr(value)
+
+    try:
+        return str(value)
+    except Exception:
+        return repr(value)
+
+
+def _make_fingerprint(
+    item_type,
+    section_name="",
+    title="",
+    data=None,
+    value=None,
+    text=None,
+    extra=None,
+):
+    raw = (
+        f"{item_type}|"
+        f"{section_name}|"
+        f"{title}|"
+        f"{_signature_value(data)}|"
+        f"{_signature_value(value)}|"
+        f"{_signature_value(text)}|"
+        f"{_signature_value(extra)}"
+    )
+
+    return hashlib.sha256(
+        raw.encode(
+            "utf-8",
+            errors="ignore",
+        )
+    ).hexdigest()
 
 
 # ============================================================
@@ -85,7 +319,7 @@ def _extract_chart_dataframe(chart):
         chart_dict = chart.to_dict()
 
         # ----------------------------------------------------
-        # Direct values
+        # Direct data.values
         # ----------------------------------------------------
 
         data = chart_dict.get("data")
@@ -94,7 +328,10 @@ def _extract_chart_dataframe(chart):
             values = data.get("values")
 
             if isinstance(values, list):
-                return pd.DataFrame(values)
+                frame = pd.DataFrame(values)
+
+                if not frame.empty:
+                    return frame
 
         # ----------------------------------------------------
         # Named datasets
@@ -103,39 +340,50 @@ def _extract_chart_dataframe(chart):
         datasets = chart_dict.get("datasets")
 
         if isinstance(datasets, dict):
-            for _, values in datasets.items():
+            frames = []
 
+            for _, values in datasets.items():
                 if isinstance(values, list):
                     frame = pd.DataFrame(values)
 
                     if not frame.empty:
-                        return frame
+                        frames.append(frame)
+
+            if frames:
+                try:
+                    combined = pd.concat(
+                        frames,
+                        ignore_index=True,
+                    )
+
+                    return combined.drop_duplicates(
+                        ignore_index=True
+                    )
+
+                except Exception:
+                    return frames[0]
 
         # ----------------------------------------------------
-        # Layers
+        # Layer charts
         # ----------------------------------------------------
 
         layers = chart_dict.get("layer")
 
         if isinstance(layers, list):
-
             frames = []
 
             for layer in layers:
-
                 if not isinstance(layer, dict):
                     continue
 
                 layer_data = layer.get("data")
 
                 if isinstance(layer_data, dict):
-
                     values = layer_data.get(
                         "values"
                     )
 
                     if isinstance(values, list):
-
                         frame = pd.DataFrame(
                             values
                         )
@@ -144,12 +392,16 @@ def _extract_chart_dataframe(chart):
                             frames.append(frame)
 
             if frames:
-
                 try:
-                    return pd.concat(
+                    combined = pd.concat(
                         frames,
                         ignore_index=True,
                     )
+
+                    return combined.drop_duplicates(
+                        ignore_index=True
+                    )
+
                 except Exception:
                     return frames[0]
 
@@ -162,57 +414,45 @@ def _extract_chart_dataframe(chart):
             "vconcat",
             "concat",
         ):
-
             charts = chart_dict.get(key)
 
-            if isinstance(charts, list):
+            if not isinstance(charts, list):
+                continue
 
-                frames = []
+            frames = []
 
-                for child in charts:
+            for child in charts:
+                if not isinstance(child, dict):
+                    continue
 
-                    if not isinstance(
-                        child,
-                        dict,
-                    ):
-                        continue
+                child_data = child.get("data")
 
-                    child_data = child.get(
-                        "data"
+                if isinstance(child_data, dict):
+                    values = child_data.get(
+                        "values"
                     )
 
-                    if isinstance(
-                        child_data,
-                        dict,
-                    ):
-
-                        values = child_data.get(
-                            "values"
+                    if isinstance(values, list):
+                        frame = pd.DataFrame(
+                            values
                         )
 
-                        if isinstance(
-                            values,
-                            list,
-                        ):
+                        if not frame.empty:
+                            frames.append(frame)
 
-                            frame = pd.DataFrame(
-                                values
-                            )
+            if frames:
+                try:
+                    combined = pd.concat(
+                        frames,
+                        ignore_index=True,
+                    )
 
-                            if not frame.empty:
-                                frames.append(
-                                    frame
-                                )
+                    return combined.drop_duplicates(
+                        ignore_index=True
+                    )
 
-                if frames:
-
-                    try:
-                        return pd.concat(
-                            frames,
-                            ignore_index=True,
-                        )
-                    except Exception:
-                        return frames[0]
+                except Exception:
+                    return frames[0]
 
     except Exception:
         pass
@@ -226,24 +466,16 @@ def _extract_chart_dataframe(chart):
 
 def _get_chart_title(chart):
     try:
-
         chart_dict = chart.to_dict()
 
         title = chart_dict.get(
             "title"
         )
 
-        if isinstance(
-            title,
-            str,
-        ):
+        if isinstance(title, str):
             return title.strip()
 
-        if isinstance(
-            title,
-            dict,
-        ):
-
+        if isinstance(title, dict):
             return str(
                 title.get(
                     "text",
@@ -258,31 +490,89 @@ def _get_chart_title(chart):
 
 
 # ============================================================
-# CAPTURE DISPLAYED CHARTS
+# CAPTURED CONTENT ACCESS
+# ============================================================
+
+def get_captured_dashboard_content():
+    registry = _get_capture_registry()
+
+    return {
+        "charts": list(
+            registry.get(
+                "charts",
+                [],
+            )
+        ),
+        "tables": list(
+            registry.get(
+                "tables",
+                [],
+            )
+        ),
+        "metrics": list(
+            registry.get(
+                "metrics",
+                [],
+            )
+        ),
+        "notes": list(
+            registry.get(
+                "notes",
+                [],
+            )
+        ),
+        "images": list(
+            registry.get(
+                "images",
+                [],
+            )
+        ),
+    }
+
+
+# ============================================================
+# CAPTURE DISPLAYED DASHBOARD CONTENT
 # ============================================================
 
 @contextmanager
 def capture_displayed_charts():
+    """
+    Capture dashboard content displayed while a page render
+    function runs.
 
-    original_altair_chart = (
-        st.altair_chart
-    )
+    Captures:
+    - Altair charts
+    - st.dataframe
+    - st.table
+    - st.metric
+    - st.info
+    - st.warning
+    - st.success
+    - st.error
+    - st.caption
+    - st.image
+    - headings / section names
 
-    original_subheader = (
-        st.subheader
-    )
+    Existing dashboard rendering continues normally.
+    """
 
-    original_header = (
-        st.header
-    )
+    original_altair_chart = st.altair_chart
+    original_dataframe = st.dataframe
+    original_table = st.table
+    original_metric = st.metric
 
-    original_title = (
-        st.title
-    )
+    original_info = st.info
+    original_warning = st.warning
+    original_success = st.success
+    original_error = st.error
+    original_caption = st.caption
 
-    original_markdown = (
-        st.markdown
-    )
+    original_image = st.image
+
+    original_subheader = st.subheader
+    original_header = st.header
+    original_title = st.title
+    original_markdown = st.markdown
 
     _clear_registry()
 
@@ -290,8 +580,33 @@ def capture_displayed_charts():
         "current": "",
     }
 
+    # ========================================================
+    # HEADING CAPTURE
+    # ========================================================
+
+    def _set_heading(value):
+        text = _clean_heading_text(
+            value
+        )
+
+        if text:
+            heading_state[
+                "current"
+            ] = text
+
+    def _current_section(
+        fallback="Dashboard Section"
+    ):
+        return (
+            heading_state.get(
+                "current",
+                ""
+            )
+            or fallback
+        )
+
     # --------------------------------------------------------
-    # Capture title
+    # Title
     # --------------------------------------------------------
 
     def _captured_title(
@@ -299,13 +614,7 @@ def capture_displayed_charts():
         *args,
         **kwargs,
     ):
-
-        text = _clean_heading_text(
-            body
-        )
-
-        if text:
-            heading_state["current"] = text
+        _set_heading(body)
 
         return original_title(
             body,
@@ -314,7 +623,7 @@ def capture_displayed_charts():
         )
 
     # --------------------------------------------------------
-    # Capture header
+    # Header
     # --------------------------------------------------------
 
     def _captured_header(
@@ -322,13 +631,7 @@ def capture_displayed_charts():
         *args,
         **kwargs,
     ):
-
-        text = _clean_heading_text(
-            body
-        )
-
-        if text:
-            heading_state["current"] = text
+        _set_heading(body)
 
         return original_header(
             body,
@@ -337,7 +640,7 @@ def capture_displayed_charts():
         )
 
     # --------------------------------------------------------
-    # Capture subheader
+    # Subheader
     # --------------------------------------------------------
 
     def _captured_subheader(
@@ -345,13 +648,7 @@ def capture_displayed_charts():
         *args,
         **kwargs,
     ):
-
-        text = _clean_heading_text(
-            body
-        )
-
-        if text:
-            heading_state["current"] = text
+        _set_heading(body)
 
         return original_subheader(
             body,
@@ -360,7 +657,7 @@ def capture_displayed_charts():
         )
 
     # --------------------------------------------------------
-    # Capture markdown headings
+    # Markdown
     # --------------------------------------------------------
 
     def _captured_markdown(
@@ -368,45 +665,16 @@ def capture_displayed_charts():
         *args,
         **kwargs,
     ):
-
-        detected_heading = ""
-
-        try:
-
-            raw_text = str(body)
-
-            match = re.search(
-                r"(?m)^\s*#{1,6}\s+(.+?)\s*$",
-                raw_text,
+        detected_heading = (
+            _extract_markdown_heading(
+                body
             )
-
-            if match:
-
-                candidate = (
-                    match.group(1)
-                )
-
-                candidate = (
-                    _clean_heading_text(
-                        candidate
-                    )
-                )
-
-                if _looks_like_heading(
-                    candidate
-                ):
-
-                    detected_heading = (
-                        candidate
-                    )
-
-        except Exception:
-            pass
+        )
 
         if detected_heading:
-            heading_state["current"] = (
-                detected_heading
-            )
+            heading_state[
+                "current"
+            ] = detected_heading
 
         return original_markdown(
             body,
@@ -414,17 +682,22 @@ def capture_displayed_charts():
             **kwargs,
         )
 
-    # --------------------------------------------------------
-    # Capture Altair chart
-    # --------------------------------------------------------
+    # ========================================================
+    # ALTAIR CHART
+    # ========================================================
 
     def _captured_altair_chart(
         chart,
         *args,
         **kwargs,
     ):
+        chart_registry = (
+            _get_registry()
+        )
 
-        registry = _get_registry()
+        capture_registry = (
+            _get_capture_registry()
+        )
 
         chart_title = (
             _get_chart_title(
@@ -439,24 +712,55 @@ def capture_displayed_charts():
         )
 
         section_name = (
-            heading_state["current"]
+            _current_section(
+                chart_title
+                or (
+                    f"Chart "
+                    f"{len(chart_registry) + 1}"
+                )
+            )
         )
 
-        if not section_name:
-            section_name = chart_title
-
-        if not section_name:
-            section_name = (
-                f"Chart {len(registry) + 1}"
+        if not chart_title:
+            chart_title = (
+                section_name
+                or (
+                    f"Chart "
+                    f"{len(chart_registry) + 1}"
+                )
             )
 
-        registry.append(
-            {
-                "chart": chart,
-                "data": chart_data,
-                "title": chart_title,
-                "section_name": section_name,
-            }
+        try:
+            chart_dict = chart.to_dict()
+        except Exception:
+            chart_dict = {}
+
+        fingerprint = (
+            _make_fingerprint(
+                item_type="chart",
+                section_name=section_name,
+                title=chart_title,
+                data=chart_data,
+                extra=chart_dict,
+            )
+        )
+
+        item = {
+            "chart": chart,
+            "data": chart_data,
+            "title": chart_title,
+            "section_name": section_name,
+            "fingerprint": fingerprint,
+        }
+
+        chart_registry.append(
+            item
+        )
+
+        capture_registry[
+            "charts"
+        ].append(
+            item
         )
 
         return original_altair_chart(
@@ -465,26 +769,544 @@ def capture_displayed_charts():
             **kwargs,
         )
 
-    # --------------------------------------------------------
-    # Activate capture
-    # --------------------------------------------------------
+    # ========================================================
+    # DATAFRAME
+    # ========================================================
+
+    def _captured_dataframe(
+        data=None,
+        *args,
+        **kwargs,
+    ):
+        frame = (
+            _safe_dataframe_copy(
+                data
+            )
+        )
+
+        if not frame.empty:
+            section_name = (
+                _current_section(
+                    "Displayed Data"
+                )
+            )
+
+            title = section_name
+
+            fingerprint = (
+                _make_fingerprint(
+                    item_type="table",
+                    section_name=section_name,
+                    title=title,
+                    data=frame,
+                    extra="dataframe",
+                )
+            )
+
+            _get_capture_registry()[
+                "tables"
+            ].append(
+                {
+                    "title": title,
+                    "section_name": (
+                        section_name
+                    ),
+                    "data": frame,
+                    "dataframe": frame,
+                    "table_type": (
+                        "dataframe"
+                    ),
+                    "fingerprint": (
+                        fingerprint
+                    ),
+                }
+            )
+
+        return original_dataframe(
+            data,
+            *args,
+            **kwargs,
+        )
+
+    # ========================================================
+    # TABLE
+    # ========================================================
+
+    def _captured_table(
+        data=None,
+        *args,
+        **kwargs,
+    ):
+        frame = (
+            _safe_dataframe_copy(
+                data
+            )
+        )
+
+        if not frame.empty:
+            section_name = (
+                _current_section(
+                    "Displayed Table"
+                )
+            )
+
+            title = section_name
+
+            fingerprint = (
+                _make_fingerprint(
+                    item_type="table",
+                    section_name=section_name,
+                    title=title,
+                    data=frame,
+                    extra="table",
+                )
+            )
+
+            _get_capture_registry()[
+                "tables"
+            ].append(
+                {
+                    "title": title,
+                    "section_name": (
+                        section_name
+                    ),
+                    "data": frame,
+                    "dataframe": frame,
+                    "table_type": (
+                        "table"
+                    ),
+                    "fingerprint": (
+                        fingerprint
+                    ),
+                }
+            )
+
+        return original_table(
+            data,
+            *args,
+            **kwargs,
+        )
+
+    # ========================================================
+    # METRIC
+    # ========================================================
+
+    def _captured_metric(
+        label,
+        value,
+        delta=None,
+        *args,
+        **kwargs,
+    ):
+        section_name = (
+            _current_section(
+                "Dashboard Metrics"
+            )
+        )
+
+        label_text = (
+            _safe_text(label)
+            or "Metric"
+        )
+
+        fingerprint = (
+            _make_fingerprint(
+                item_type="metric",
+                section_name=section_name,
+                title=label_text,
+                value={
+                    "value": value,
+                    "delta": delta,
+                },
+            )
+        )
+
+        _get_capture_registry()[
+            "metrics"
+        ].append(
+            {
+                "title": label_text,
+                "label": label_text,
+                "value": value,
+                "delta": delta,
+                "section_name": (
+                    section_name
+                ),
+                "fingerprint": (
+                    fingerprint
+                ),
+            }
+        )
+
+        return original_metric(
+            label,
+            value,
+            delta,
+            *args,
+            **kwargs,
+        )
+
+    # ========================================================
+    # NOTES
+    # ========================================================
+
+    def _capture_note(
+        body,
+        note_type,
+    ):
+        text = _safe_text(
+            body
+        )
+
+        if not text:
+            return
+
+        section_name = (
+            _current_section(
+                "Dashboard Notes"
+            )
+        )
+
+        fingerprint = (
+            _make_fingerprint(
+                item_type="note",
+                section_name=section_name,
+                title=note_type,
+                text=text,
+            )
+        )
+
+        _get_capture_registry()[
+            "notes"
+        ].append(
+            {
+                "text": text,
+                "message": text,
+                "note": text,
+                "note_type": (
+                    note_type
+                ),
+                "section_name": (
+                    section_name
+                ),
+                "fingerprint": (
+                    fingerprint
+                ),
+            }
+        )
+
+    def _captured_info(
+        body,
+        *args,
+        **kwargs,
+    ):
+        _capture_note(
+            body,
+            "info",
+        )
+
+        return original_info(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    def _captured_warning(
+        body,
+        *args,
+        **kwargs,
+    ):
+        _capture_note(
+            body,
+            "warning",
+        )
+
+        return original_warning(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    def _captured_success(
+        body,
+        *args,
+        **kwargs,
+    ):
+        _capture_note(
+            body,
+            "success",
+        )
+
+        return original_success(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    def _captured_error(
+        body,
+        *args,
+        **kwargs,
+    ):
+        _capture_note(
+            body,
+            "error",
+        )
+
+        return original_error(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    def _captured_caption(
+        body,
+        *args,
+        **kwargs,
+    ):
+        _capture_note(
+            body,
+            "caption",
+        )
+
+        return original_caption(
+            body,
+            *args,
+            **kwargs,
+        )
+
+    # ========================================================
+    # IMAGE
+    # ========================================================
+
+    def _captured_image(
+        image,
+        *args,
+        **kwargs,
+    ):
+        section_name = (
+            _current_section(
+                "Dashboard Image"
+            )
+        )
+
+        caption = kwargs.get(
+            "caption",
+            "",
+        )
+
+        image_bytes = None
+
+        # ----------------------------------------------------
+        # Raw bytes
+        # ----------------------------------------------------
+
+        if isinstance(
+            image,
+            bytes,
+        ):
+            image_bytes = image
+
+        elif isinstance(
+            image,
+            bytearray,
+        ):
+            image_bytes = bytes(
+                image
+            )
+
+        elif isinstance(
+            image,
+            io.BytesIO,
+        ):
+            try:
+                current_position = (
+                    image.tell()
+                )
+
+                image.seek(0)
+
+                image_bytes = (
+                    image.read()
+                )
+
+                image.seek(
+                    current_position
+                )
+
+            except Exception:
+                image_bytes = None
+
+        # ----------------------------------------------------
+        # PIL image
+        # ----------------------------------------------------
+
+        else:
+            try:
+                from PIL import Image as PILImage
+
+                if isinstance(
+                    image,
+                    PILImage.Image,
+                ):
+                    temp_buffer = (
+                        io.BytesIO()
+                    )
+
+                    image.save(
+                        temp_buffer,
+                        format="PNG",
+                    )
+
+                    image_bytes = (
+                        temp_buffer.getvalue()
+                    )
+
+            except Exception:
+                pass
+
+        if image_bytes:
+            fingerprint = (
+                _make_fingerprint(
+                    item_type="image",
+                    section_name=section_name,
+                    title=section_name,
+                    data=image_bytes,
+                    text=caption,
+                )
+            )
+
+            _get_capture_registry()[
+                "images"
+            ].append(
+                {
+                    "title": (
+                        section_name
+                    ),
+                    "section_name": (
+                        section_name
+                    ),
+                    "caption": (
+                        _safe_text(
+                            caption
+                        )
+                    ),
+                    "type": "image",
+                    "data": (
+                        image_bytes
+                    ),
+                    "bytes": (
+                        image_bytes
+                    ),
+                    "fingerprint": (
+                        fingerprint
+                    ),
+                }
+            )
+
+        return original_image(
+            image,
+            *args,
+            **kwargs,
+        )
+
+    # ========================================================
+    # ACTIVATE CAPTURE
+    # ========================================================
 
     st.title = _captured_title
     st.header = _captured_header
     st.subheader = _captured_subheader
     st.markdown = _captured_markdown
-    st.altair_chart = _captured_altair_chart
+
+    st.altair_chart = (
+        _captured_altair_chart
+    )
+
+    st.dataframe = (
+        _captured_dataframe
+    )
+
+    st.table = (
+        _captured_table
+    )
+
+    st.metric = (
+        _captured_metric
+    )
+
+    st.info = (
+        _captured_info
+    )
+
+    st.warning = (
+        _captured_warning
+    )
+
+    st.success = (
+        _captured_success
+    )
+
+    st.error = (
+        _captured_error
+    )
+
+    st.caption = (
+        _captured_caption
+    )
+
+    st.image = (
+        _captured_image
+    )
 
     try:
         yield
 
     finally:
-
         st.title = original_title
         st.header = original_header
         st.subheader = original_subheader
         st.markdown = original_markdown
-        st.altair_chart = original_altair_chart
+
+        st.altair_chart = (
+            original_altair_chart
+        )
+
+        st.dataframe = (
+            original_dataframe
+        )
+
+        st.table = (
+            original_table
+        )
+
+        st.metric = (
+            original_metric
+        )
+
+        st.info = (
+            original_info
+        )
+
+        st.warning = (
+            original_warning
+        )
+
+        st.success = (
+            original_success
+        )
+
+        st.error = (
+            original_error
+        )
+
+        st.caption = (
+            original_caption
+        )
+
+        st.image = (
+            original_image
+        )
 
 
 # ============================================================
@@ -492,6 +1314,8 @@ def capture_displayed_charts():
 # ============================================================
 
 def _is_monthly_disease_comparison(item):
+    if not isinstance(item, dict):
+        return False
 
     section_name = str(
         item.get(
@@ -524,6 +1348,8 @@ def _is_monthly_disease_comparison(item):
 # ============================================================
 
 def _prepare_chart_for_export(item):
+    if not isinstance(item, dict):
+        return None
 
     chart = item.get(
         "chart"
@@ -533,11 +1359,9 @@ def _prepare_chart_for_export(item):
         return None
 
     try:
-
         if _is_monthly_disease_comparison(
             item
         ):
-
             return chart.properties(
                 width=1000,
                 height=320,
@@ -555,7 +1379,6 @@ def _prepare_chart_for_export(item):
             original_height,
             (int, float),
         ):
-
             height = int(
                 original_height
             )
@@ -585,9 +1408,7 @@ def _prepare_chart_for_export(item):
 # ============================================================
 
 def _chart_to_png(item):
-
     try:
-
         import vl_convert as vlc
 
         export_chart = (
@@ -617,11 +1438,9 @@ def _chart_to_png(item):
 # ============================================================
 
 def _get_image_dimensions(
-    png_bytes
+    png_bytes,
 ):
-
     try:
-
         from PIL import Image
 
         image = Image.open(
@@ -632,11 +1451,7 @@ def _get_image_dimensions(
 
         width, height = image.size
 
-        if (
-            width > 0
-            and height > 0
-        ):
-
+        if width > 0 and height > 0:
             return (
                 float(width),
                 float(height),
@@ -652,15 +1467,109 @@ def _get_image_dimensions(
 
 
 # ============================================================
-# IMAGE SIZE
+# CHART IMAGE SIZE
 # ============================================================
 
 def _get_chart_image_size(
     item,
-    png_bytes,
-    available_width,
-    available_height,
+    png_bytes=None,
+    available_width=None,
+    available_height=None,
 ):
+    """
+    Backward-compatible helper.
+
+    Supported calls:
+
+        _get_chart_image_size(item)
+
+    and:
+
+        _get_chart_image_size(
+            item,
+            png_bytes,
+            available_width,
+            available_height,
+        )
+
+    When only item is supplied, returns approximate pixel
+    dimensions suitable for dashboard_pdf_export.py.
+    """
+
+    # --------------------------------------------------------
+    # OLD / SIMPLE CALL
+    # --------------------------------------------------------
+
+    if (
+        png_bytes is None
+        and available_width is None
+        and available_height is None
+    ):
+        if _is_monthly_disease_comparison(
+            item
+        ):
+            return (
+                1000.0,
+                320.0,
+            )
+
+        chart = None
+
+        if isinstance(item, dict):
+            chart = item.get(
+                "chart"
+            )
+
+        if chart is not None:
+            try:
+                chart_dict = (
+                    chart.to_dict()
+                )
+
+                width = chart_dict.get(
+                    "width",
+                    1000,
+                )
+
+                height = chart_dict.get(
+                    "height",
+                    360,
+                )
+
+                if not isinstance(
+                    width,
+                    (int, float),
+                ):
+                    width = 1000
+
+                if not isinstance(
+                    height,
+                    (int, float),
+                ):
+                    height = 360
+
+                return (
+                    float(width),
+                    float(height),
+                )
+
+            except Exception:
+                pass
+
+        return (
+            1000.0,
+            360.0,
+        )
+
+    # --------------------------------------------------------
+    # FULL CALL
+    # --------------------------------------------------------
+
+    if available_width is None:
+        available_width = 500.0
+
+    if available_height is None:
+        available_height = 700.0
 
     image_width, image_height = (
         _get_image_dimensions(
@@ -672,11 +1581,14 @@ def _get_chart_image_size(
         not image_width
         or not image_height
     ):
-
         return (
-            available_width,
+            float(
+                available_width
+            ),
             min(
-                available_height,
+                float(
+                    available_height
+                ),
                 100 * 2.834645669,
             ),
         )
@@ -686,7 +1598,9 @@ def _get_chart_image_size(
         / image_width
     )
 
-    width = available_width
+    width = float(
+        available_width
+    )
 
     height = (
         width
@@ -694,45 +1608,49 @@ def _get_chart_image_size(
     )
 
     # --------------------------------------------------------
-    # Monthly Disease Comparison
+    # MONTHLY DISEASE
     # --------------------------------------------------------
 
     if _is_monthly_disease_comparison(
         item
     ):
-
         preferred_height = (
             MONTHLY_DISEASE_HEIGHT_MM
             * 2.834645669
         )
 
-        if height > preferred_height:
+        preferred_height = min(
+            preferred_height,
+            float(
+                available_height
+            ),
+        )
 
-            height = preferred_height
+        if height > preferred_height:
+            height = (
+                preferred_height
+            )
 
             width = (
                 height
                 / ratio
             )
 
-            if width < (
+        if width > available_width:
+            width = float(
                 available_width
-                * 0.75
-            ):
+            )
 
-                width = available_width
-
-                height = (
-                    width
-                    * ratio
-                )
+            height = (
+                width
+                * ratio
+            )
 
     # --------------------------------------------------------
-    # Normal charts
+    # NORMAL CHART
     # --------------------------------------------------------
 
     else:
-
         min_height = (
             MIN_CHART_HEIGHT_MM
             * 2.834645669
@@ -745,11 +1663,12 @@ def _get_chart_image_size(
 
         max_height = min(
             max_height,
-            available_height,
+            float(
+                available_height
+            ),
         )
 
         if height < min_height:
-
             height = min_height
 
             width = (
@@ -758,7 +1677,6 @@ def _get_chart_image_size(
             )
 
         if height > max_height:
-
             height = max_height
 
             width = (
@@ -767,8 +1685,9 @@ def _get_chart_image_size(
             )
 
         if width > available_width:
-
-            width = available_width
+            width = float(
+                available_width
+            )
 
             height = (
                 width
@@ -786,17 +1705,14 @@ def _get_chart_image_size(
 # ============================================================
 
 def _format_table_value(
-    value
+    value,
 ):
-
     if value is None:
         return ""
 
     try:
-
         if pd.isna(value):
             return ""
-
     except Exception:
         pass
 
@@ -804,7 +1720,6 @@ def _format_table_value(
         value,
         float,
     ):
-
         if value.is_integer():
             return str(
                 int(value)
@@ -820,11 +1735,14 @@ def _format_table_value(
 # ============================================================
 
 def _prepare_report_table(
-    df
+    df,
 ):
-
     if (
         df is None
+        or not isinstance(
+            df,
+            pd.DataFrame,
+        )
         or df.empty
     ):
         return pd.DataFrame()
@@ -832,7 +1750,6 @@ def _prepare_report_table(
     table = df.copy()
 
     if len(table) > MAX_TABLE_ROWS:
-
         table = table.head(
             MAX_TABLE_ROWS
         )
@@ -841,20 +1758,16 @@ def _prepare_report_table(
         len(table.columns)
         > MAX_TABLE_COLUMNS
     ):
-
         table = table.iloc[
             :,
             :MAX_TABLE_COLUMNS,
         ]
 
     for column in table.columns:
-
         try:
-
             if pd.api.types.is_datetime64_any_dtype(
                 table[column]
             ):
-
                 table[column] = (
                     table[column]
                     .dt.strftime(
@@ -863,7 +1776,6 @@ def _prepare_report_table(
                 )
 
             else:
-
                 table[column] = (
                     table[column]
                     .apply(
@@ -872,7 +1784,6 @@ def _prepare_report_table(
                 )
 
         except Exception:
-
             table[column] = (
                 table[column]
                 .astype(str)
@@ -889,21 +1800,26 @@ def _build_report_table(
     df,
     table_width,
 ):
-
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_LEFT
+
     from reportlab.lib.styles import (
         getSampleStyleSheet,
         ParagraphStyle,
     )
+
     from reportlab.platypus import (
         Paragraph,
-        Table,
+        LongTable,
         TableStyle,
     )
 
     if (
         df is None
+        or not isinstance(
+            df,
+            pd.DataFrame,
+        )
         or df.empty
     ):
         return None
@@ -921,21 +1837,38 @@ def _build_report_table(
         getSampleStyleSheet()
     )
 
+    number_of_columns = len(
+        table_df.columns
+    )
+
+    if number_of_columns <= 5:
+        header_size = 7.5
+        body_size = 7.0
+
+    elif number_of_columns <= 9:
+        header_size = 6.8
+        body_size = 6.3
+
+    else:
+        header_size = 6.0
+        body_size = 5.5
+
     header_style = ParagraphStyle(
         "ReportTableHeader",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=6.8,
-        leading=8,
+        fontSize=header_size,
+        leading=header_size + 1.5,
         alignment=TA_LEFT,
+        textColor=colors.white,
     )
 
     body_style = ParagraphStyle(
         "ReportTableBody",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=6.5,
-        leading=8,
+        fontSize=body_size,
+        leading=body_size + 1.5,
         alignment=TA_LEFT,
     )
 
@@ -947,12 +1880,12 @@ def _build_report_table(
                 ),
                 header_style,
             )
-            for column in table_df.columns
+            for column
+            in table_df.columns
         ]
     ]
 
     for _, row in table_df.iterrows():
-
         data.append(
             [
                 Paragraph(
@@ -963,15 +1896,10 @@ def _build_report_table(
                     ),
                     body_style,
                 )
-                for value in row.tolist()
+                for value
+                in row.tolist()
             ]
         )
-
-    number_of_columns = (
-        len(
-            table_df.columns
-        )
-    )
 
     if number_of_columns <= 0:
         return None
@@ -981,7 +1909,7 @@ def _build_report_table(
         / number_of_columns
     )
 
-    table = Table(
+    table = LongTable(
         data,
         colWidths=[
             column_width
@@ -991,6 +1919,7 @@ def _build_report_table(
         ],
         repeatRows=1,
         hAlign="LEFT",
+        splitByRow=1,
     )
 
     table.setStyle(
@@ -1001,14 +1930,14 @@ def _build_report_table(
                     (0, 0),
                     (-1, 0),
                     colors.HexColor(
-                        "#E9EEF5"
+                        "#1F4E78"
                     ),
                 ),
                 (
                     "TEXTCOLOR",
                     (0, 0),
                     (-1, 0),
-                    colors.black,
+                    colors.white,
                 ),
                 (
                     "FONTNAME",
@@ -1022,7 +1951,7 @@ def _build_report_table(
                     (-1, -1),
                     0.35,
                     colors.HexColor(
-                        "#B7B7B7"
+                        "#B7C9D6"
                     ),
                 ),
                 (
@@ -1078,9 +2007,9 @@ def _build_report_table(
 # ============================================================
 
 def _get_pdf_styles():
-
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
+
     from reportlab.lib.styles import (
         getSampleStyleSheet,
         ParagraphStyle,
@@ -1164,7 +2093,6 @@ def _add_filter_summary(
     filter_summary,
     style,
 ):
-
     from reportlab.platypus import (
         Paragraph,
     )
@@ -1176,13 +2104,11 @@ def _add_filter_summary(
         filter_summary,
         dict,
     ):
-
         summary_parts = []
 
         for key, value in (
             filter_summary.items()
         ):
-
             if value in (
                 None,
                 "",
@@ -1197,7 +2123,6 @@ def _add_filter_summary(
             )
 
         if summary_parts:
-
             story.append(
                 Paragraph(
                     "<br/>".join(
@@ -1208,7 +2133,6 @@ def _add_filter_summary(
             )
 
     else:
-
         story.append(
             Paragraph(
                 html.escape(
@@ -1222,7 +2146,7 @@ def _add_filter_summary(
 
 
 # ============================================================
-# BUILD PDF
+# BUILD DISPLAYED CHART PDF
 # ============================================================
 
 def _build_pdf(
@@ -1231,9 +2155,9 @@ def _build_pdf(
     filter_summary,
     mode,
 ):
-
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
+
     from reportlab.platypus import (
         Image,
         Paragraph,
@@ -1250,10 +2174,22 @@ def _build_pdf(
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=PDF_MARGIN_MM * mm,
-        leftMargin=PDF_MARGIN_MM * mm,
-        topMargin=PDF_MARGIN_MM * mm,
-        bottomMargin=PDF_MARGIN_MM * mm,
+        rightMargin=(
+            PDF_MARGIN_MM
+            * mm
+        ),
+        leftMargin=(
+            PDF_MARGIN_MM
+            * mm
+        ),
+        topMargin=(
+            PDF_MARGIN_MM
+            * mm
+        ),
+        bottomMargin=(
+            PDF_MARGIN_MM
+            * mm
+        ),
     )
 
     page_width, page_height = A4
@@ -1314,47 +2250,51 @@ def _build_pdf(
     )
 
     # ========================================================
-    # SECTIONS
+    # CHART SECTIONS
     # ========================================================
 
     for index, item in enumerate(
         charts,
         start=1,
     ):
-
         section_name = (
             item.get(
                 "section_name"
             )
+            or item.get(
+                "title"
+            )
             or f"Chart {index}"
         )
 
-        data = item.get(
-            "data"
+        data = (
+            item.get(
+                "data"
+            )
         )
 
-        # ----------------------------------------------------
-        # New page
-        # ----------------------------------------------------
+        if not isinstance(
+            data,
+            pd.DataFrame,
+        ):
+            data = (
+                _safe_dataframe_copy(
+                    data
+                )
+            )
 
         story.append(
             PageBreak()
         )
 
-        # ----------------------------------------------------
-        # Section number
-        # ----------------------------------------------------
-
         story.append(
             Paragraph(
                 f"Section {index}",
-                styles["section_number"],
+                styles[
+                    "section_number"
+                ],
             )
         )
-
-        # ----------------------------------------------------
-        # Actual section name
-        # ----------------------------------------------------
 
         story.append(
             Paragraph(
@@ -1363,7 +2303,9 @@ def _build_pdf(
                         section_name
                     )
                 ),
-                styles["section_name"],
+                styles[
+                    "section_name"
+                ],
             )
         )
 
@@ -1375,13 +2317,13 @@ def _build_pdf(
             "charts_only",
             "charts_and_data",
         ):
-
-            png_bytes = _chart_to_png(
-                item
+            png_bytes = (
+                _chart_to_png(
+                    item
+                )
             )
 
             if png_bytes:
-
                 reserved_height = (
                     70 * mm
                 )
@@ -1398,7 +2340,10 @@ def _build_pdf(
                         50 * mm
                     )
 
-                chart_width, chart_height = (
+                (
+                    chart_width,
+                    chart_height,
+                ) = (
                     _get_chart_image_size(
                         item,
                         png_bytes,
@@ -1407,14 +2352,18 @@ def _build_pdf(
                     )
                 )
 
+                image = Image(
+                    io.BytesIO(
+                        png_bytes
+                    ),
+                    width=chart_width,
+                    height=chart_height,
+                )
+
+                image.hAlign = "CENTER"
+
                 story.append(
-                    Image(
-                        io.BytesIO(
-                            png_bytes
-                        ),
-                        width=chart_width,
-                        height=chart_height,
-                    )
+                    image
                 )
 
                 story.append(
@@ -1432,7 +2381,6 @@ def _build_pdf(
             "charts_and_data",
             "table_only",
         ):
-
             table = (
                 _build_report_table(
                     data,
@@ -1441,21 +2389,18 @@ def _build_pdf(
             )
 
             if table is not None:
-
                 story.append(
                     Paragraph(
                         "Displayed Data",
-                        styles["table_heading"],
+                        styles[
+                            "table_heading"
+                        ],
                     )
                 )
 
                 story.append(
                     table
                 )
-
-        # ====================================================
-        # FOOTER
-        # ====================================================
 
         story.append(
             Spacer(
@@ -1467,7 +2412,9 @@ def _build_pdf(
         story.append(
             Paragraph(
                 "MSU Mumbai Health Programme Management Dashboard",
-                styles["footer"],
+                styles[
+                    "footer"
+                ],
             )
         )
 
@@ -1488,7 +2435,6 @@ def _safe_filename(
     filename,
     extension,
 ):
-
     filename = str(
         filename
         or "export"
@@ -1539,11 +2485,9 @@ def render_displayed_chart_download_controls(
         "MSU_Mumbai_Charts_Trends_Displayed_Charts"
     ),
 ):
-
     charts = _get_registry()
 
     if not charts:
-
         st.info(
             "No displayed charts were captured on this page."
         )
@@ -1566,15 +2510,16 @@ def render_displayed_chart_download_controls(
         "📋 Report Contents",
         expanded=False,
     ):
-
         for index, item in enumerate(
             charts,
             start=1,
         ):
-
             section_name = (
                 item.get(
                     "section_name"
+                )
+                or item.get(
+                    "title"
                 )
                 or f"Chart {index}"
             )
@@ -1598,39 +2543,50 @@ def render_displayed_chart_download_controls(
     )
 
     try:
-
-        pdf_charts_only = _build_pdf(
-            charts=charts,
-            report_title=(
-                "MSU Mumbai - "
-                "Charts with Section Name"
-            ),
-            filter_summary=filter_summary,
-            mode="charts_only",
+        pdf_charts_only = (
+            _build_pdf(
+                charts=charts,
+                report_title=(
+                    "MSU Mumbai - "
+                    "Charts with Section Name"
+                ),
+                filter_summary=(
+                    filter_summary
+                ),
+                mode="charts_only",
+            )
         )
 
         if pdf_charts_only:
-
             st.download_button(
                 label=(
-                    "📊 Download Charts + Section Name PDF"
+                    "📊 Download Charts + "
+                    "Section Name PDF"
                 ),
-                data=pdf_charts_only,
-                file_name=_safe_filename(
-                    f"{base_filename}_Charts_Section_Name",
-                    ".pdf",
+                data=(
+                    pdf_charts_only
+                ),
+                file_name=(
+                    _safe_filename(
+                        (
+                            f"{base_filename}_"
+                            "Charts_Section_Name"
+                        ),
+                        ".pdf",
+                    )
                 ),
                 mime="application/pdf",
                 use_container_width=True,
                 key=(
-                    "download_charts_section_name_pdf"
+                    "download_charts_"
+                    "section_name_pdf"
                 ),
             )
 
     except Exception as exc:
-
         st.error(
-            "Charts with Section Name PDF could not be generated."
+            "Charts with Section Name PDF "
+            "could not be generated."
         )
 
         with st.expander(
@@ -1653,39 +2609,51 @@ def render_displayed_chart_download_controls(
     )
 
     try:
-
-        pdf_charts_data = _build_pdf(
-            charts=charts,
-            report_title=(
-                "MSU Mumbai - "
-                "Charts with Data & Section Name"
-            ),
-            filter_summary=filter_summary,
-            mode="charts_and_data",
+        pdf_charts_data = (
+            _build_pdf(
+                charts=charts,
+                report_title=(
+                    "MSU Mumbai - "
+                    "Charts with Data & "
+                    "Section Name"
+                ),
+                filter_summary=(
+                    filter_summary
+                ),
+                mode="charts_and_data",
+            )
         )
 
         if pdf_charts_data:
-
             st.download_button(
                 label=(
                     "📊 Download Charts + Data PDF"
                 ),
-                data=pdf_charts_data,
-                file_name=_safe_filename(
-                    f"{base_filename}_Charts_Data_Section_Name",
-                    ".pdf",
+                data=(
+                    pdf_charts_data
+                ),
+                file_name=(
+                    _safe_filename(
+                        (
+                            f"{base_filename}_"
+                            "Charts_Data_"
+                            "Section_Name"
+                        ),
+                        ".pdf",
+                    )
                 ),
                 mime="application/pdf",
                 use_container_width=True,
                 key=(
-                    "download_charts_data_section_name_pdf"
+                    "download_charts_data_"
+                    "section_name_pdf"
                 ),
             )
 
     except Exception as exc:
-
         st.error(
-            "Charts with Data & Section Name PDF could not be generated."
+            "Charts with Data & Section Name "
+            "PDF could not be generated."
         )
 
         with st.expander(
@@ -1708,27 +2676,36 @@ def render_displayed_chart_download_controls(
     )
 
     try:
-
-        pdf_table_only = _build_pdf(
-            charts=charts,
-            report_title=(
-                "MSU Mumbai - "
-                "Tables with Section Name"
-            ),
-            filter_summary=filter_summary,
-            mode="table_only",
+        pdf_table_only = (
+            _build_pdf(
+                charts=charts,
+                report_title=(
+                    "MSU Mumbai - "
+                    "Tables with Section Name"
+                ),
+                filter_summary=(
+                    filter_summary
+                ),
+                mode="table_only",
+            )
         )
 
         if pdf_table_only:
-
             st.download_button(
                 label=(
                     "📋 Download Only Tables PDF"
                 ),
-                data=pdf_table_only,
-                file_name=_safe_filename(
-                    f"{base_filename}_Only_Tables",
-                    ".pdf",
+                data=(
+                    pdf_table_only
+                ),
+                file_name=(
+                    _safe_filename(
+                        (
+                            f"{base_filename}_"
+                            "Only_Tables"
+                        ),
+                        ".pdf",
+                    )
                 ),
                 mime="application/pdf",
                 use_container_width=True,
@@ -1738,7 +2715,6 @@ def render_displayed_chart_download_controls(
             )
 
     except Exception as exc:
-
         st.error(
             "Only Table PDF could not be generated."
         )
