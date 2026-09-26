@@ -1,9 +1,7 @@
-
 import io
 import html
 
 import pandas as pd
-import streamlit as st
 
 from displayed_chart_export import (
     _chart_to_png,
@@ -44,22 +42,34 @@ def _safe_text(value):
     except Exception:
         pass
 
-    return html.escape(str(value))
+    return html.escape(
+        str(value),
+        quote=False,
+    )
 
 
 # ============================================================
-# SAFE FILTER SUMMARY
+# FILTER SUMMARY
 # ============================================================
 
 def _normalize_filter_summary(filter_summary):
+
     if filter_summary is None:
         return {}
 
-    if isinstance(filter_summary, dict):
+    if isinstance(
+        filter_summary,
+        dict,
+    ):
         return filter_summary
 
-    if isinstance(filter_summary, str):
-        text_value = filter_summary.strip()
+    if isinstance(
+        filter_summary,
+        str,
+    ):
+        text_value = (
+            filter_summary.strip()
+        )
 
         if not text_value:
             return {}
@@ -68,7 +78,10 @@ def _normalize_filter_summary(filter_summary):
             "Filters": text_value
         }
 
-    if isinstance(filter_summary, (list, tuple)):
+    if isinstance(
+        filter_summary,
+        (list, tuple),
+    ):
         result = {}
 
         for index, value in enumerate(
@@ -78,19 +91,27 @@ def _normalize_filter_summary(filter_summary):
             if value is None:
                 continue
 
-            text_value = str(value).strip()
+            text_value = (
+                str(value).strip()
+            )
 
             if text_value:
-                result[f"Filter {index}"] = text_value
+                result[
+                    f"Filter {index}"
+                ] = text_value
 
         return result
 
     try:
-        return dict(filter_summary)
+        return dict(
+            filter_summary
+        )
 
     except Exception:
         return {
-            "Filters": str(filter_summary)
+            "Filters": str(
+                filter_summary
+            )
         }
 
 
@@ -99,20 +120,82 @@ def _normalize_filter_summary(filter_summary):
 # ============================================================
 
 def _to_dataframe(value):
+
     if value is None:
         return pd.DataFrame()
 
-    if isinstance(value, pd.DataFrame):
+    if isinstance(
+        value,
+        pd.DataFrame,
+    ):
         return value.copy()
 
-    if isinstance(value, pd.Series):
-        return value.to_frame().reset_index(drop=True)
+    if isinstance(
+        value,
+        pd.Series,
+    ):
+        return (
+            value
+            .to_frame()
+            .reset_index(
+                drop=True
+            )
+        )
 
     try:
-        return pd.DataFrame(value)
+        return pd.DataFrame(
+            value
+        )
 
     except Exception:
         return pd.DataFrame()
+
+
+# ============================================================
+# EXTRACT DATAFRAME FROM ITEM
+# ============================================================
+
+def _get_item_dataframe(item):
+
+    if item is None:
+        return pd.DataFrame()
+
+    if isinstance(
+        item,
+        pd.DataFrame,
+    ):
+        return item.copy()
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+        return _to_dataframe(
+            item
+        )
+
+    for key in (
+        "data",
+        "dataframe",
+        "df",
+        "table",
+        "records",
+    ):
+        if key not in item:
+            continue
+
+        value = item.get(
+            key
+        )
+
+        frame = _to_dataframe(
+            value
+        )
+
+        if not frame.empty:
+            return frame
+
+    return pd.DataFrame()
 
 
 # ============================================================
@@ -120,6 +203,7 @@ def _to_dataframe(value):
 # ============================================================
 
 def _get_pdf_styles():
+
     from reportlab.lib import colors
 
     from reportlab.lib.enums import (
@@ -132,7 +216,9 @@ def _get_pdf_styles():
         ParagraphStyle,
     )
 
-    styles = getSampleStyleSheet()
+    styles = (
+        getSampleStyleSheet()
+    )
 
     styles.add(
         ParagraphStyle(
@@ -142,7 +228,9 @@ def _get_pdf_styles():
             fontSize=23,
             leading=28,
             alignment=TA_CENTER,
-            textColor=colors.HexColor("#163A5F"),
+            textColor=colors.HexColor(
+                "#163A5F"
+            ),
             spaceAfter=10,
         )
     )
@@ -155,7 +243,9 @@ def _get_pdf_styles():
             fontSize=12,
             leading=15,
             alignment=TA_CENTER,
-            textColor=colors.HexColor("#4F5B66"),
+            textColor=colors.HexColor(
+                "#4F5B66"
+            ),
             spaceAfter=8,
         )
     )
@@ -168,7 +258,9 @@ def _get_pdf_styles():
             fontSize=15,
             leading=19,
             alignment=TA_CENTER,
-            textColor=colors.HexColor("#1F4E78"),
+            textColor=colors.HexColor(
+                "#1F4E78"
+            ),
             spaceAfter=15,
         )
     )
@@ -181,7 +273,9 @@ def _get_pdf_styles():
             fontSize=9.5,
             leading=13,
             alignment=TA_CENTER,
-            textColor=colors.HexColor("#444444"),
+            textColor=colors.HexColor(
+                "#444444"
+            ),
             spaceAfter=5,
         )
     )
@@ -194,7 +288,9 @@ def _get_pdf_styles():
             fontSize=18,
             leading=22,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#163A5F"),
+            textColor=colors.HexColor(
+                "#163A5F"
+            ),
             spaceAfter=12,
         )
     )
@@ -207,8 +303,9 @@ def _get_pdf_styles():
             fontSize=16,
             leading=20,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#163A5F"),
-            spaceBefore=0,
+            textColor=colors.HexColor(
+                "#163A5F"
+            ),
             spaceAfter=10,
         )
     )
@@ -221,8 +318,9 @@ def _get_pdf_styles():
             fontSize=14,
             leading=17,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#163A5F"),
-            spaceBefore=0,
+            textColor=colors.HexColor(
+                "#163A5F"
+            ),
             spaceAfter=8,
         )
     )
@@ -235,8 +333,9 @@ def _get_pdf_styles():
             fontSize=11.5,
             leading=14,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#1F4E78"),
-            spaceBefore=5,
+            textColor=colors.HexColor(
+                "#1F4E78"
+            ),
             spaceAfter=6,
         )
     )
@@ -249,8 +348,9 @@ def _get_pdf_styles():
             fontSize=9.5,
             leading=12,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#333333"),
-            spaceBefore=5,
+            textColor=colors.HexColor(
+                "#333333"
+            ),
             spaceAfter=5,
         )
     )
@@ -263,7 +363,9 @@ def _get_pdf_styles():
             fontSize=8.5,
             leading=11,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#555555"),
+            textColor=colors.HexColor(
+                "#555555"
+            ),
         )
     )
 
@@ -275,7 +377,9 @@ def _get_pdf_styles():
             fontSize=8,
             leading=10,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#666666"),
+            textColor=colors.HexColor(
+                "#666666"
+            ),
         )
     )
 
@@ -287,9 +391,15 @@ def _get_pdf_styles():
             fontSize=10,
             leading=14,
             alignment=TA_LEFT,
-            textColor=colors.HexColor("#5F4B00"),
-            backColor=colors.HexColor("#FFF8D9"),
-            borderColor=colors.HexColor("#E3C95C"),
+            textColor=colors.HexColor(
+                "#5F4B00"
+            ),
+            backColor=colors.HexColor(
+                "#FFF8D9"
+            ),
+            borderColor=colors.HexColor(
+                "#E3C95C"
+            ),
             borderWidth=0.7,
             borderPadding=8,
             spaceBefore=5,
@@ -306,7 +416,9 @@ def _get_pdf_styles():
             leading=14,
             leftIndent=12,
             firstLineIndent=-12,
-            textColor=colors.HexColor("#333333"),
+            textColor=colors.HexColor(
+                "#333333"
+            ),
             spaceAfter=5,
         )
     )
@@ -322,6 +434,7 @@ def _build_report_table(
     df,
     table_width,
 ):
+
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_LEFT
 
@@ -336,28 +449,40 @@ def _build_report_table(
         TableStyle,
     )
 
-    if df is None or df.empty:
+    if (
+        df is None
+        or df.empty
+    ):
         return None
 
     work_df = df.copy()
 
-    if len(work_df) > MAX_TABLE_ROWS:
+    if len(
+        work_df
+    ) > MAX_TABLE_ROWS:
         work_df = (
             work_df
-            .head(MAX_TABLE_ROWS)
+            .head(
+                MAX_TABLE_ROWS
+            )
             .copy()
         )
 
-    if len(work_df.columns) > MAX_TABLE_COLUMNS:
+    if len(
+        work_df.columns
+    ) > MAX_TABLE_COLUMNS:
         work_df = (
-            work_df
-            .iloc[:, :MAX_TABLE_COLUMNS]
+            work_df.iloc[
+                :,
+                :MAX_TABLE_COLUMNS,
+            ]
             .copy()
         )
 
     columns = [
         str(column)
-        for column in work_df.columns
+        for column
+        in work_df.columns
     ]
 
     work_df.columns = columns
@@ -365,23 +490,30 @@ def _build_report_table(
     if not columns:
         return None
 
-    styles = getSampleStyleSheet()
+    styles = (
+        getSampleStyleSheet()
+    )
 
-    column_count = len(columns)
+    column_count = len(
+        columns
+    )
 
     if column_count <= 5:
+
         header_font_size = 7.5
         body_font_size = 7.0
         header_leading = 9
         body_leading = 8.5
 
     elif column_count <= 9:
+
         header_font_size = 6.8
         body_font_size = 6.3
         header_leading = 8
         body_leading = 7.5
 
     else:
+
         header_font_size = 6.0
         body_font_size = 5.5
         header_leading = 7
@@ -409,31 +541,42 @@ def _build_report_table(
 
     table_data = []
 
-    header_row = []
-
-    for column in columns:
-        header_row.append(
+    table_data.append(
+        [
             Paragraph(
-                _safe_text(column),
+                _safe_text(
+                    column
+                ),
                 header_style,
             )
-        )
+            for column
+            in columns
+        ]
+    )
 
-    table_data.append(header_row)
+    for _, row in (
+        work_df.iterrows()
+    ):
 
-    for _, row in work_df.iterrows():
         body_row = []
 
         for column in columns:
-            value = row[column]
+
+            value = row[
+                column
+            ]
 
             try:
                 formatted_value = (
-                    _format_table_value(value)
+                    _format_table_value(
+                        value
+                    )
                 )
 
             except Exception:
-                formatted_value = value
+                formatted_value = (
+                    value
+                )
 
             body_row.append(
                 Paragraph(
@@ -444,20 +587,23 @@ def _build_report_table(
                 )
             )
 
-        table_data.append(body_row)
+        table_data.append(
+            body_row
+        )
 
     equal_width = (
-        table_width / column_count
+        table_width
+        / column_count
     )
-
-    col_widths = [
-        equal_width
-        for _ in range(column_count)
-    ]
 
     table = LongTable(
         table_data,
-        colWidths=col_widths,
+        colWidths=[
+            equal_width
+            for _ in range(
+                column_count
+            )
+        ],
         repeatRows=1,
         hAlign="LEFT",
         splitByRow=1,
@@ -470,7 +616,9 @@ def _build_report_table(
                     "BACKGROUND",
                     (0, 0),
                     (-1, 0),
-                    colors.HexColor("#1F4E78"),
+                    colors.HexColor(
+                        "#1F4E78"
+                    ),
                 ),
                 (
                     "TEXTCOLOR",
@@ -495,7 +643,9 @@ def _build_report_table(
                     (0, 0),
                     (-1, -1),
                     0.35,
-                    colors.HexColor("#B7C9D6"),
+                    colors.HexColor(
+                        "#B7C9D6"
+                    ),
                 ),
                 (
                     "ROWBACKGROUNDS",
@@ -503,7 +653,9 @@ def _build_report_table(
                     (-1, -1),
                     [
                         colors.white,
-                        colors.HexColor("#F5F8FA"),
+                        colors.HexColor(
+                            "#F5F8FA"
+                        ),
                     ],
                 ),
                 (
@@ -547,6 +699,7 @@ def _add_filter_summary(
     report_period=None,
     filter_summary=None,
 ):
+
     from reportlab.platypus import (
         Paragraph,
         Spacer,
@@ -559,16 +712,22 @@ def _add_filter_summary(
     )
 
     if report_period:
+
         story.append(
             Paragraph(
-                f"<b>Reporting Period:</b> "
+                "<b>Reporting Period:</b> "
                 f"{_safe_text(report_period)}",
-                styles["DashboardSmallText"],
+                styles[
+                    "DashboardSmallText"
+                ],
             )
         )
 
         story.append(
-            Spacer(1, 3)
+            Spacer(
+                1,
+                3,
+            )
         )
 
     if not safe_filters:
@@ -577,15 +736,22 @@ def _add_filter_summary(
     story.append(
         Paragraph(
             "<b>Applied Filters</b>",
-            styles["DashboardTableTitle"],
+            styles[
+                "DashboardTableTitle"
+            ],
         )
     )
 
-    for key, value in safe_filters.items():
+    for key, value in (
+        safe_filters.items()
+    ):
+
         if value is None:
             continue
 
-        value_text = str(value).strip()
+        value_text = (
+            str(value).strip()
+        )
 
         if not value_text:
             continue
@@ -594,12 +760,17 @@ def _add_filter_summary(
             Paragraph(
                 f"<b>{_safe_text(key)}:</b> "
                 f"{_safe_text(value_text)}",
-                styles["DashboardSmallText"],
+                styles[
+                    "DashboardSmallText"
+                ],
             )
         )
 
     story.append(
-        Spacer(1, 6)
+        Spacer(
+            1,
+            6,
+        )
     )
 
 
@@ -613,6 +784,7 @@ def _add_cover_page(
     report_period=None,
     filter_summary=None,
 ):
+
     from reportlab.lib.units import mm
 
     from reportlab.platypus import (
@@ -636,14 +808,18 @@ def _add_cover_page(
     story.append(
         Paragraph(
             "MSU Mumbai Public Health Surveillance Dashboard",
-            styles["DashboardCoverTitle"],
+            styles[
+                "DashboardCoverTitle"
+            ],
         )
     )
 
     story.append(
         Paragraph(
             "Surveillance • Monitoring • Analysis • Management",
-            styles["DashboardCoverSubtitle"],
+            styles[
+                "DashboardCoverSubtitle"
+            ],
         )
     )
 
@@ -657,20 +833,26 @@ def _add_cover_page(
     story.append(
         Paragraph(
             "Complete Dashboard Report",
-            styles["DashboardCoverReportTitle"],
+            styles[
+                "DashboardCoverReportTitle"
+            ],
         )
     )
 
     if report_period:
+
         story.append(
             Paragraph(
-                f"<b>Reporting Period:</b> "
+                "<b>Reporting Period:</b> "
                 f"{_safe_text(report_period)}",
-                styles["DashboardCoverInfo"],
+                styles[
+                    "DashboardCoverInfo"
+                ],
             )
         )
 
     if safe_filters:
+
         story.append(
             Spacer(
                 1,
@@ -681,15 +863,22 @@ def _add_cover_page(
         story.append(
             Paragraph(
                 "<b>Applied Filters</b>",
-                styles["DashboardCoverInfo"],
+                styles[
+                    "DashboardCoverInfo"
+                ],
             )
         )
 
-        for key, value in safe_filters.items():
+        for key, value in (
+            safe_filters.items()
+        ):
+
             if value is None:
                 continue
 
-            value_text = str(value).strip()
+            value_text = (
+                str(value).strip()
+            )
 
             if not value_text:
                 continue
@@ -698,7 +887,9 @@ def _add_cover_page(
                 Paragraph(
                     f"{_safe_text(key)}: "
                     f"{_safe_text(value_text)}",
-                    styles["DashboardCoverInfo"],
+                    styles[
+                        "DashboardCoverInfo"
+                    ],
                 )
             )
 
@@ -713,13 +904,15 @@ def _add_cover_page(
         Paragraph(
             "Prepared from the current dashboard view "
             "and selected filters.",
-            styles["DashboardCoverInfo"],
+            styles[
+                "DashboardCoverInfo"
+            ],
         )
     )
 
 
 # ============================================================
-# PAGE BREAK HELPER
+# NEW CONTENT PAGE
 # ============================================================
 
 def _add_new_content_page(
@@ -728,6 +921,7 @@ def _add_new_content_page(
     styles,
     parent_section=None,
 ):
+
     from reportlab.platypus import (
         PageBreak,
         Paragraph,
@@ -739,10 +933,15 @@ def _add_new_content_page(
     )
 
     if parent_section:
+
         story.append(
             Paragraph(
-                _safe_text(parent_section),
-                styles["DashboardSmallText"],
+                _safe_text(
+                    parent_section
+                ),
+                styles[
+                    "DashboardSmallText"
+                ],
             )
         )
 
@@ -755,8 +954,12 @@ def _add_new_content_page(
 
     story.append(
         Paragraph(
-            _safe_text(title),
-            styles["DashboardSubsectionTitle"],
+            _safe_text(
+                title
+            ),
+            styles[
+                "DashboardSubsectionTitle"
+            ],
         )
     )
 
@@ -776,8 +979,15 @@ def _parse_table_item(
     table_item,
     default_title="Management Data Table",
 ):
-    table_title = default_title
-    table_df = pd.DataFrame()
+
+    table_title = (
+        default_title
+    )
+
+    table_df = (
+        pd.DataFrame()
+    )
+
     section_name = ""
     note = ""
 
@@ -785,37 +995,58 @@ def _parse_table_item(
         table_item,
         pd.DataFrame,
     ):
-        table_df = table_item.copy()
+
+        table_df = (
+            table_item.copy()
+        )
 
     elif isinstance(
         table_item,
         dict,
     ):
+
         table_title = (
-            table_item.get("title")
-            or table_item.get("name")
-            or table_item.get("section_name")
+            table_item.get(
+                "title"
+            )
+            or table_item.get(
+                "name"
+            )
+            or table_item.get(
+                "section_name"
+            )
             or default_title
         )
 
         section_name = (
-            table_item.get("section_name")
+            table_item.get(
+                "section_name"
+            )
             or ""
         )
 
         note = (
-            table_item.get("note")
-            or table_item.get("message")
+            table_item.get(
+                "note"
+            )
+            or table_item.get(
+                "message"
+            )
             or ""
         )
 
-        table_df = _to_dataframe(
-            table_item.get("data")
+        table_df = (
+            _get_item_dataframe(
+                table_item
+            )
         )
 
     else:
-        table_df = _to_dataframe(
-            table_item
+
+        table_df = (
+            _to_dataframe(
+                table_item
+            )
         )
 
     return (
@@ -827,7 +1058,7 @@ def _parse_table_item(
 
 
 # ============================================================
-# ADD TABLE SUBSECTION
+# ADD TABLE
 # ============================================================
 
 def _add_table_to_story(
@@ -837,6 +1068,7 @@ def _add_table_to_story(
     table_width,
     parent_section=None,
 ):
+
     from reportlab.platypus import (
         Paragraph,
         Spacer,
@@ -866,14 +1098,21 @@ def _add_table_to_story(
         story=story,
         title=table_title,
         styles=styles,
-        parent_section=subsection_parent,
+        parent_section=(
+            subsection_parent
+        ),
     )
 
     if note:
+
         story.append(
             Paragraph(
-                _safe_text(note),
-                styles["DashboardNote"],
+                _safe_text(
+                    note
+                ),
+                styles[
+                    "DashboardNote"
+                ],
             )
         )
 
@@ -885,6 +1124,7 @@ def _add_table_to_story(
         )
 
     try:
+
         report_table = (
             _build_report_table(
                 table_df,
@@ -893,6 +1133,7 @@ def _add_table_to_story(
         )
 
         if report_table is not None:
+
             story.append(
                 report_table
             )
@@ -900,11 +1141,14 @@ def _add_table_to_story(
             return True
 
     except Exception as exc:
+
         story.append(
             Paragraph(
-                f"Table could not be rendered: "
+                "Table could not be rendered: "
                 f"{_safe_text(exc)}",
-                styles["DashboardNote"],
+                styles[
+                    "DashboardNote"
+                ],
             )
         )
 
@@ -922,6 +1166,7 @@ def _add_chart_to_story(
     table_width,
     parent_section=None,
 ):
+
     from reportlab.lib.units import mm
 
     from reportlab.platypus import (
@@ -930,19 +1175,46 @@ def _add_chart_to_story(
         Spacer,
     )
 
-    if not isinstance(item, dict):
+    if not isinstance(
+        item,
+        dict,
+    ):
         return False
 
     chart_title = (
-        item.get("title")
+        item.get(
+            "title"
+        )
         or "Dashboard Chart"
     )
 
     section_name = (
-        item.get("section_name")
+        item.get(
+            "section_name"
+        )
         or parent_section
         or "Dashboard Section"
     )
+
+    # --------------------------------------------------------
+    # Optional selection-aware chart
+    # --------------------------------------------------------
+
+    if item.get(
+        "selection_required"
+    ):
+
+        selected_value = (
+            item.get(
+                "selected_value"
+            )
+            or item.get(
+                "selection"
+            )
+        )
+
+        if not selected_value:
+            return False
 
     _add_new_content_page(
         story=story,
@@ -952,95 +1224,181 @@ def _add_chart_to_story(
     )
 
     try:
-        png_bytes = _chart_to_png(item)
+
+        png_bytes = (
+            _chart_to_png(
+                item
+            )
+        )
 
     except Exception as exc:
+
         story.append(
             Paragraph(
-                f"<b>Chart could not be rendered:</b> "
+                "<b>Chart could not be rendered:</b> "
                 f"{_safe_text(exc)}",
-                styles["DashboardNote"],
+                styles[
+                    "DashboardNote"
+                ],
             )
         )
 
         return False
 
     if not png_bytes:
+
         story.append(
             Paragraph(
                 "Chart image was not available.",
-                styles["DashboardNote"],
+                styles[
+                    "DashboardNote"
+                ],
             )
         )
 
         return False
 
     try:
+
         image_width, image_height = (
-            _get_chart_image_size(item)
+            _get_chart_image_size(
+                item,
+                png_bytes,
+                table_width,
+                MAX_CHART_HEIGHT_MM * mm,
+            )
         )
 
-        image_width = float(image_width)
-        image_height = float(image_height)
+        image_width = float(
+            image_width
+        )
+
+        image_height = float(
+            image_height
+        )
 
     except Exception:
-        image_width = 1000
-        image_height = 360
+
+        image_width = (
+            table_width
+        )
+
+        image_height = (
+            90 * mm
+        )
+
+    # --------------------------------------------------------
+    # Ensure image fits report width
+    # --------------------------------------------------------
+
+    if image_width > table_width:
+
+        ratio = (
+            image_height
+            / image_width
+            if image_width
+            else 0.5
+        )
+
+        image_width = (
+            table_width
+        )
+
+        image_height = (
+            image_width
+            * ratio
+        )
+
+    max_height = (
+        MAX_CHART_HEIGHT_MM
+        * mm
+    )
+
+    if image_height > max_height:
+
+        scale = (
+            max_height
+            / image_height
+        )
+
+        image_height = (
+            max_height
+        )
+
+        image_width = (
+            image_width
+            * scale
+        )
 
     try:
-        is_monthly_disease = (
-            _is_monthly_disease_comparison(item)
-        )
+
+        if (
+            _is_monthly_disease_comparison(
+                item
+            )
+        ):
+
+            preferred_height = (
+                MONTHLY_DISEASE_HEIGHT_MM
+                * mm
+            )
+
+            if (
+                image_height
+                > preferred_height
+            ):
+
+                scale = (
+                    preferred_height
+                    / image_height
+                )
+
+                image_height = (
+                    preferred_height
+                )
+
+                image_width = (
+                    image_width
+                    * scale
+                )
 
     except Exception:
-        is_monthly_disease = False
-
-    if is_monthly_disease:
-        target_height_mm = (
-            MONTHLY_DISEASE_HEIGHT_MM
-        )
-
-    else:
-        aspect_ratio = (
-            image_height / image_width
-            if image_width
-            else 0.36
-        )
-
-        target_height_mm = (
-            table_width / mm
-        ) * aspect_ratio
-
-        target_height_mm = max(
-            MIN_CHART_HEIGHT_MM,
-            min(
-                MAX_CHART_HEIGHT_MM,
-                target_height_mm,
-            ),
-        )
+        pass
 
     image = Image(
-        io.BytesIO(png_bytes)
+        io.BytesIO(
+            png_bytes
+        )
     )
 
-    image.drawWidth = table_width
+    image.drawWidth = (
+        image_width
+    )
 
     image.drawHeight = (
-        target_height_mm * mm
+        image_height
     )
 
-    story.append(image)
+    image.hAlign = (
+        "CENTER"
+    )
+
+    story.append(
+        image
+    )
 
     # --------------------------------------------------------
-    # ACTUAL CHART DATA TABLE
-    # SAME LOGICAL SECTION
+    # CHART DATA TABLE
     # --------------------------------------------------------
 
-    chart_df = _to_dataframe(
-        item.get("data")
+    chart_df = (
+        _get_item_dataframe(
+            item
+        )
     )
 
     if not chart_df.empty:
+
         story.append(
             Spacer(
                 1,
@@ -1051,25 +1409,36 @@ def _add_chart_to_story(
         story.append(
             Paragraph(
                 "Data Table",
-                styles["DashboardTableTitle"],
+                styles[
+                    "DashboardTableTitle"
+                ],
             )
         )
 
         try:
-            table = _build_report_table(
-                chart_df,
-                table_width,
+
+            table = (
+                _build_report_table(
+                    chart_df,
+                    table_width,
+                )
             )
 
             if table is not None:
-                story.append(table)
+
+                story.append(
+                    table
+                )
 
         except Exception as exc:
+
             story.append(
                 Paragraph(
-                    f"Data table could not be rendered: "
+                    "Data table could not be rendered: "
                     f"{_safe_text(exc)}",
-                    styles["DashboardNote"],
+                    styles[
+                        "DashboardNote"
+                    ],
                 )
             )
 
@@ -1077,89 +1446,184 @@ def _add_chart_to_story(
 
 
 # ============================================================
-# IMAGE / MAP HELPERS
+# IMAGE BYTES
+# ============================================================
+
+def _coerce_image_bytes(
+    raw_image,
+):
+
+    if raw_image is None:
+        return None
+
+    if isinstance(
+        raw_image,
+        bytes,
+    ):
+        return raw_image
+
+    if isinstance(
+        raw_image,
+        bytearray,
+    ):
+        return bytes(
+            raw_image
+        )
+
+    if isinstance(
+        raw_image,
+        io.BytesIO,
+    ):
+
+        try:
+            raw_image.seek(
+                0
+            )
+        except Exception:
+            pass
+
+        return raw_image.read()
+
+    # --------------------------------------------------------
+    # PIL Image
+    # --------------------------------------------------------
+
+    try:
+
+        from PIL import Image as PILImage
+
+        if isinstance(
+            raw_image,
+            PILImage.Image,
+        ):
+
+            buffer = (
+                io.BytesIO()
+            )
+
+            raw_image.save(
+                buffer,
+                format="PNG",
+            )
+
+            return (
+                buffer.getvalue()
+            )
+
+    except Exception:
+        pass
+
+    return None
+
+
+# ============================================================
+# IMAGE / MAP ITEM
 # ============================================================
 
 def _extract_image_item(
     image_item,
 ):
-    title = "Dashboard Image"
+
+    title = (
+        "Dashboard Image"
+    )
+
     section_name = ""
     caption = ""
     image_bytes = None
 
     if isinstance(
         image_item,
-        bytes,
+        (
+            bytes,
+            bytearray,
+            io.BytesIO,
+        ),
     ):
-        image_bytes = image_item
 
-    elif isinstance(
-        image_item,
-        bytearray,
-    ):
-        image_bytes = bytes(
-            image_item
+        image_bytes = (
+            _coerce_image_bytes(
+                image_item
+            )
         )
-
-    elif isinstance(
-        image_item,
-        io.BytesIO,
-    ):
-        image_item.seek(0)
-        image_bytes = image_item.read()
 
     elif isinstance(
         image_item,
         dict,
     ):
+
         title = (
-            image_item.get("title")
-            or image_item.get("name")
-            or image_item.get("section_name")
+            image_item.get(
+                "title"
+            )
+            or image_item.get(
+                "name"
+            )
+            or image_item.get(
+                "view_name"
+            )
+            or image_item.get(
+                "section_name"
+            )
             or "Dashboard Image"
         )
 
         section_name = (
-            image_item.get("section_name")
+            image_item.get(
+                "section_name"
+            )
             or ""
         )
 
         caption = (
-            image_item.get("caption")
-            or image_item.get("note")
+            image_item.get(
+                "caption"
+            )
+            or image_item.get(
+                "note"
+            )
+            or image_item.get(
+                "description"
+            )
             or ""
         )
 
-        raw_image = (
-            image_item.get("data")
-            or image_item.get("bytes")
-            or image_item.get("image")
-            or image_item.get("png")
+        raw_image = None
+
+        for key in (
+            "data",
+            "bytes",
+            "image",
+            "png",
+            "png_bytes",
+            "image_bytes",
+            "map_image",
+            "map_png",
+        ):
+
+            candidate = (
+                image_item.get(
+                    key
+                )
+            )
+
+            candidate_bytes = (
+                _coerce_image_bytes(
+                    candidate
+                )
+            )
+
+            if candidate_bytes:
+
+                raw_image = (
+                    candidate_bytes
+                )
+
+                break
+
+        image_bytes = (
+            raw_image
         )
-
-        if isinstance(
-            raw_image,
-            bytes,
-        ):
-            image_bytes = raw_image
-
-        elif isinstance(
-            raw_image,
-            bytearray,
-        ):
-            image_bytes = bytes(
-                raw_image
-            )
-
-        elif isinstance(
-            raw_image,
-            io.BytesIO,
-        ):
-            raw_image.seek(0)
-            image_bytes = (
-                raw_image.read()
-            )
 
     return (
         title,
@@ -1170,7 +1634,7 @@ def _extract_image_item(
 
 
 # ============================================================
-# ADD IMAGE / MAP SUBSECTION
+# ADD IMAGE / MAP
 # ============================================================
 
 def _add_image_to_story(
@@ -1180,6 +1644,7 @@ def _add_image_to_story(
     table_width,
     parent_section=None,
 ):
+
     from reportlab.lib.units import mm
 
     from reportlab.platypus import (
@@ -1211,10 +1676,15 @@ def _add_image_to_story(
     )
 
     if caption:
+
         story.append(
             Paragraph(
-                _safe_text(caption),
-                styles["DashboardNote"],
+                _safe_text(
+                    caption
+                ),
+                styles[
+                    "DashboardNote"
+                ],
             )
         )
 
@@ -1226,6 +1696,7 @@ def _add_image_to_story(
         )
 
     try:
+
         image = Image(
             io.BytesIO(
                 image_bytes
@@ -1240,9 +1711,12 @@ def _add_image_to_story(
             image.imageHeight
         )
 
-        image_width = table_width
+        image_width = (
+            table_width
+        )
 
         if original_width > 0:
+
             image_height = (
                 image_width
                 * original_height
@@ -1250,6 +1724,7 @@ def _add_image_to_story(
             )
 
         else:
+
             image_height = (
                 80 * mm
             )
@@ -1260,6 +1735,7 @@ def _add_image_to_story(
         )
 
         if image_height > max_height:
+
             scale = (
                 max_height
                 / image_height
@@ -1282,18 +1758,25 @@ def _add_image_to_story(
             image_height
         )
 
-        image.hAlign = "CENTER"
+        image.hAlign = (
+            "CENTER"
+        )
 
-        story.append(image)
+        story.append(
+            image
+        )
 
         return True
 
     except Exception as exc:
+
         story.append(
             Paragraph(
-                f"Image or map could not be rendered: "
+                "Image or map could not be rendered: "
                 f"{_safe_text(exc)}",
-                styles["DashboardNote"],
+                styles[
+                    "DashboardNote"
+                ],
             )
         )
 
@@ -1301,53 +1784,68 @@ def _add_image_to_story(
 
 
 # ============================================================
-# SELECTION REQUIRED MESSAGE
+# METRIC TABLE
 # ============================================================
 
-def _add_selection_required_page(
-    story,
-    styles,
-    page_title,
-    message,
+def _metrics_to_dataframe(
+    metrics,
 ):
-    from reportlab.platypus import (
-        PageBreak,
-        Paragraph,
-        Spacer,
-    )
 
-    story.append(
-        PageBreak()
-    )
+    rows = []
 
-    story.append(
-        Paragraph(
-            _safe_text(page_title),
-            styles["DashboardSectionTitle"],
+    for metric in (
+        metrics or []
+    ):
+
+        if not isinstance(
+            metric,
+            dict,
+        ):
+            continue
+
+        label = (
+            metric.get(
+                "label"
+            )
+            or metric.get(
+                "title"
+            )
+            or ""
         )
-    )
 
-    story.append(
-        Spacer(
-            1,
-            5,
+        value = (
+            metric.get(
+                "value"
+            )
+            or ""
         )
-    )
 
-    story.append(
-        Paragraph(
-            "<b>Selection Required</b>",
-            styles["DashboardTableTitle"],
+        delta = (
+            metric.get(
+                "delta"
+            )
+            or ""
         )
-    )
 
-    story.append(
-        Paragraph(
-            _safe_text(message),
-            styles[
-                "DashboardSelectionMessage"
-            ],
+        if (
+            not str(label).strip()
+            and not str(value).strip()
+        ):
+            continue
+
+        rows.append(
+            {
+                "Indicator": label,
+                "Value": value,
+                "Change": delta,
+            }
         )
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.DataFrame(
+        rows
     )
 
 
@@ -1359,25 +1857,35 @@ def _add_footer(
     canvas,
     doc,
 ):
+
     from reportlab.lib import colors
     from reportlab.lib.units import mm
 
-    page_number = canvas.getPageNumber()
+    page_number = (
+        canvas.getPageNumber()
+    )
 
     canvas.saveState()
 
-    page_width = doc.pagesize[0]
-
-    canvas.setStrokeColor(
-        colors.HexColor("#D0D7DE")
+    page_width = (
+        doc.pagesize[0]
     )
 
-    canvas.setLineWidth(0.4)
+    canvas.setStrokeColor(
+        colors.HexColor(
+            "#D0D7DE"
+        )
+    )
+
+    canvas.setLineWidth(
+        0.4
+    )
 
     canvas.line(
         12 * mm,
         8 * mm,
-        page_width - (12 * mm),
+        page_width
+        - (12 * mm),
         8 * mm,
     )
 
@@ -1387,17 +1895,23 @@ def _add_footer(
     )
 
     canvas.setFillColor(
-        colors.HexColor("#666666")
+        colors.HexColor(
+            "#666666"
+        )
     )
 
     canvas.drawString(
         12 * mm,
         4.5 * mm,
-        "MSU Mumbai Public Health Surveillance Dashboard",
+        (
+            "MSU Mumbai Public Health "
+            "Surveillance Dashboard"
+        ),
     )
 
     canvas.drawRightString(
-        page_width - (12 * mm),
+        page_width
+        - (12 * mm),
         4.5 * mm,
         f"Page {page_number}",
     )
@@ -1414,6 +1928,7 @@ def _make_dashboard_document(
     pagesize,
     margin,
 ):
+
     from reportlab.platypus import (
         BaseDocTemplate,
         Frame,
@@ -1423,11 +1938,13 @@ def _make_dashboard_document(
     class DashboardDocTemplate(
         BaseDocTemplate
     ):
+
         def __init__(
             self,
             filename,
             **kwargs,
         ):
+
             super().__init__(
                 filename,
                 **kwargs,
@@ -1436,8 +1953,10 @@ def _make_dashboard_document(
             frame = Frame(
                 margin,
                 margin,
-                pagesize[0] - 2 * margin,
-                pagesize[1] - 2 * margin,
+                pagesize[0]
+                - 2 * margin,
+                pagesize[1]
+                - 2 * margin,
                 id="normal",
             )
 
@@ -1446,7 +1965,9 @@ def _make_dashboard_document(
                     PageTemplate(
                         id="normal",
                         frames=frame,
-                        onPage=_add_footer,
+                        onPage=(
+                            _add_footer
+                        ),
                     )
                 ]
             )
@@ -1466,12 +1987,14 @@ def _make_dashboard_document(
             "MSU Mumbai Public Health "
             "Surveillance Dashboard"
         ),
-        subject="Complete Dashboard Report",
+        subject=(
+            "Complete Dashboard Report"
+        ),
     )
 
 
 # ============================================================
-# BUILD SIMPLE TABLE OF CONTENTS
+# TABLE OF CONTENTS
 # ============================================================
 
 def _add_table_of_contents(
@@ -1479,6 +2002,7 @@ def _add_table_of_contents(
     styles,
     pages,
 ):
+
     from reportlab.platypus import (
         Paragraph,
         Spacer,
@@ -1487,14 +2011,18 @@ def _add_table_of_contents(
     story.append(
         Paragraph(
             "Table of Contents",
-            styles["DashboardIndexTitle"],
+            styles[
+                "DashboardIndexTitle"
+            ],
         )
     )
 
     story.append(
         Paragraph(
             "Dashboard Sections",
-            styles["DashboardTableTitle"],
+            styles[
+                "DashboardTableTitle"
+            ],
         )
     )
 
@@ -1506,10 +2034,13 @@ def _add_table_of_contents(
     )
 
     if not pages:
+
         story.append(
             Paragraph(
                 "No dashboard sections were captured.",
-                styles["DashboardSmallText"],
+                styles[
+                    "DashboardSmallText"
+                ],
             )
         )
 
@@ -1519,28 +2050,47 @@ def _add_table_of_contents(
         pages,
         start=1,
     ):
-        if isinstance(page, dict):
+
+        if isinstance(
+            page,
+            dict,
+        ):
+
             page_title = (
-                page.get("title")
-                or page.get("page_name")
-                or page.get("name")
-                or f"Dashboard Section {index}"
+                page.get(
+                    "title"
+                )
+                or page.get(
+                    "page_name"
+                )
+                or page.get(
+                    "name"
+                )
+                or (
+                    "Dashboard Section "
+                    f"{index}"
+                )
             )
 
         else:
-            page_title = str(page)
+
+            page_title = str(
+                page
+            )
 
         story.append(
             Paragraph(
                 f"<b>{index}.</b> "
                 f"{_safe_text(page_title)}",
-                styles["DashboardTOCEntry"],
+                styles[
+                    "DashboardTOCEntry"
+                ],
             )
         )
 
 
 # ============================================================
-# NORMALISE PAGE COLLECTION
+# NORMALISE COLLECTION
 # ============================================================
 
 def _get_page_collection(
@@ -1548,6 +2098,7 @@ def _get_page_collection(
     primary_key,
     alternate_key=None,
 ):
+
     if not isinstance(
         page,
         dict,
@@ -1558,7 +2109,11 @@ def _get_page_collection(
         primary_key
     )
 
-    if value is None and alternate_key:
+    if (
+        value is None
+        and alternate_key
+    ):
+
         value = page.get(
             alternate_key
         )
@@ -1570,13 +2125,57 @@ def _get_page_collection(
         value,
         (list, tuple),
     ):
-        return list(value)
+        return list(
+            value
+        )
 
-    return [value]
+    return [
+        value
+    ]
 
 
 # ============================================================
-# GENERATE CAPTURED DASHBOARD PDF
+# NOTE TEXT
+# ============================================================
+
+def _extract_note_text(
+    note,
+):
+
+    if note is None:
+        return ""
+
+    if isinstance(
+        note,
+        dict,
+    ):
+
+        value = (
+            note.get(
+                "text"
+            )
+            or note.get(
+                "message"
+            )
+            or note.get(
+                "note"
+            )
+            or ""
+        )
+
+    else:
+
+        value = str(
+            note
+        )
+
+    return str(
+        value
+    ).strip()
+
+
+# ============================================================
+# GENERATE COMPLETE DASHBOARD PDF
 # ============================================================
 
 def generate_captured_dashboard_pdf(
@@ -1584,8 +2183,14 @@ def generate_captured_dashboard_pdf(
     report_period=None,
     filter_summary=None,
 ):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
+
+    from reportlab.lib.pagesizes import (
+        A4,
+    )
+
+    from reportlab.lib.units import (
+        mm,
+    )
 
     from reportlab.platypus import (
         PageBreak,
@@ -1596,40 +2201,54 @@ def generate_captured_dashboard_pdf(
     if pages is None:
         pages = []
 
-    pages = list(pages)
+    pages = list(
+        pages
+    )
 
-    buffer = io.BytesIO()
+    buffer = (
+        io.BytesIO()
+    )
 
-    page_width, _ = A4
+    page_width, _ = (
+        A4
+    )
 
     margin = (
         PDF_MARGIN_MM
         * mm
     )
 
-    doc = _make_dashboard_document(
-        buffer=buffer,
-        pagesize=A4,
-        margin=margin,
+    doc = (
+        _make_dashboard_document(
+            buffer=buffer,
+            pagesize=A4,
+            margin=margin,
+        )
     )
 
-    styles = _get_pdf_styles()
+    styles = (
+        _get_pdf_styles()
+    )
 
     story = []
 
     # ========================================================
-    # COVER PAGE
+    # COVER
     # ========================================================
 
     _add_cover_page(
         story=story,
         styles=styles,
-        report_period=report_period,
-        filter_summary=filter_summary,
+        report_period=(
+            report_period
+        ),
+        filter_summary=(
+            filter_summary
+        ),
     )
 
     # ========================================================
-    # TABLE OF CONTENTS
+    # TOC
     # ========================================================
 
     story.append(
@@ -1655,14 +2274,22 @@ def generate_captured_dashboard_pdf(
         pages,
         start=1,
     ):
+
         if isinstance(
             page,
             dict,
         ):
+
             page_title = (
-                page.get("title")
-                or page.get("page_name")
-                or page.get("name")
+                page.get(
+                    "title"
+                )
+                or page.get(
+                    "page_name"
+                )
+                or page.get(
+                    "name"
+                )
                 or (
                     "Dashboard Section "
                     f"{page_index}"
@@ -1685,6 +2312,13 @@ def generate_captured_dashboard_pdf(
                 )
             )
 
+            metrics = (
+                _get_page_collection(
+                    page,
+                    "metrics",
+                )
+            )
+
             notes = (
                 _get_page_collection(
                     page,
@@ -1699,6 +2333,19 @@ def generate_captured_dashboard_pdf(
                     "maps",
                 )
             )
+
+            # Separate map_images key is also supported.
+            map_images = (
+                _get_page_collection(
+                    page,
+                    "map_images",
+                )
+            )
+
+            if map_images:
+                images.extend(
+                    map_images
+                )
 
             selection_required = bool(
                 page.get(
@@ -1722,19 +2369,25 @@ def generate_captured_dashboard_pdf(
             )
 
         else:
-            page_title = str(page)
+
+            page_title = str(
+                page
+            )
 
             captured_charts = []
             additional_tables = []
+            metrics = []
             notes = []
             images = []
 
-            selection_required = False
+            selection_required = (
+                False
+            )
 
             selection_message = ""
 
         # ====================================================
-        # PAGE INTRODUCTION
+        # PAGE INTRO
         # ====================================================
 
         story.append(
@@ -1768,46 +2421,35 @@ def generate_captured_dashboard_pdf(
             )
         )
 
-        # ----------------------------------------------------
-        # FILTER INFORMATION
-        # ----------------------------------------------------
+        # ====================================================
+        # FIRST SECTION FILTER SUMMARY
+        # ====================================================
 
         if page_index == 1:
+
             _add_filter_summary(
                 story=story,
                 styles=styles,
-                report_period=report_period,
-                filter_summary=filter_summary,
+                report_period=(
+                    report_period
+                ),
+                filter_summary=(
+                    filter_summary
+                ),
             )
 
-        # ----------------------------------------------------
-        # NOTES ON INTRO PAGE
-        # ----------------------------------------------------
+        # ====================================================
+        # NOTES
+        # ====================================================
 
         valid_notes = []
 
         for note in notes:
-            if note is None:
-                continue
-
-            if isinstance(
-                note,
-                dict,
-            ):
-                note_text = (
-                    note.get("text")
-                    or note.get("message")
-                    or note.get("note")
-                    or ""
-                )
-
-            else:
-                note_text = str(
-                    note
-                )
 
             note_text = (
-                note_text.strip()
+                _extract_note_text(
+                    note
+                )
             )
 
             if note_text:
@@ -1816,6 +2458,7 @@ def generate_captured_dashboard_pdf(
                 )
 
         if valid_notes:
+
             story.append(
                 Paragraph(
                     "Section Notes",
@@ -1825,7 +2468,10 @@ def generate_captured_dashboard_pdf(
                 )
             )
 
-            for note_text in valid_notes:
+            for note_text in (
+                valid_notes
+            ):
+
                 story.append(
                     Paragraph(
                         _safe_text(
@@ -1844,9 +2490,41 @@ def generate_captured_dashboard_pdf(
                     )
                 )
 
-        # ----------------------------------------------------
-        # CHECK CONTENT
-        # ----------------------------------------------------
+        # ====================================================
+        # METRICS
+        # ====================================================
+
+        metric_df = (
+            _metrics_to_dataframe(
+                metrics
+            )
+        )
+
+        if not metric_df.empty:
+
+            _add_table_to_story(
+                story=story,
+                table_item={
+                    "title": (
+                        "Key Performance Indicators"
+                    ),
+                    "section_name": (
+                        page_title
+                    ),
+                    "data": metric_df,
+                },
+                styles=styles,
+                table_width=(
+                    table_width
+                ),
+                parent_section=(
+                    page_title
+                ),
+            )
+
+        # ====================================================
+        # CONTENT CHECK
+        # ====================================================
 
         has_tables = bool(
             additional_tables
@@ -1860,20 +2538,26 @@ def generate_captured_dashboard_pdf(
             images
         )
 
+        has_metrics = (
+            not metric_df.empty
+        )
+
         has_content = (
             has_tables
             or has_charts
             or has_images
+            or has_metrics
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # SELECTION REQUIRED
-        # ----------------------------------------------------
+        # ====================================================
 
         if (
             selection_required
             and not has_content
         ):
+
             story.append(
                 Spacer(
                     1,
@@ -1903,11 +2587,12 @@ def generate_captured_dashboard_pdf(
 
             continue
 
-        # ----------------------------------------------------
-        # EMPTY SECTION
-        # ----------------------------------------------------
+        # ====================================================
+        # EMPTY
+        # ====================================================
 
         if not has_content:
+
             story.append(
                 Spacer(
                     1,
@@ -1917,8 +2602,11 @@ def generate_captured_dashboard_pdf(
 
             story.append(
                 Paragraph(
-                    "No reportable chart, table, or map "
-                    "was captured for this section.",
+                    (
+                        "No reportable chart, table, "
+                        "metric, or map was captured "
+                        "for this section."
+                    ),
                     styles[
                         "DashboardNote"
                     ],
@@ -1929,28 +2617,34 @@ def generate_captured_dashboard_pdf(
 
         # ====================================================
         # MANAGEMENT TABLES
-        # EACH TABLE STARTS ON NEW PDF PAGE
         # ====================================================
 
         for table_item in (
             additional_tables
         ):
+
             _add_table_to_story(
                 story=story,
-                table_item=table_item,
+                table_item=(
+                    table_item
+                ),
                 styles=styles,
-                table_width=table_width,
-                parent_section=page_title,
+                table_width=(
+                    table_width
+                ),
+                parent_section=(
+                    page_title
+                ),
             )
 
         # ====================================================
         # CHARTS
-        # EACH CHART STARTS ON NEW PDF PAGE
         # ====================================================
 
         for chart_item in (
             captured_charts
         ):
+
             if not isinstance(
                 chart_item,
                 dict,
@@ -1961,29 +2655,42 @@ def generate_captured_dashboard_pdf(
                 story=story,
                 item=chart_item,
                 styles=styles,
-                table_width=table_width,
-                parent_section=page_title,
+                table_width=(
+                    table_width
+                ),
+                parent_section=(
+                    page_title
+                ),
             )
 
         # ====================================================
-        # IMAGES / MAPS
-        # EACH IMAGE STARTS ON NEW PDF PAGE
+        # MAPS / IMAGES
         # ====================================================
 
-        for image_item in images:
+        for image_item in (
+            images
+        ):
+
             _add_image_to_story(
                 story=story,
-                image_item=image_item,
+                image_item=(
+                    image_item
+                ),
                 styles=styles,
-                table_width=table_width,
-                parent_section=page_title,
+                table_width=(
+                    table_width
+                ),
+                parent_section=(
+                    page_title
+                ),
             )
 
     # ========================================================
-    # NO PAGES FALLBACK
+    # NO PAGES
     # ========================================================
 
     if not pages:
+
         story.append(
             PageBreak()
         )
@@ -1999,8 +2706,11 @@ def generate_captured_dashboard_pdf(
 
         story.append(
             Paragraph(
-                "Please generate the Complete Dashboard PDF "
-                "again after the dashboard pages have loaded.",
+                (
+                    "Please generate the Complete "
+                    "Dashboard PDF again after the "
+                    "dashboard pages have loaded."
+                ),
                 styles[
                     "DashboardSmallText"
                 ],
@@ -2008,16 +2718,20 @@ def generate_captured_dashboard_pdf(
         )
 
     # ========================================================
-    # BUILD PDF
+    # BUILD
     # ========================================================
 
     doc.build(
         story
     )
 
-    buffer.seek(0)
+    buffer.seek(
+        0
+    )
 
-    return buffer.getvalue()
+    return (
+        buffer.getvalue()
+    )
 
 
 # ============================================================
@@ -2029,9 +2743,15 @@ def generate_dashboard_pdf(
     report_period=None,
     filter_summary=None,
 ):
-    return generate_captured_dashboard_pdf(
-        pages=pages,
-        report_period=report_period,
-        filter_summary=filter_summary,
-    )
 
+    return (
+        generate_captured_dashboard_pdf(
+            pages=pages,
+            report_period=(
+                report_period
+            ),
+            filter_summary=(
+                filter_summary
+            ),
+        )
+    )
