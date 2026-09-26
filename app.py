@@ -28,11 +28,17 @@ from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
+# ============================================================
+# PAGE-WISE DYNAMIC PDF REPORT
+# ============================================================
+
 from pdf_report import (
-    generate_page_report_pdf,
-    generate_page_visuals_pdf,
-    generate_page_tables_pdf,
+    render_page_pdf_download,
 )
+
+# ============================================================
+# COMPLETE DASHBOARD PDF
+# ============================================================
 
 from dashboard_pdf_export import (
     generate_captured_dashboard_pdf,
@@ -1821,35 +1827,8 @@ def build_management_tables(
 
 
 # ============================================================
-# PAGE DOWNLOADS
+# COMMON DYNAMIC PAGE PDF DOWNLOAD
 # ============================================================
-
-def _safe_page_filename(
-    page_name,
-):
-
-    safe_name = (
-        str(page_name)
-        .replace(
-            "&",
-            "and",
-        )
-        .replace(
-            "/",
-            "_",
-        )
-        .replace(
-            "-",
-            "_",
-        )
-        .replace(
-            " ",
-            "_",
-        )
-    )
-
-    return safe_name
-
 
 def render_page_download_buttons(
     page_name,
@@ -1877,187 +1856,17 @@ def render_page_download_buttons(
         get_filter_summary()
     )
 
-    safe_name = (
-        _safe_page_filename(
-            page_name
-        )
+    # --------------------------------------------------------
+    # ONE STANDARD DYNAMIC PDF SYSTEM FOR EVERY DASHBOARD PAGE
+    # --------------------------------------------------------
+
+    render_page_pdf_download(
+        page_name=page_name,
+        captured_content=captured_content,
+        df=data,
+        report_period=report_period,
+        filter_summary=filter_summary,
     )
-
-    st.divider()
-
-    st.subheader(
-        "📥 Page Downloads"
-    )
-
-    st.caption(
-        "Download the content displayed on this dashboard page."
-    )
-
-    c1, c2, c3 = (
-        st.columns(3)
-    )
-
-    # ========================================================
-    # FULL PAGE REPORT
-    # ========================================================
-
-    try:
-
-        full_pdf = (
-            generate_page_report_pdf(
-                page_name=page_name,
-                captured_content=(
-                    captured_content
-                ),
-                df=data,
-                report_period=(
-                    report_period
-                ),
-                filter_summary=(
-                    filter_summary
-                ),
-            )
-        )
-
-        with c1:
-
-            st.download_button(
-                label=(
-                    "📄 Download This Page Report"
-                ),
-                data=full_pdf,
-                file_name=(
-                    f"{safe_name}_Page_Report.pdf"
-                ),
-                mime="application/pdf",
-                use_container_width=True,
-                key=(
-                    f"page_report_{safe_name}"
-                ),
-            )
-
-    except Exception as exc:
-
-        with c1:
-
-            st.error(
-                "Page report could not be generated."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-                st.code(
-                    str(exc)
-                )
-
-    # ========================================================
-    # VISUALS ONLY
-    # ========================================================
-
-    try:
-
-        visuals_pdf = (
-            generate_page_visuals_pdf(
-                page_name=page_name,
-                captured_content=(
-                    captured_content
-                ),
-                df=data,
-                report_period=(
-                    report_period
-                ),
-                filter_summary=(
-                    filter_summary
-                ),
-            )
-        )
-
-        with c2:
-
-            st.download_button(
-                label=(
-                    "🖼️ Download This Page Visuals"
-                ),
-                data=visuals_pdf,
-                file_name=(
-                    f"{safe_name}_Visuals.pdf"
-                ),
-                mime="application/pdf",
-                use_container_width=True,
-                key=(
-                    f"page_visuals_{safe_name}"
-                ),
-            )
-
-    except Exception as exc:
-
-        with c2:
-
-            st.error(
-                "Page visuals could not be generated."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-                st.code(
-                    str(exc)
-                )
-
-    # ========================================================
-    # TABLES / DATA ONLY
-    # ========================================================
-
-    try:
-
-        tables_pdf = (
-            generate_page_tables_pdf(
-                page_name=page_name,
-                captured_content=(
-                    captured_content
-                ),
-                df=data,
-                report_period=(
-                    report_period
-                ),
-                filter_summary=(
-                    filter_summary
-                ),
-            )
-        )
-
-        with c3:
-
-            st.download_button(
-                label=(
-                    "📋 Download This Page Tables / Data"
-                ),
-                data=tables_pdf,
-                file_name=(
-                    f"{safe_name}_Tables_Data.pdf"
-                ),
-                mime="application/pdf",
-                use_container_width=True,
-                key=(
-                    f"page_tables_{safe_name}"
-                ),
-            )
-
-    except Exception as exc:
-
-        with c3:
-
-            st.error(
-                "Page tables/data could not be generated."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-                st.code(
-                    str(exc)
-                )
 
 
 # ============================================================
