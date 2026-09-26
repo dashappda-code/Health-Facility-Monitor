@@ -1,7 +1,6 @@
 import copy
 import hashlib
 import json
-import io
 
 import streamlit as st
 import pandas as pd
@@ -29,7 +28,11 @@ from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
 
-from pdf_report import generate_pdf_report
+from pdf_report import (
+    generate_page_report_pdf,
+    generate_page_visuals_pdf,
+    generate_page_tables_pdf,
+)
 
 from dashboard_pdf_export import (
     generate_captured_dashboard_pdf,
@@ -39,6 +42,7 @@ from ppt_report import generate_ppt_report
 
 from displayed_chart_export import (
     capture_displayed_charts,
+    get_captured_dashboard_content,
     render_displayed_chart_download_controls,
 )
 
@@ -48,7 +52,10 @@ from displayed_chart_export import (
 # ============================================================
 
 st.set_page_config(
-    page_title="MSU Mumbai Public Health Surveillance Dashboard",
+    page_title=(
+        "MSU Mumbai Public Health "
+        "Surveillance Dashboard"
+    ),
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -201,7 +208,10 @@ CAPTURE_REPORT_PERIOD_KEY = (
 
 def get_captured_page_registry():
 
-    if CAPTURED_PAGE_REGISTRY_KEY not in st.session_state:
+    if (
+        CAPTURED_PAGE_REGISTRY_KEY
+        not in st.session_state
+    ):
 
         st.session_state[
             CAPTURED_PAGE_REGISTRY_KEY
@@ -213,7 +223,7 @@ def get_captured_page_registry():
 
 
 # ============================================================
-# CAPTURE SIGNATURE
+# GENERIC SIGNATURE HELPERS
 # ============================================================
 
 def _capture_value_signature(value):
@@ -221,21 +231,29 @@ def _capture_value_signature(value):
     if value is None:
         return ""
 
-    if isinstance(value, pd.DataFrame):
+    if isinstance(
+        value,
+        pd.DataFrame,
+    ):
 
         try:
 
-            work = value.copy()
-
-            work = work.fillna("")
+            work = (
+                value.copy()
+                .fillna("")
+            )
 
             payload = {
                 "columns": [
                     str(column)
-                    for column in work.columns
+                    for column
+                    in work.columns
                 ],
-                "data": work.astype(str).to_dict(
-                    orient="records"
+                "data": (
+                    work.astype(str)
+                    .to_dict(
+                        orient="records"
+                    )
                 ),
             }
 
@@ -247,9 +265,14 @@ def _capture_value_signature(value):
 
         except Exception:
 
-            return repr(value)
+            return repr(
+                value
+            )
 
-    if isinstance(value, dict):
+    if isinstance(
+        value,
+        dict,
+    ):
 
         try:
 
@@ -261,9 +284,14 @@ def _capture_value_signature(value):
 
         except Exception:
 
-            return repr(value)
+            return repr(
+                value
+            )
 
-    if isinstance(value, (list, tuple)):
+    if isinstance(
+        value,
+        (list, tuple),
+    ):
 
         try:
 
@@ -275,43 +303,106 @@ def _capture_value_signature(value):
 
         except Exception:
 
-            return repr(value)
+            return repr(
+                value
+            )
 
-    return str(value)
+    if isinstance(
+        value,
+        (bytes, bytearray),
+    ):
+
+        try:
+
+            return (
+                hashlib.sha256(
+                    bytes(value)
+                )
+                .hexdigest()
+            )
+
+        except Exception:
+
+            return repr(
+                value
+            )
+
+    return str(
+        value
+    )
 
 
-def _get_capture_signature(
+def _get_item_signature(
     page_name,
     item,
+    item_type,
 ):
 
-    if not isinstance(item, dict):
+    if not isinstance(
+        item,
+        dict,
+    ):
         return None
 
+    existing_fingerprint = (
+        item.get(
+            "fingerprint"
+        )
+    )
+
+    if existing_fingerprint:
+
+        raw_signature = (
+            f"{page_name}|"
+            f"{item_type}|"
+            f"{existing_fingerprint}"
+        )
+
+        return (
+            hashlib.sha256(
+                raw_signature.encode(
+                    "utf-8",
+                    errors="ignore",
+                )
+            )
+            .hexdigest()
+        )
+
     title = str(
-        item.get("title", "")
+        item.get(
+            "title",
+            "",
+        )
     ).strip()
 
     section = str(
-        item.get("section_name", "")
+        item.get(
+            "section_name",
+            "",
+        )
     ).strip()
 
-    chart = item.get("chart")
-
     chart_signature = ""
+
+    chart = item.get(
+        "chart"
+    )
 
     if chart is not None:
 
         try:
 
-            if hasattr(chart, "to_dict"):
+            if hasattr(
+                chart,
+                "to_dict",
+            ):
 
-                chart_dict = chart.to_dict()
-
-                chart_signature = json.dumps(
-                    chart_dict,
-                    sort_keys=True,
-                    default=str,
+                chart_signature = (
+                    json.dumps(
+                        chart.to_dict(),
+                        sort_keys=True,
+                        default=str,
+                    )
                 )
 
         except Exception:
@@ -320,49 +411,98 @@ def _get_capture_signature(
 
     data_signature = (
         _capture_value_signature(
-            item.get("data")
+            item.get(
+                "data"
+            )
+        )
+    )
+
+    value_signature = (
+        _capture_value_signature(
+            item.get(
+                "value"
+            )
+        )
+    )
+
+    delta_signature = (
+        _capture_value_signature(
+            item.get(
+                "delta"
+            )
+        )
+    )
+
+    text_signature = (
+        _capture_value_signature(
+            item.get(
+                "text"
+            )
+        )
+    )
+
+    caption_signature = (
+        _capture_value_signature(
+            item.get(
+                "caption"
+            )
         )
     )
 
     raw_signature = (
         f"{page_name}|"
+        f"{item_type}|"
         f"{section}|"
         f"{title}|"
         f"{chart_signature}|"
-        f"{data_signature}"
+        f"{data_signature}|"
+        f"{value_signature}|"
+        f"{delta_signature}|"
+        f"{text_signature}|"
+        f"{caption_signature}"
     )
 
-    return hashlib.sha256(
-        raw_signature.encode(
-            "utf-8",
-            errors="ignore",
+    return (
+        hashlib.sha256(
+            raw_signature.encode(
+                "utf-8",
+                errors="ignore",
+            )
         )
-    ).hexdigest()
+        .hexdigest()
+    )
 
 
 # ============================================================
-# DEDUPLICATE CAPTURED CHARTS
+# DEDUPLICATE CAPTURED ITEMS
 # ============================================================
 
-def _deduplicate_captured_charts(
+def _deduplicate_captured_items(
     page_name,
-    captured_charts,
+    items,
+    item_type,
 ):
 
-    if not captured_charts:
+    if not items:
         return []
 
     unique = []
     seen = set()
 
-    for item in captured_charts:
+    for item in items:
 
-        if not isinstance(item, dict):
+        if not isinstance(
+            item,
+            dict,
+        ):
             continue
 
-        signature = _get_capture_signature(
-            page_name,
-            item,
+        signature = (
+            _get_item_signature(
+                page_name,
+                item,
+                item_type,
+            )
         )
 
         if signature is None:
@@ -371,22 +511,54 @@ def _deduplicate_captured_charts(
         if signature in seen:
             continue
 
-        seen.add(signature)
+        seen.add(
+            signature
+        )
 
-        clean_item = dict(item)
+        clean_item = dict(
+            item
+        )
 
         if not clean_item.get(
             "section_name"
         ):
+
             clean_item[
                 "section_name"
             ] = page_name
 
-        if not clean_item.get("title"):
+        if (
+            item_type == "charts"
+            and not clean_item.get(
+                "title"
+            )
+        ):
 
             clean_item[
                 "title"
             ] = "Dashboard Chart"
+
+        elif (
+            item_type == "tables"
+            and not clean_item.get(
+                "title"
+            )
+        ):
+
+            clean_item[
+                "title"
+            ] = "Displayed Data"
+
+        elif (
+            item_type == "images"
+            and not clean_item.get(
+                "title"
+            )
+        ):
+
+            clean_item[
+                "title"
+            ] = "Dashboard Image"
 
         unique.append(
             clean_item
@@ -396,37 +568,136 @@ def _deduplicate_captured_charts(
 
 
 # ============================================================
+# NORMALISE CAPTURED CONTENT
+# ============================================================
+
+def _normalise_captured_content(
+    page_name,
+    captured_content,
+):
+
+    if not isinstance(
+        captured_content,
+        dict,
+    ):
+
+        captured_content = {}
+
+    return {
+        "charts": (
+            _deduplicate_captured_items(
+                page_name,
+                captured_content.get(
+                    "charts",
+                    [],
+                ),
+                "charts",
+            )
+        ),
+        "tables": (
+            _deduplicate_captured_items(
+                page_name,
+                captured_content.get(
+                    "tables",
+                    [],
+                ),
+                "tables",
+            )
+        ),
+        "metrics": (
+            _deduplicate_captured_items(
+                page_name,
+                captured_content.get(
+                    "metrics",
+                    [],
+                ),
+                "metrics",
+            )
+        ),
+        "notes": (
+            _deduplicate_captured_items(
+                page_name,
+                captured_content.get(
+                    "notes",
+                    [],
+                ),
+                "notes",
+            )
+        ),
+        "images": (
+            _deduplicate_captured_items(
+                page_name,
+                captured_content.get(
+                    "images",
+                    [],
+                ),
+                "images",
+            )
+        ),
+    }
+
+
+# ============================================================
 # STORE PAGE CAPTURE
 # ============================================================
 
 def store_current_page_capture(
     page_name,
-    captured_charts,
+    captured_content,
 ):
 
     registry = (
         get_captured_page_registry()
     )
 
-    unique_charts = (
-        _deduplicate_captured_charts(
+    content = (
+        _normalise_captured_content(
             page_name,
-            list(captured_charts or []),
+            captured_content,
         )
     )
 
-    # IMPORTANT:
-    # Replace the page record instead of appending.
-    # This prevents rerun duplication.
-    registry[page_name] = {
-        "charts": unique_charts,
+    registry[
+        page_name
+    ] = {
+        "charts": content[
+            "charts"
+        ],
+        "tables": content[
+            "tables"
+        ],
+        "metrics": content[
+            "metrics"
+        ],
+        "notes": content[
+            "notes"
+        ],
+        "images": content[
+            "images"
+        ],
         "chart_count": len(
-            unique_charts
+            content["charts"]
+        ),
+        "table_count": len(
+            content["tables"]
+        ),
+        "metric_count": len(
+            content["metrics"]
+        ),
+        "note_count": len(
+            content["notes"]
+        ),
+        "image_count": len(
+            content["images"]
         ),
     }
 
 
-def get_page_captured_charts(
+# ============================================================
+# GET PAGE CAPTURE
+# ============================================================
+
+def get_page_capture(
     page_name,
 ):
 
@@ -434,17 +705,43 @@ def get_page_captured_charts(
         get_captured_page_registry()
     )
 
-    page_record = registry.get(
+    record = registry.get(
         page_name,
         {},
     )
 
-    return list(
-        page_record.get(
-            "charts",
-            [],
-        )
-    )
+    return {
+        "charts": list(
+            record.get(
+                "charts",
+                [],
+            )
+        ),
+        "tables": list(
+            record.get(
+                "tables",
+                [],
+            )
+        ),
+        "metrics": list(
+            record.get(
+                "metrics",
+                [],
+            )
+        ),
+        "notes": list(
+            record.get(
+                "notes",
+                [],
+            )
+        ),
+        "images": list(
+            record.get(
+                "images",
+                [],
+            )
+        ),
+    }
 
 
 # ============================================================
@@ -489,9 +786,6 @@ def start_complete_pdf_capture(
         CAPTURE_CURRENT_PAGE_KEY
     ] = PAGE_OPTIONS[0]
 
-    # Snapshot the current filters.
-    # During automatic capture these widgets do not
-    # need to be rebuilt on every rerun.
     st.session_state[
         CAPTURE_FILTER_VALUES_KEY
     ] = copy.deepcopy(
@@ -574,7 +868,10 @@ df = get_data()
 # DATA VALIDATION
 # ============================================================
 
-if df is None or df.empty:
+if (
+    df is None
+    or df.empty
+):
 
     st.error(
         "No data available from the Google Sheet."
@@ -582,8 +879,8 @@ if df is None or df.empty:
 
     st.info(
         "Please verify that the Google Sheet is shared as "
-        "'Anyone with the link - Viewer' and that the configured "
-        "worksheet GID is correct."
+        "'Anyone with the link - Viewer' and that the "
+        "configured worksheet GID is correct."
     )
 
     st.stop()
@@ -591,8 +888,6 @@ if df is None or df.empty:
 
 # ============================================================
 # CAPTURE PAGE CONTROL
-#
-# This MUST happen before the radio widget.
 # ============================================================
 
 capture_active = (
@@ -601,9 +896,11 @@ capture_active = (
 
 if capture_active:
 
-    capture_queue = st.session_state.get(
-        CAPTURE_QUEUE_KEY,
-        [],
+    capture_queue = (
+        st.session_state.get(
+            CAPTURE_QUEUE_KEY,
+            [],
+        )
     )
 
     if capture_queue:
@@ -649,7 +946,8 @@ else:
         """
         <div class="capture-banner">
             📄 Preparing Complete Dashboard Report —
-            capturing dashboard sections and displayed charts.
+            capturing dashboard sections, charts, tables,
+            metrics, notes and map images.
         </div>
         """,
         unsafe_allow_html=True,
@@ -671,10 +969,6 @@ page = st.sidebar.radio(
 )
 
 
-# ============================================================
-# SIDEBAR RECORD COUNT
-# ============================================================
-
 if not capture_active:
 
     st.sidebar.divider()
@@ -690,23 +984,29 @@ if not capture_active:
 
 if not capture_active:
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        "---"
+    )
 
     st.sidebar.subheader(
         "📊 Chart Display Controls"
     )
 
-    show_data_labels = st.sidebar.checkbox(
-        "🏷️ Show Data Labels",
-        value=st.session_state.get(
-            "show_data_labels",
-            False,
-        ),
-        key="show_data_labels",
-        help=(
-            "Turn ON to display values directly "
-            "on dashboard charts."
-        ),
+    show_data_labels = (
+        st.sidebar.checkbox(
+            "🏷️ Show Data Labels",
+            value=(
+                st.session_state.get(
+                    "show_data_labels",
+                    False,
+                )
+            ),
+            key="show_data_labels",
+            help=(
+                "Turn ON to display values directly "
+                "on dashboard charts."
+            ),
+        )
     )
 
     if show_data_labels:
@@ -723,9 +1023,11 @@ if not capture_active:
 
 else:
 
-    show_data_labels = st.session_state.get(
-        "show_data_labels",
-        False,
+    show_data_labels = (
+        st.session_state.get(
+            "show_data_labels",
+            False,
+        )
     )
 
 
@@ -740,8 +1042,8 @@ if not capture_active:
     )
 
     st.caption(
-        "Select any filter to update the entire dashboard immediately. "
-        "Leave filters blank to include all records."
+        "Select any filter to update the entire dashboard "
+        "immediately. Leave filters blank to include all records."
     )
 
     with st.container(
@@ -749,18 +1051,20 @@ if not capture_active:
         key="global_filter_panel",
     ):
 
-        filter_values = create_filters(
-            df
+        filter_values = (
+            create_filters(
+                df
+            )
         )
 
 else:
 
-    # Reuse exact filters from the moment the PDF
-    # generation was started.
-    filter_values = copy.deepcopy(
-        st.session_state.get(
-            CAPTURE_FILTER_VALUES_KEY,
-            {},
+    filter_values = (
+        copy.deepcopy(
+            st.session_state.get(
+                CAPTURE_FILTER_VALUES_KEY,
+                {},
+            )
         )
     )
 
@@ -769,9 +1073,11 @@ else:
 # APPLY GLOBAL FILTERS
 # ============================================================
 
-filtered_df = apply_filters(
-    df=df,
-    **filter_values,
+filtered_df = (
+    apply_filters(
+        df=df,
+        **filter_values,
+    )
 )
 
 
@@ -785,21 +1091,21 @@ if not capture_active:
 
 
 # ============================================================
-# KPI CALCULATION
+# KPI
 # ============================================================
 
-kpis = calculate_kpis(
-    filtered_df
+kpis = (
+    calculate_kpis(
+        filtered_df
+    )
 )
 
 
-# ============================================================
-# TOP KPI CARDS
-# ============================================================
-
 if not capture_active:
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = (
+        st.columns(4)
+    )
 
     with c1:
 
@@ -838,11 +1144,15 @@ if not capture_active:
 
 def get_filter_summary():
 
-    if is_complete_pdf_capture_active():
+    if (
+        is_complete_pdf_capture_active()
+    ):
 
-        return st.session_state.get(
-            CAPTURE_FILTER_SUMMARY_KEY,
-            "All records",
+        return (
+            st.session_state.get(
+                CAPTURE_FILTER_SUMMARY_KEY,
+                "All records",
+            )
         )
 
     labels = {
@@ -859,20 +1169,27 @@ def get_filter_summary():
 
     selected = []
 
-    for key, label in labels.items():
+    for key, label in (
+        labels.items()
+    ):
 
-        values = filter_values.get(
-            key,
-            [],
+        values = (
+            filter_values.get(
+                key,
+                [],
+            )
         )
 
         if values:
 
             if len(values) <= 5:
 
-                value_text = ", ".join(
-                    str(value)
-                    for value in values
+                value_text = (
+                    ", ".join(
+                        str(value)
+                        for value
+                        in values
+                    )
                 )
 
             else:
@@ -885,8 +1202,10 @@ def get_filter_summary():
                 f"{label}: {value_text}"
             )
 
-    reporting_date = filter_values.get(
-        "reporting_date"
+    reporting_date = (
+        filter_values.get(
+            "reporting_date"
+        )
     )
 
     if reporting_date:
@@ -897,7 +1216,10 @@ def get_filter_summary():
                 reporting_date
             )
 
-            if start_date and end_date:
+            if (
+                start_date
+                and end_date
+            ):
 
                 selected.append(
                     "Date: "
@@ -921,11 +1243,9 @@ def get_filter_summary():
                 )
 
         except Exception:
-
             pass
 
     if not selected:
-
         return "All records"
 
     return " | ".join(
@@ -938,32 +1258,45 @@ def get_filter_summary():
 # ============================================================
 
 def get_reporting_period(
-    data
+    data,
 ):
 
     if (
         data is None
         or data.empty
-        or "Reporting Date" not in data.columns
+        or "Reporting Date"
+        not in data.columns
     ):
 
         return None
 
-    dates = data[
-        "Reporting Date"
-    ].dropna()
+    dates = (
+        pd.to_datetime(
+            data[
+                "Reporting Date"
+            ],
+            errors="coerce",
+        )
+        .dropna()
+    )
 
     if dates.empty:
         return None
 
     try:
 
-        start_date = dates.min().strftime(
-            "%d-%m-%Y"
+        start_date = (
+            dates.min()
+            .strftime(
+                "%d-%m-%Y"
+            )
         )
 
-        end_date = dates.max().strftime(
-            "%d-%m-%Y"
+        end_date = (
+            dates.max()
+            .strftime(
+                "%d-%m-%Y"
+            )
         )
 
         return (
@@ -989,7 +1322,8 @@ def make_frequency_table(
     if (
         data is None
         or data.empty
-        or column not in data.columns
+        or column
+        not in data.columns
     ):
 
         return None
@@ -1023,7 +1357,7 @@ def make_frequency_table(
 
 
 # ============================================================
-# LAB / PATHOGEN TABLE
+# PATHOGEN TABLE
 # ============================================================
 
 def make_pathogen_table(
@@ -1031,42 +1365,12 @@ def make_pathogen_table(
     limit=30,
 ):
 
-    column = (
-        "Test Performed Pathogen Name"
-    )
-
-    if (
-        data is None
-        or data.empty
-        or column not in data.columns
-    ):
-
-        return None
-
-    values = (
-        data[column]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
-
-    values = values[
-        values.ne("")
-        & values.ne("nan")
-    ]
-
-    if values.empty:
-        return None
-
     return (
-        values
-        .value_counts()
-        .head(limit)
-        .rename_axis(
-            "Test Performed Pathogen Name"
-        )
-        .reset_index(
-            name="Records"
+        make_frequency_table(
+            data,
+            "Test Performed Pathogen Name",
+            "Test Performed Pathogen Name",
+            limit=limit,
         )
     )
 
@@ -1079,12 +1383,13 @@ def make_monthly_table(
     data,
 ):
 
-    if data is None or data.empty:
-        return None
-
     if (
-        "Year" not in data.columns
-        or "Month" not in data.columns
+        data is None
+        or data.empty
+        or "Year"
+        not in data.columns
+        or "Month"
+        not in data.columns
     ):
 
         return None
@@ -1092,7 +1397,10 @@ def make_monthly_table(
     monthly = (
         data
         .groupby(
-            ["Year", "Month"],
+            [
+                "Year",
+                "Month",
+            ],
             dropna=False,
         )
         .size()
@@ -1104,12 +1412,16 @@ def make_monthly_table(
     if monthly.empty:
         return None
 
-    monthly["Period"] = (
-        monthly["Year"]
-        .astype(str)
+    monthly[
+        "Period"
+    ] = (
+        monthly[
+            "Year"
+        ].astype(str)
         + " - "
-        + monthly["Month"]
-        .astype(str)
+        + monthly[
+            "Month"
+        ].astype(str)
     )
 
     return monthly[
@@ -1121,7 +1433,7 @@ def make_monthly_table(
 
 
 # ============================================================
-# MAP SUMMARY TABLE
+# MAP SUMMARY TABLES
 # ============================================================
 
 def make_map_summary_tables(
@@ -1130,24 +1442,35 @@ def make_map_summary_tables(
 
     tables = []
 
-    if data is None or data.empty:
+    if (
+        data is None
+        or data.empty
+    ):
         return tables
 
     ward_column = None
 
     if "Ward Name" in data.columns:
-        ward_column = "Ward Name"
+
+        ward_column = (
+            "Ward Name"
+        )
 
     elif "Ward" in data.columns:
-        ward_column = "Ward"
+
+        ward_column = (
+            "Ward"
+        )
 
     if ward_column:
 
-        ward_table = make_frequency_table(
-            data,
-            ward_column,
-            "Ward",
-            limit=50,
+        ward_table = (
+            make_frequency_table(
+                data,
+                ward_column,
+                "Ward",
+                limit=50,
+            )
         )
 
         if ward_table is not None:
@@ -1160,19 +1483,20 @@ def make_map_summary_tables(
             )
 
     if (
-        "Address Latitude" in data.columns
-        and "Address Longitude" in data.columns
+        "Address Latitude"
+        in data.columns
+        and "Address Longitude"
+        in data.columns
     ):
 
-        coordinate_data = data[
-            [
-                "Address Latitude",
-                "Address Longitude",
-            ]
-        ].copy()
-
         coordinate_data = (
-            coordinate_data
+            data[
+                [
+                    "Address Latitude",
+                    "Address Longitude",
+                ]
+            ]
+            .copy()
             .dropna()
             .drop_duplicates()
         )
@@ -1182,7 +1506,9 @@ def make_map_summary_tables(
             tables.append(
                 (
                     "Geographic Map – Available Coordinates",
-                    coordinate_data.head(100),
+                    coordinate_data.head(
+                        100
+                    ),
                 )
             )
 
@@ -1190,7 +1516,7 @@ def make_map_summary_tables(
 
 
 # ============================================================
-# PAGE-SPECIFIC MANAGEMENT TABLES
+# MANAGEMENT TABLES
 # ============================================================
 
 def build_management_tables(
@@ -1200,86 +1526,21 @@ def build_management_tables(
 
     tables = []
 
-    if data is None or data.empty:
+    if (
+        data is None
+        or data.empty
+    ):
         return tables
-
-    # --------------------------------------------------------
-    # OVERVIEW
-    # --------------------------------------------------------
 
     if page_name == "Overview":
 
-        kpi_table = pd.DataFrame(
-            [
-                {
-                    "Indicator": "Total Records",
-                    "Value": int(
-                        len(data)
-                    ),
-                },
-                {
-                    "Indicator": "Diseases",
-                    "Value": int(
-                        data["Disease"]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .replace("", pd.NA)
-                        .dropna()
-                        .nunique()
-                    )
-                    if "Disease" in data.columns
-                    else 0,
-                },
-                {
-                    "Indicator": "Facilities",
-                    "Value": int(
-                        data["Facility Name"]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .replace("", pd.NA)
-                        .dropna()
-                        .nunique()
-                    )
-                    if "Facility Name" in data.columns
-                    else 0,
-                },
-                {
-                    "Indicator": "Wards",
-                    "Value": int(
-                        (
-                            data[
-                                "Ward Name"
-                            ]
-                            if "Ward Name" in data.columns
-                            else data["Ward"]
-                            if "Ward" in data.columns
-                            else pd.Series(dtype="object")
-                        )
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .replace("", pd.NA)
-                        .dropna()
-                        .nunique()
-                    ),
-                },
-            ]
-        )
-
-        tables.append(
-            (
-                "Overview – Key Programme Indicators",
-                kpi_table,
+        disease_table = (
+            make_frequency_table(
+                data,
+                "Disease",
+                "Disease",
+                limit=20,
             )
-        )
-
-        disease_table = make_frequency_table(
-            data,
-            "Disease",
-            "Disease",
-            limit=20,
         )
 
         if disease_table is not None:
@@ -1291,11 +1552,13 @@ def build_management_tables(
                 )
             )
 
-        facility_table = make_frequency_table(
-            data,
-            "Facility Name",
-            "Facility",
-            limit=20,
+        facility_table = (
+            make_frequency_table(
+                data,
+                "Facility Name",
+                "Facility",
+                limit=20,
+            )
         )
 
         if facility_table is not None:
@@ -1309,19 +1572,23 @@ def build_management_tables(
 
         ward_column = (
             "Ward Name"
-            if "Ward Name" in data.columns
+            if "Ward Name"
+            in data.columns
             else "Ward"
-            if "Ward" in data.columns
+            if "Ward"
+            in data.columns
             else None
         )
 
         if ward_column:
 
-            ward_table = make_frequency_table(
-                data,
-                ward_column,
-                "Ward",
-                limit=30,
+            ward_table = (
+                make_frequency_table(
+                    data,
+                    ward_column,
+                    "Ward",
+                    limit=30,
+                )
             )
 
             if ward_table is not None:
@@ -1333,11 +1600,13 @@ def build_management_tables(
                     )
                 )
 
-        gender_table = make_frequency_table(
-            data,
-            "Gender",
-            "Gender",
-            limit=10,
+        gender_table = (
+            make_frequency_table(
+                data,
+                "Gender",
+                "Gender",
+                limit=10,
+            )
         )
 
         if gender_table is not None:
@@ -1349,11 +1618,13 @@ def build_management_tables(
                 )
             )
 
-        age_table = make_frequency_table(
-            data,
-            "Age Group",
-            "Age Group",
-            limit=20,
+        age_table = (
+            make_frequency_table(
+                data,
+                "Age Group",
+                "Age Group",
+                limit=20,
+            )
         )
 
         if age_table is not None:
@@ -1365,11 +1636,13 @@ def build_management_tables(
                 )
             )
 
-        opd_table = make_frequency_table(
-            data,
-            "OPD/IPD",
-            "OPD/IPD",
-            limit=10,
+        opd_table = (
+            make_frequency_table(
+                data,
+                "OPD/IPD",
+                "OPD/IPD",
+                limit=10,
+            )
         )
 
         if opd_table is not None:
@@ -1381,8 +1654,10 @@ def build_management_tables(
                 )
             )
 
-        monthly_table = make_monthly_table(
-            data
+        monthly_table = (
+            make_monthly_table(
+                data
+            )
         )
 
         if monthly_table is not None:
@@ -1394,146 +1669,100 @@ def build_management_tables(
                 )
             )
 
-    # --------------------------------------------------------
-    # LAB
-    # --------------------------------------------------------
-
-    elif page_name == (
-        "Laboratory & Pathogen Analysis"
+    elif (
+        page_name
+        == "Laboratory & Pathogen Analysis"
     ):
 
         pathogen_table = (
-            make_pathogen_table(data)
+            make_pathogen_table(
+                data
+            )
         )
 
         if pathogen_table is not None:
 
             tables.append(
                 (
-                    "Laboratory – Test Performed Pathogen Name-wise Analysis",
+                    "Laboratory – Test Performed Pathogen "
+                    "Name-wise Analysis",
                     pathogen_table,
                 )
             )
 
-    # --------------------------------------------------------
-    # DEMOGRAPHICS
-    # --------------------------------------------------------
-
     elif page_name == "Demographics":
 
-        gender_table = make_frequency_table(
-            data,
-            "Gender",
-            "Gender",
-            limit=10,
-        )
+        for column, title in (
+            (
+                "Gender",
+                "Demographics – Gender-wise Distribution",
+            ),
+            (
+                "Age Group",
+                "Demographics – Age Group-wise Distribution",
+            ),
+        ):
 
-        if gender_table is not None:
-
-            tables.append(
-                (
-                    "Demographics – Gender-wise Distribution",
-                    gender_table,
+            table = (
+                make_frequency_table(
+                    data,
+                    column,
+                    column,
+                    limit=20,
                 )
             )
 
-        age_table = make_frequency_table(
-            data,
-            "Age Group",
-            "Age Group",
-            limit=20,
-        )
+            if table is not None:
 
-        if age_table is not None:
-
-            tables.append(
-                (
-                    "Demographics – Age Group-wise Distribution",
-                    age_table,
+                tables.append(
+                    (
+                        title,
+                        table,
+                    )
                 )
-            )
-
-    # --------------------------------------------------------
-    # WARD
-    # --------------------------------------------------------
 
     elif page_name == "Ward Analysis":
 
         ward_column = (
             "Ward Name"
-            if "Ward Name" in data.columns
+            if "Ward Name"
+            in data.columns
             else "Ward"
-            if "Ward" in data.columns
+            if "Ward"
+            in data.columns
             else None
         )
 
         if ward_column:
 
-            ward_table = make_frequency_table(
-                data,
-                ward_column,
-                "Ward",
-                limit=50,
+            table = (
+                make_frequency_table(
+                    data,
+                    ward_column,
+                    "Ward",
+                    limit=50,
+                )
             )
 
-            if ward_table is not None:
+            if table is not None:
 
                 tables.append(
                     (
                         "Ward Analysis – Ward-wise Burden",
-                        ward_table,
+                        table,
                     )
                 )
 
-    # --------------------------------------------------------
-    # MAP
-    # --------------------------------------------------------
-
-    elif page_name == "Map":
-
-        tables.extend(
-            make_map_summary_tables(
-                data
-            )
-        )
-
-    # --------------------------------------------------------
-    # GEOGRAPHIC MAP
-    # --------------------------------------------------------
-
-    elif page_name == "Geographic Map":
+    elif page_name in (
+        "Map",
+        "Geographic Map",
+    ):
 
         tables.extend(
             make_map_summary_tables(
                 data
             )
         )
-
-        if (
-            "Address Latitude" not in data.columns
-            or "Address Longitude" not in data.columns
-        ):
-
-            tables.append(
-                (
-                    "Geographic Map – Coordinate Availability",
-                    pd.DataFrame(
-                        [
-                            {
-                                "Status": (
-                                    "Address Latitude / "
-                                    "Address Longitude "
-                                    "columns are not available"
-                                )
-                            }
-                        ]
-                    ),
-                )
-            )
-
-    # --------------------------------------------------------
-    # DATA EXPLORER
-    # --------------------------------------------------------
 
     elif page_name == "Data Explorer":
 
@@ -1548,16 +1777,14 @@ def build_management_tables(
                         },
                         {
                             "Indicator": "Columns Available",
-                            "Value": len(data.columns),
+                            "Value": len(
+                                data.columns
+                            ),
                         },
                     ]
                 ),
             )
         )
-
-    # --------------------------------------------------------
-    # VALIDATION
-    # --------------------------------------------------------
 
     elif page_name == "Validation & KPI":
 
@@ -1594,245 +1821,243 @@ def build_management_tables(
 
 
 # ============================================================
-# INDIVIDUAL PAGE REPORT DATA
+# PAGE DOWNLOADS
 # ============================================================
 
-def build_individual_page_report_data(
+def _safe_page_filename(
+    page_name,
+):
+
+    safe_name = (
+        str(page_name)
+        .replace(
+            "&",
+            "and",
+        )
+        .replace(
+            "/",
+            "_",
+        )
+        .replace(
+            "-",
+            "_",
+        )
+        .replace(
+            " ",
+            "_",
+        )
+    )
+
+    return safe_name
+
+
+def render_page_download_buttons(
     page_name,
     data,
 ):
 
-    tables = []
-    charts = []
+    if (
+        is_complete_pdf_capture_active()
+    ):
+        return
 
-    if data is None or data.empty:
-
-        return tables, charts
-
-    disease_table = make_frequency_table(
-        data,
-        "Disease",
-        "Disease",
-    )
-
-    if disease_table is not None:
-
-        tables.append(
-            (
-                "Disease-wise Burden",
-                disease_table,
-            )
-        )
-
-        charts.append(
-            {
-                "dataframe": disease_table,
-                "x_column": "Disease",
-                "y_column": "Records",
-                "title": "Disease-wise Burden",
-            }
-        )
-
-    facility_table = make_frequency_table(
-        data,
-        "Facility Name",
-        "Facility",
-    )
-
-    if facility_table is not None:
-
-        tables.append(
-            (
-                "Facility-wise Burden",
-                facility_table,
-            )
-        )
-
-        charts.append(
-            {
-                "dataframe": facility_table,
-                "x_column": "Facility",
-                "y_column": "Records",
-                "title": "Facility-wise Burden",
-            }
-        )
-
-    ward_column = None
-
-    if "Ward Name" in data.columns:
-
-        ward_column = "Ward Name"
-
-    elif "Ward" in data.columns:
-
-        ward_column = "Ward"
-
-    if ward_column:
-
-        ward_table = make_frequency_table(
-            data,
-            ward_column,
-            "Ward",
-        )
-
-        if ward_table is not None:
-
-            tables.append(
-                (
-                    "Ward-wise Burden",
-                    ward_table,
-                )
-            )
-
-            charts.append(
-                {
-                    "dataframe": ward_table,
-                    "x_column": "Ward",
-                    "y_column": "Records",
-                    "title": "Ward-wise Burden",
-                }
-            )
-
-    gender_table = make_frequency_table(
-        data,
-        "Gender",
-        "Gender",
-    )
-
-    if gender_table is not None:
-
-        tables.append(
-            (
-                "Gender-wise Distribution",
-                gender_table,
-            )
-        )
-
-    age_table = make_frequency_table(
-        data,
-        "Age Group",
-        "Age Group",
-    )
-
-    if age_table is not None:
-
-        tables.append(
-            (
-                "Age Group-wise Distribution",
-                age_table,
-            )
-        )
-
-    opd_table = make_frequency_table(
-        data,
-        "OPD/IPD",
-        "OPD/IPD",
-    )
-
-    if opd_table is not None:
-
-        tables.append(
-            (
-                "OPD / IPD Distribution",
-                opd_table,
-            )
-        )
-
-    monthly = make_monthly_table(
-        data
-    )
-
-    if monthly is not None:
-
-        tables.append(
-            (
-                "Month-wise Analysis",
-                monthly,
-            )
-        )
-
-        charts.append(
-            {
-                "dataframe": monthly,
-                "x_column": "Period",
-                "y_column": "Records",
-                "title": "Month-wise Analysis",
-            }
-        )
-
-    return tables, charts
-
-
-# ============================================================
-# INDIVIDUAL PAGE PDF
-# ============================================================
-
-def create_page_pdf(
-    page_name,
-    data,
-):
-
-    tables, charts = (
-        build_individual_page_report_data(
-            page_name,
-            data,
+    captured_content = (
+        get_page_capture(
+            page_name
         )
     )
 
-    report_period = get_reporting_period(
-        data
+    report_period = (
+        get_reporting_period(
+            data
+        )
     )
 
-    filter_summary = get_filter_summary()
-
-    return generate_pdf_report(
-        report_title=page_name,
-        df=data,
-        kpis=kpis,
-        tables=tables,
-        charts=charts,
-        report_period=report_period,
-        filter_summary=filter_summary,
+    filter_summary = (
+        get_filter_summary()
     )
 
+    safe_name = (
+        _safe_page_filename(
+            page_name
+        )
+    )
 
-def render_page_pdf_button(
-    page_name,
-    data,
-):
+    st.divider()
+
+    st.subheader(
+        "📥 Page Downloads"
+    )
+
+    st.caption(
+        "Download the content displayed on this dashboard page."
+    )
+
+    c1, c2, c3 = (
+        st.columns(3)
+    )
+
+    # ========================================================
+    # FULL PAGE REPORT
+    # ========================================================
 
     try:
 
-        pdf_bytes = create_page_pdf(
-            page_name,
-            data,
+        full_pdf = (
+            generate_page_report_pdf(
+                page_name=page_name,
+                captured_content=(
+                    captured_content
+                ),
+                df=data,
+                report_period=(
+                    report_period
+                ),
+                filter_summary=(
+                    filter_summary
+                ),
+            )
         )
 
-        safe_name = (
-            page_name
-            .replace("&", "and")
-            .replace("/", "_")
-            .replace("-", "_")
-            .replace(" ", "_")
+        with c1:
+
+            st.download_button(
+                label=(
+                    "📄 Download This Page Report"
+                ),
+                data=full_pdf,
+                file_name=(
+                    f"{safe_name}_Page_Report.pdf"
+                ),
+                mime="application/pdf",
+                use_container_width=True,
+                key=(
+                    f"page_report_{safe_name}"
+                ),
+            )
+
+    except Exception as exc:
+
+        with c1:
+
+            st.error(
+                "Page report could not be generated."
+            )
+
+            with st.expander(
+                "Technical details"
+            ):
+                st.code(
+                    str(exc)
+                )
+
+    # ========================================================
+    # VISUALS ONLY
+    # ========================================================
+
+    try:
+
+        visuals_pdf = (
+            generate_page_visuals_pdf(
+                page_name=page_name,
+                captured_content=(
+                    captured_content
+                ),
+                df=data,
+                report_period=(
+                    report_period
+                ),
+                filter_summary=(
+                    filter_summary
+                ),
+            )
         )
 
-        st.download_button(
-            label="📄 Download This Page PDF",
-            data=pdf_bytes,
-            file_name=(
-                f"{safe_name}_Report.pdf"
-            ),
-            mime="application/pdf",
-            key=f"pdf_page_{safe_name}",
+        with c2:
+
+            st.download_button(
+                label=(
+                    "🖼️ Download This Page Visuals"
+                ),
+                data=visuals_pdf,
+                file_name=(
+                    f"{safe_name}_Visuals.pdf"
+                ),
+                mime="application/pdf",
+                use_container_width=True,
+                key=(
+                    f"page_visuals_{safe_name}"
+                ),
+            )
+
+    except Exception as exc:
+
+        with c2:
+
+            st.error(
+                "Page visuals could not be generated."
+            )
+
+            with st.expander(
+                "Technical details"
+            ):
+                st.code(
+                    str(exc)
+                )
+
+    # ========================================================
+    # TABLES / DATA ONLY
+    # ========================================================
+
+    try:
+
+        tables_pdf = (
+            generate_page_tables_pdf(
+                page_name=page_name,
+                captured_content=(
+                    captured_content
+                ),
+                df=data,
+                report_period=(
+                    report_period
+                ),
+                filter_summary=(
+                    filter_summary
+                ),
+            )
         )
 
-    except Exception as e:
+        with c3:
 
-        st.error(
-            "PDF report could not be generated."
-        )
+            st.download_button(
+                label=(
+                    "📋 Download This Page Tables / Data"
+                ),
+                data=tables_pdf,
+                file_name=(
+                    f"{safe_name}_Tables_Data.pdf"
+                ),
+                mime="application/pdf",
+                use_container_width=True,
+                key=(
+                    f"page_tables_{safe_name}"
+                ),
+            )
 
-        st.exception(e)
+    except Exception as exc:
+
+        with c3:
+
+            st.error(
+                "Page tables/data could not be generated."
+            )
+
+            with st.expander(
+                "Technical details"
+            ):
+                st.code(
+                    str(exc)
+                )
 
 
 # ============================================================
@@ -1849,22 +2074,65 @@ def build_complete_dashboard_pages():
 
     for page_name in PAGE_OPTIONS:
 
-        captured_charts = (
-            captured_registry
-            .get(
+        page_capture = (
+            captured_registry.get(
                 page_name,
                 {},
-            )
-            .get(
-                "charts",
-                [],
             )
         )
 
         captured_charts = (
-            _deduplicate_captured_charts(
+            _deduplicate_captured_items(
                 page_name,
-                captured_charts,
+                page_capture.get(
+                    "charts",
+                    [],
+                ),
+                "charts",
+            )
+        )
+
+        captured_tables = (
+            _deduplicate_captured_items(
+                page_name,
+                page_capture.get(
+                    "tables",
+                    [],
+                ),
+                "tables",
+            )
+        )
+
+        captured_metrics = (
+            _deduplicate_captured_items(
+                page_name,
+                page_capture.get(
+                    "metrics",
+                    [],
+                ),
+                "metrics",
+            )
+        )
+
+        captured_notes = (
+            _deduplicate_captured_items(
+                page_name,
+                page_capture.get(
+                    "notes",
+                    [],
+                ),
+                "notes",
+            )
+        )
+
+        captured_images = (
+            _deduplicate_captured_items(
+                page_name,
+                page_capture.get(
+                    "images",
+                    [],
+                ),
+                "images",
             )
         )
 
@@ -1875,23 +2143,160 @@ def build_complete_dashboard_pages():
             )
         )
 
-        page_tables = [
-            {
-                "title": title,
-                "dataframe": dataframe,
-            }
-            for title, dataframe
-            in management_tables
-        ]
+        page_tables = []
+
+        for item in captured_tables:
+
+            dataframe = (
+                item.get(
+                    "data"
+                )
+            )
+
+            if (
+                isinstance(
+                    dataframe,
+                    pd.DataFrame,
+                )
+                and not dataframe.empty
+            ):
+
+                page_tables.append(
+                    {
+                        "title": (
+                            item.get(
+                                "title"
+                            )
+                            or item.get(
+                                "section_name"
+                            )
+                            or "Displayed Data"
+                        ),
+                        "section_name": (
+                            item.get(
+                                "section_name"
+                            )
+                            or page_name
+                        ),
+                        "data": dataframe,
+                        "source": "captured",
+                    }
+                )
+
+        for title, dataframe in (
+            management_tables
+        ):
+
+            if (
+                dataframe is None
+                or dataframe.empty
+            ):
+                continue
+
+            page_tables.append(
+                {
+                    "title": title,
+                    "section_name": page_name,
+                    "data": dataframe,
+                    "source": "management",
+                }
+            )
+
+        page_metrics = []
+
+        for item in captured_metrics:
+
+            page_metrics.append(
+                {
+                    "title": (
+                        item.get(
+                            "title"
+                        )
+                        or item.get(
+                            "label"
+                        )
+                        or "Metric"
+                    ),
+                    "label": (
+                        item.get(
+                            "label"
+                        )
+                        or item.get(
+                            "title"
+                        )
+                        or "Metric"
+                    ),
+                    "value": (
+                        item.get(
+                            "value",
+                            "",
+                        )
+                    ),
+                    "delta": (
+                        item.get(
+                            "delta",
+                            "",
+                        )
+                    ),
+                    "section_name": (
+                        item.get(
+                            "section_name"
+                        )
+                        or page_name
+                    ),
+                }
+            )
 
         notes = []
 
-        if page_name == "Map":
+        for item in captured_notes:
+
+            text = str(
+                item.get(
+                    "text",
+                    "",
+                )
+            ).strip()
+
+            if not text:
+                continue
 
             notes.append(
-                "Map visualisation is represented in this report "
-                "through the captured dashboard section and "
-                "supporting ward/map summary tables."
+                {
+                    "text": text,
+                    "note_type": (
+                        item.get(
+                            "note_type",
+                            "info",
+                        )
+                    ),
+                    "section_name": (
+                        item.get(
+                            "section_name"
+                        )
+                        or page_name
+                    ),
+                    "source": "captured",
+                }
+            )
+
+        if (
+            page_name == "Map"
+            and not captured_images
+        ):
+
+            notes.append(
+                {
+                    "text": (
+                        "Map visualisation is represented "
+                        "through the available dashboard "
+                        "summary data where a static map "
+                        "image was not captured."
+                    ),
+                    "note_type": "info",
+                    "section_name": "Map",
+                    "source": "system",
+                }
             )
 
         if page_name == "Geographic Map":
@@ -1904,32 +2309,119 @@ def build_complete_dashboard_pages():
             ):
 
                 notes.append(
-                    "Geographic map coordinates are not available "
-                    "because Address Latitude and Address Longitude "
-                    "columns are unavailable in the filtered dataset."
+                    {
+                        "text": (
+                            "Geographic map coordinates are "
+                            "not available because Address "
+                            "Latitude and Address Longitude "
+                            "columns are unavailable."
+                        ),
+                        "note_type": "warning",
+                        "section_name": (
+                            "Geographic Map"
+                        ),
+                        "source": "system",
+                    }
                 )
 
-            else:
+            elif not captured_images:
 
                 notes.append(
-                    "Geographic map summary is based on the "
-                    "available Address Latitude and Address Longitude "
-                    "fields."
+                    {
+                        "text": (
+                            "Address Latitude and Address "
+                            "Longitude data are available. "
+                            "The geographic map is represented "
+                            "through supporting summary tables "
+                            "where a static image was not captured."
+                        ),
+                        "note_type": "info",
+                        "section_name": (
+                            "Geographic Map"
+                        ),
+                        "source": "system",
+                    }
                 )
 
         if page_name == "User Manual":
 
             notes.append(
-                "This section contains the dashboard user guidance "
-                "and operational instructions."
+                {
+                    "text": (
+                        "This section contains dashboard "
+                        "user guidance and operational "
+                        "instructions."
+                    ),
+                    "note_type": "info",
+                    "section_name": (
+                        "User Manual"
+                    ),
+                    "source": "system",
+                }
             )
 
-        if page_name == "Prediction":
+        if (
+            page_name == "Prediction"
+            and not captured_charts
+        ):
 
             notes.append(
-                "Prediction results shown in the dashboard are "
-                "included only where captured during the current "
-                "dashboard rendering."
+                {
+                    "text": (
+                        "Prediction results are included "
+                        "only where prediction outputs "
+                        "were available and captured "
+                        "during dashboard rendering."
+                    ),
+                    "note_type": "info",
+                    "section_name": (
+                        "Prediction"
+                    ),
+                    "source": "system",
+                }
+            )
+
+        page_images = []
+
+        for item in captured_images:
+
+            image_data = (
+                item.get(
+                    "data"
+                )
+            )
+
+            if not image_data:
+                continue
+
+            page_images.append(
+                {
+                    "title": (
+                        item.get(
+                            "title"
+                        )
+                        or "Dashboard Image"
+                    ),
+                    "section_name": (
+                        item.get(
+                            "section_name"
+                        )
+                        or page_name
+                    ),
+                    "caption": (
+                        item.get(
+                            "caption",
+                            "",
+                        )
+                    ),
+                    "type": (
+                        item.get(
+                            "type",
+                            "image",
+                        )
+                    ),
+                    "data": image_data,
+                }
             )
 
         dashboard_pages.append(
@@ -1940,7 +2432,8 @@ def build_complete_dashboard_pages():
                 "kpis": kpis,
                 "tables": page_tables,
                 "charts": captured_charts,
-                "images": [],
+                "metrics": page_metrics,
+                "images": page_images,
                 "notes": notes,
             }
         )
@@ -1984,10 +2477,12 @@ def create_complete_dashboard_pdf():
         build_complete_dashboard_pages()
     )
 
-    return generate_captured_dashboard_pdf(
-        pages=dashboard_pages,
-        report_period=report_period,
-        filter_summary=filter_summary,
+    return (
+        generate_captured_dashboard_pdf(
+            pages=dashboard_pages,
+            report_period=report_period,
+            filter_summary=filter_summary,
+        )
     )
 
 
@@ -1997,11 +2492,15 @@ def create_complete_dashboard_pdf():
 
 def create_complete_dashboard_ppt():
 
-    report_period = get_reporting_period(
-        filtered_df
+    report_period = (
+        get_reporting_period(
+            filtered_df
+        )
     )
 
-    filter_summary = get_filter_summary()
+    filter_summary = (
+        get_filter_summary()
+    )
 
     return generate_ppt_report(
         df=filtered_df,
@@ -2011,12 +2510,14 @@ def create_complete_dashboard_ppt():
 
 
 # ============================================================
-# SIDEBAR PDF SECTION
+# SIDEBAR PDF
 # ============================================================
 
 if not capture_active:
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        "---"
+    )
 
     st.sidebar.subheader(
         "📄 PDF Reports"
@@ -2042,15 +2543,64 @@ captured_chart_count = sum(
             [],
         )
     )
-    for record in captured_pages.values()
+    for record
+    in captured_pages.values()
+)
+
+captured_table_count = sum(
+    len(
+        record.get(
+            "tables",
+            [],
+        )
+    )
+    for record
+    in captured_pages.values()
+)
+
+captured_metric_count = sum(
+    len(
+        record.get(
+            "metrics",
+            [],
+        )
+    )
+    for record
+    in captured_pages.values()
+)
+
+captured_note_count = sum(
+    len(
+        record.get(
+            "notes",
+            [],
+        )
+    )
+    for record
+    in captured_pages.values()
+)
+
+captured_image_count = sum(
+    len(
+        record.get(
+            "images",
+            [],
+        )
+    )
+    for record
+    in captured_pages.values()
 )
 
 
-if is_complete_pdf_capture_active():
+if (
+    is_complete_pdf_capture_active()
+):
 
-    capture_queue = st.session_state.get(
-        CAPTURE_QUEUE_KEY,
-        [],
+    capture_queue = (
+        st.session_state.get(
+            CAPTURE_QUEUE_KEY,
+            [],
+        )
     )
 
     total_pages = len(
@@ -2073,8 +2623,14 @@ if is_complete_pdf_capture_active():
     )
 
     st.sidebar.caption(
-        f"Unique captured charts: "
-        f"{captured_chart_count}"
+        f"Charts: {captured_chart_count} | "
+        f"Tables: {captured_table_count}"
+    )
+
+    st.sidebar.caption(
+        f"Metrics: {captured_metric_count} | "
+        f"Notes: {captured_note_count} | "
+        f"Images/Maps: {captured_image_count}"
     )
 
 elif captured_pages:
@@ -2085,8 +2641,14 @@ elif captured_pages:
     )
 
     st.sidebar.caption(
-        f"Unique captured charts: "
-        f"{captured_chart_count}"
+        f"Charts: {captured_chart_count} | "
+        f"Tables: {captured_table_count}"
+    )
+
+    st.sidebar.caption(
+        f"Metrics: {captured_metric_count} | "
+        f"Notes: {captured_note_count} | "
+        f"Images/Maps: {captured_image_count}"
     )
 
 
@@ -2094,7 +2656,9 @@ elif captured_pages:
 # GENERATE COMPLETE PDF
 # ============================================================
 
-if not is_complete_pdf_capture_active():
+if not (
+    is_complete_pdf_capture_active()
+):
 
     if st.sidebar.button(
         "📚 Generate Complete Dashboard PDF",
@@ -2140,21 +2704,28 @@ if (
         )
     )
 
-    if current_filter == generated_filter:
+    if (
+        current_filter
+        == generated_filter
+    ):
 
         st.sidebar.download_button(
             label=(
                 "⬇️ Download Complete Dashboard PDF"
             ),
-            data=st.session_state[
-                "complete_dashboard_pdf"
-            ],
+            data=(
+                st.session_state[
+                    "complete_dashboard_pdf"
+                ]
+            ),
             file_name=(
                 "MSU_Mumbai_Complete_Dashboard_Report.pdf"
             ),
             mime="application/pdf",
             use_container_width=True,
-            key="download_complete_dashboard_pdf",
+            key=(
+                "download_complete_dashboard_pdf"
+            ),
         )
 
     else:
@@ -2171,7 +2742,9 @@ if (
 
 if not capture_active:
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        "---"
+    )
 
     st.sidebar.subheader(
         "📊 PowerPoint Report"
@@ -2199,11 +2772,15 @@ if (
 
             st.session_state[
                 "complete_dashboard_ppt"
-            ] = create_complete_dashboard_ppt()
+            ] = (
+                create_complete_dashboard_ppt()
+            )
 
             st.session_state[
                 "complete_dashboard_ppt_filter"
-            ] = get_filter_summary()
+            ] = (
+                get_filter_summary()
+            )
 
         st.sidebar.success(
             "PowerPoint generated successfully."
@@ -2215,7 +2792,9 @@ if (
             "PowerPoint report could not be generated."
         )
 
-        st.sidebar.exception(e)
+        st.sidebar.exception(
+            e
+        )
 
 
 # ============================================================
@@ -2238,13 +2817,18 @@ if (
         )
     )
 
-    if current_filter == generated_ppt_filter:
+    if (
+        current_filter
+        == generated_ppt_filter
+    ):
 
         st.sidebar.download_button(
             label="⬇️ Download PowerPoint",
-            data=st.session_state[
-                "complete_dashboard_ppt"
-            ],
+            data=(
+                st.session_state[
+                    "complete_dashboard_ppt"
+                ]
+            ),
             file_name=(
                 "MSU_Mumbai_Dashboard_Management_Report.pptx"
             ),
@@ -2253,7 +2837,9 @@ if (
                 "presentationml.presentation"
             ),
             use_container_width=True,
-            key="download_complete_dashboard_ppt",
+            key=(
+                "download_complete_dashboard_ppt"
+            ),
         )
 
     else:
@@ -2265,67 +2851,60 @@ if (
 
 
 # ============================================================
+# CAPTURE CURRENT PAGE
+# ============================================================
+
+def capture_and_store_page(
+    page_name,
+    render_function,
+    *args,
+    **kwargs,
+):
+
+    with capture_displayed_charts():
+
+        render_function(
+            *args,
+            **kwargs,
+        )
+
+    captured_content = (
+        get_captured_dashboard_content()
+    )
+
+    store_current_page_capture(
+        page_name,
+        captured_content,
+    )
+
+    return captured_content
+
+
+# ============================================================
 # PAGE RENDERING
 # ============================================================
 
 try:
 
-    # ========================================================
-    # OVERVIEW
-    # ========================================================
-
     if page == "Overview":
 
-        with capture_displayed_charts():
-
-            render_overview(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Overview",
-            current_captured,
+            render_overview,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Overview",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # CHARTS & TRENDS
-    # ========================================================
+        render_page_download_buttons(
+            "Overview",
+            filtered_df,
+        )
 
     elif page == "Charts & Trends":
 
-        with capture_displayed_charts():
-
-            render_charts(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Charts & Trends",
-            current_captured,
+            render_charts,
+            filtered_df,
         )
 
         if not capture_active:
@@ -2333,348 +2912,152 @@ try:
             st.divider()
 
             render_displayed_chart_download_controls(
-                filter_summary=get_filter_summary(),
+                filter_summary=(
+                    get_filter_summary()
+                ),
                 base_filename=(
-                    "MSU_Mumbai_Charts_Trends_Displayed_Charts"
+                    "MSU_Mumbai_Charts_Trends_"
+                    "Displayed_Charts"
                 ),
             )
 
-            st.divider()
-
-            render_page_pdf_button(
-                "Charts & Trends",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # LABORATORY & PATHOGEN
-    # ========================================================
-
-    elif page == "Laboratory & Pathogen Analysis":
-
-        with capture_displayed_charts():
-
-            render_lab_pathogen(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
+        render_page_download_buttons(
+            "Charts & Trends",
+            filtered_df,
         )
 
-        store_current_page_capture(
+    elif (
+        page
+        == "Laboratory & Pathogen Analysis"
+    ):
+
+        capture_and_store_page(
             "Laboratory & Pathogen Analysis",
-            current_captured,
+            render_lab_pathogen,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Laboratory & Pathogen Analysis",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # DEMOGRAPHICS
-    # ========================================================
+        render_page_download_buttons(
+            "Laboratory & Pathogen Analysis",
+            filtered_df,
+        )
 
     elif page == "Demographics":
 
-        with capture_displayed_charts():
-
-            render_demographics(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Demographics",
-            current_captured,
+            render_demographics,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Demographics",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # WARD ANALYSIS
-    # ========================================================
+        render_page_download_buttons(
+            "Demographics",
+            filtered_df,
+        )
 
     elif page == "Ward Analysis":
 
-        with capture_displayed_charts():
-
-            render_ward(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Ward Analysis",
-            current_captured,
+            render_ward,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Ward Analysis",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # MAP
-    # ========================================================
+        render_page_download_buttons(
+            "Ward Analysis",
+            filtered_df,
+        )
 
     elif page == "Map":
 
-        with capture_displayed_charts():
-
-            render_map(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Map",
-            current_captured,
+            render_map,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Map",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # GEOGRAPHIC MAP
-    # ========================================================
+        render_page_download_buttons(
+            "Map",
+            filtered_df,
+        )
 
     elif page == "Geographic Map":
 
-        with capture_displayed_charts():
-
-            render_geographic_map(
-                filtered_df,
-                df,
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Geographic Map",
-            current_captured,
+            render_geographic_map,
+            filtered_df,
+            df,
         )
 
-
-    # ========================================================
-    # DATA EXPLORER
-    # ========================================================
+        render_page_download_buttons(
+            "Geographic Map",
+            filtered_df,
+        )
 
     elif page == "Data Explorer":
 
-        with capture_displayed_charts():
-
-            render_explorer(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Data Explorer",
-            current_captured,
+            render_explorer,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Data Explorer",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # PREDICTION
-    # ========================================================
+        render_page_download_buttons(
+            "Data Explorer",
+            filtered_df,
+        )
 
     elif page == "Prediction":
 
-        with capture_displayed_charts():
-
-            render_prediction(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Prediction",
-            current_captured,
+            render_prediction,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Prediction",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # USER MANUAL
-    # ========================================================
+        render_page_download_buttons(
+            "Prediction",
+            filtered_df,
+        )
 
     elif page == "User Manual":
 
-        with capture_displayed_charts():
-
-            render_manual()
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "User Manual",
-            current_captured,
+            render_manual,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "User Manual",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # VALIDATION & KPI
-    # ========================================================
+        render_page_download_buttons(
+            "User Manual",
+            filtered_df,
+        )
 
     elif page == "Validation & KPI":
 
-        with capture_displayed_charts():
-
-            render_validation_kpi(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Validation & KPI",
-            current_captured,
+            render_validation_kpi,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Validation & KPI",
-                filtered_df,
-            )
-
-
-    # ========================================================
-    # DRILL-DOWN & EXPORT
-    # ========================================================
+        render_page_download_buttons(
+            "Validation & KPI",
+            filtered_df,
+        )
 
     elif page == "Drill-down & Export":
 
-        with capture_displayed_charts():
-
-            render_drilldown_export(
-                filtered_df
-            )
-
-        current_captured = (
-            st.session_state.get(
-                "displayed_chart_exports",
-                [],
-            )
-        )
-
-        store_current_page_capture(
+        capture_and_store_page(
             "Drill-down & Export",
-            current_captured,
+            render_drilldown_export,
+            filtered_df,
         )
 
-        if not capture_active:
-
-            st.divider()
-
-            render_page_pdf_button(
-                "Drill-down & Export",
-                filtered_df,
-            )
+        render_page_download_buttons(
+            "Drill-down & Export",
+            filtered_df,
+        )
 
 
 except Exception as e:
@@ -2683,18 +3066,24 @@ except Exception as e:
         "This dashboard section could not be loaded."
     )
 
-    st.exception(e)
+    st.exception(
+        e
+    )
 
 
 # ============================================================
-# AUTOMATIC CAPTURE SEQUENCE CONTROLLER
+# AUTOMATIC COMPLETE PDF CAPTURE
 # ============================================================
 
-if is_complete_pdf_capture_active():
+if (
+    is_complete_pdf_capture_active()
+):
 
-    capture_queue = st.session_state.get(
-        CAPTURE_QUEUE_KEY,
-        [],
+    capture_queue = (
+        st.session_state.get(
+            CAPTURE_QUEUE_KEY,
+            [],
+        )
     )
 
     current_capture_page = (
@@ -2763,19 +3152,26 @@ if is_complete_pdf_capture_active():
                 finish_complete_pdf_capture()
 
                 st.error(
-                    "Complete dashboard PDF could not be generated."
+                    "Complete dashboard PDF "
+                    "could not be generated."
                 )
 
-                st.exception(e)
+                st.exception(
+                    e
+                )
 
 
 # ============================================================
 # GOOGLE SHEET REFRESH
 # ============================================================
 
-if not is_complete_pdf_capture_active():
+if not (
+    is_complete_pdf_capture_active()
+):
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        "---"
+    )
 
     if st.sidebar.button(
         "🔄 Refresh Google Sheet Data",
@@ -2786,7 +3182,9 @@ if not is_complete_pdf_capture_active():
             "Refreshing Google Sheet data..."
         ):
 
-            from phase1_data import refresh_data
+            from phase1_data import (
+                refresh_data,
+            )
 
             refresh_data()
 
@@ -2795,7 +3193,6 @@ if not is_complete_pdf_capture_active():
             get_data.clear()
 
         except Exception:
-
             pass
 
         st.success(
