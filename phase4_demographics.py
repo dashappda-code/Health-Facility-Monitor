@@ -24,27 +24,101 @@ AGE_GROUP_ORDER = [
     "Unknown",
 ]
 
+GENDER_ORDER = [
+    "Male",
+    "Female",
+    "Transgender",
+    "Other",
+    "Unknown",
+]
+
 GENDER_COLORS = {
-    "Male": "#2F80ED",
-    "Female": "#E85AAD",
-    "Transgender": "#8E44AD",
-    "Other": "#7F8C8D",
-    "Unknown": "#95A5A6",
+    "Male": "#1F77B4",
+    "Female": "#E377C2",
+    "Transgender": "#9467BD",
+    "Other": "#FF7F0E",
+    "Unknown": "#7F7F7F",
 }
 
+DEFAULT_CATEGORY_COLORS = [
+    "#1F77B4",
+    "#FF7F0E",
+    "#2CA02C",
+    "#D62728",
+    "#9467BD",
+    "#8C564B",
+    "#E377C2",
+    "#7F7F7F",
+    "#BCBD22",
+    "#17BECF",
+]
+
 
 # ============================================================
-# HELPER FUNCTIONS
+# COMMON CHART CONFIGURATION
 # ============================================================
 
-def _clean_text(df, column):
+def _bottom_legend(
+    title=None,
+):
+
+    return alt.Legend(
+        title=title,
+        orient="bottom",
+        direction="horizontal",
+        columns=10,
+        labelFontSize=10,
+        titleFontSize=10,
+        symbolSize=80,
+        symbolStrokeWidth=2,
+        labelLimit=160,
+        offset=8,
+    )
+
+
+def _x_axis(
+    title=None,
+):
+
+    return alt.Axis(
+        title=title,
+        labelAngle=-45,
+        labelAlign="right",
+        labelBaseline="middle",
+        labelFontSize=11,
+        titleFontSize=12,
+        labelLimit=180,
+    )
+
+
+def _y_axis(
+    title=None,
+):
+
+    return alt.Axis(
+        title=title,
+        labelFontSize=11,
+        titleFontSize=12,
+    )
+
+
+# ============================================================
+# TEXT HELPERS
+# ============================================================
+
+def _clean_text(
+    df,
+    column,
+):
 
     if (
         df is None
         or df.empty
         or column not in df.columns
     ):
-        return pd.Series(dtype="object")
+        return pd.Series(
+            dtype="object"
+        )
 
     return (
         df[column]
@@ -54,7 +128,59 @@ def _clean_text(df, column):
     )
 
 
-def _standardize_age_group(series):
+# ============================================================
+# STANDARDIZE GENDER
+# ============================================================
+
+def _standardize_gender(
+    series,
+):
+
+    values = (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    replacement_map = {
+        "male": "Male",
+        "MALE": "Male",
+        "m": "Male",
+        "M": "Male",
+
+        "female": "Female",
+        "FEMALE": "Female",
+        "f": "Female",
+        "F": "Female",
+
+        "transgender": "Transgender",
+        "TRANSGENDER": "Transgender",
+        "Trans Gender": "Transgender",
+        "trans gender": "Transgender",
+        "TG": "Transgender",
+        "tg": "Transgender",
+
+        "others": "Other",
+        "Others": "Other",
+        "OTHER": "Other",
+        "other": "Other",
+    }
+
+    values = values.replace(
+        replacement_map
+    )
+
+    return values
+
+
+# ============================================================
+# STANDARDIZE AGE GROUP
+# ============================================================
+
+def _standardize_age_group(
+    series,
+):
 
     values = (
         series
@@ -84,35 +210,9 @@ def _standardize_age_group(series):
     return values
 
 
-def _get_age_group_order(series):
-
-    values = (
-        pd.Series(series)
-        .dropna()
-        .astype(str)
-        .str.strip()
-    )
-
-    available = [
-        value
-        for value in AGE_GROUP_ORDER
-        if value in values.tolist()
-    ]
-
-    remaining = sorted(
-        [
-            value
-            for value in values.unique()
-            if value
-            and value not in AGE_GROUP_ORDER
-        ]
-    )
-
-    return (
-        available
-        + remaining
-    )
-
+# ============================================================
+# AGE GROUP SORT
+# ============================================================
 
 def _age_group_sort(
     df,
@@ -133,10 +233,35 @@ def _age_group_sort(
         )
     )
 
+    present_values = (
+        result[column]
+        .dropna()
+        .astype(str)
+        .tolist()
+    )
+
+    known = [
+        value
+        for value in AGE_GROUP_ORDER
+        if value in present_values
+    ]
+
+    remaining = sorted(
+        [
+            value
+            for value in (
+                result[column]
+                .dropna()
+                .astype(str)
+                .unique()
+            )
+            if value not in AGE_GROUP_ORDER
+        ]
+    )
+
     final_order = (
-        _get_age_group_order(
-            result[column]
-        )
+        known
+        + remaining
     )
 
     result[column] = pd.Categorical(
@@ -152,84 +277,304 @@ def _age_group_sort(
     )
 
 
-def _standardize_gender(series):
+# ============================================================
+# CATEGORY BAR CHART
+# ============================================================
 
-    values = (
-        series
-        .fillna("")
+def _render_category_bar_chart(
+    dataframe,
+    category_column,
+    value_column="Records",
+    height=400,
+):
+
+    if dataframe is None or dataframe.empty:
+        return
+
+    chart_df = dataframe.copy()
+
+    categories = (
+        chart_df[category_column]
         .astype(str)
-        .str.strip()
+        .tolist()
     )
 
-    def convert(value):
+    colors = [
+        DEFAULT_CATEGORY_COLORS[
+            index
+            % len(DEFAULT_CATEGORY_COLORS)
+        ]
+        for index in range(
+            len(categories)
+        )
+    ]
 
-        text = str(value).strip()
-        lower = text.lower()
-
-        if lower in {
-            "male",
-            "m",
-            "man",
-        }:
-            return "Male"
-
-        if lower in {
-            "female",
-            "f",
-            "woman",
-        }:
-            return "Female"
-
-        if lower in {
-            "transgender",
-            "trans",
-            "third gender",
-            "thirdgender",
-            "tg",
-        }:
-            return "Transgender"
-
-        if lower in {
-            "other",
-            "others",
-        }:
-            return "Other"
-
-        if lower in {
-            "",
-            "nan",
-            "nat",
-            "none",
-            "unknown",
-            "not known",
-        }:
-            return ""
-
-        return text
-
-    return values.apply(
-        convert
+    color_scale = alt.Scale(
+        domain=categories,
+        range=colors,
     )
 
+    bars = (
+        alt.Chart(chart_df)
+        .mark_bar()
+        .encode(
+            x=alt.X(
+                f"{category_column}:N",
+                sort=categories,
+                axis=_x_axis(
+                    category_column
+                ),
+            ),
+            y=alt.Y(
+                f"{value_column}:Q",
+                axis=_y_axis(
+                    value_column
+                ),
+            ),
+            color=alt.Color(
+                f"{category_column}:N",
+                scale=color_scale,
+                legend=_bottom_legend(
+                    category_column
+                ),
+            ),
+            tooltip=[
+                alt.Tooltip(
+                    f"{category_column}:N",
+                    title=category_column,
+                ),
+                alt.Tooltip(
+                    f"{value_column}:Q",
+                    title=value_column,
+                    format=",",
+                ),
+            ],
+        )
+        .properties(
+            height=height
+        )
+    )
 
-# ============================================================
-# POPULATION PYRAMID
-# ============================================================
+    chart = bars
 
-def _render_population_pyramid(df):
+    if data_labels_enabled():
 
-    if (
-        df is None
-        or df.empty
-        or "Age Group" not in df.columns
-        or "Gender" not in df.columns
-    ):
-
-        st.info(
-            "Age Group and Gender information is not "
-            "available for the population pyramid."
+        labels = (
+            alt.Chart(chart_df)
+            .mark_text(
+                dy=-8,
+                fontWeight="bold",
+                fontSize=12,
+            )
+            .encode(
+                x=alt.X(
+                    f"{category_column}:N",
+                    sort=categories,
+                ),
+                y=alt.Y(
+                    f"{value_column}:Q"
+                ),
+                text=alt.Text(
+                    f"{value_column}:Q",
+                    format=",",
+                ),
+                color=alt.Color(
+                    f"{category_column}:N",
+                    scale=color_scale,
+                    legend=None,
+                ),
+            )
         )
 
+        chart = (
+            bars
+            + labels
+        )
+
+    st.altair_chart(
+        chart,
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# GROUPED BAR CHART
+# ============================================================
+
+def _render_grouped_bar_chart(
+    dataframe,
+    x_column,
+    group_column,
+    value_column="Records",
+    x_order=None,
+    height=450,
+):
+
+    if dataframe is None or dataframe.empty:
+        return
+
+    chart_df = dataframe.copy()
+
+    chart_df[x_column] = (
+        chart_df[x_column]
+        .astype(str)
+    )
+
+    chart_df[group_column] = (
+        chart_df[group_column]
+        .astype(str)
+    )
+
+    groups = (
+        chart_df[group_column]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist()
+    )
+
+    group_colors = []
+
+    for index, group in enumerate(
+        groups
+    ):
+
+        if group in GENDER_COLORS:
+            group_colors.append(
+                GENDER_COLORS[group]
+            )
+        else:
+            group_colors.append(
+                DEFAULT_CATEGORY_COLORS[
+                    index
+                    % len(
+                        DEFAULT_CATEGORY_COLORS
+                    )
+                ]
+            )
+
+    color_scale = alt.Scale(
+        domain=groups,
+        range=group_colors,
+    )
+
+    if x_order is None:
+
+        x_order = (
+            chart_df[x_column]
+            .drop_duplicates()
+            .tolist()
+        )
+
+    bars = (
+        alt.Chart(chart_df)
+        .mark_bar()
+        .encode(
+            x=alt.X(
+                f"{x_column}:N",
+                sort=x_order,
+                axis=_x_axis(
+                    x_column
+                ),
+            ),
+            xOffset=alt.XOffset(
+                f"{group_column}:N"
+            ),
+            y=alt.Y(
+                f"{value_column}:Q",
+                axis=_y_axis(
+                    value_column
+                ),
+            ),
+            color=alt.Color(
+                f"{group_column}:N",
+                scale=color_scale,
+                legend=_bottom_legend(
+                    group_column
+                ),
+            ),
+            tooltip=[
+                alt.Tooltip(
+                    f"{x_column}:N",
+                    title=x_column,
+                ),
+                alt.Tooltip(
+                    f"{group_column}:N",
+                    title=group_column,
+                ),
+                alt.Tooltip(
+                    f"{value_column}:Q",
+                    title=value_column,
+                    format=",",
+                ),
+            ],
+        )
+        .properties(
+            height=height
+        )
+    )
+
+    chart = bars
+
+    if data_labels_enabled():
+
+        labels = (
+            alt.Chart(chart_df)
+            .mark_text(
+                dy=-7,
+                fontSize=10,
+                fontWeight="bold",
+            )
+            .encode(
+                x=alt.X(
+                    f"{x_column}:N",
+                    sort=x_order,
+                ),
+                xOffset=alt.XOffset(
+                    f"{group_column}:N"
+                ),
+                y=alt.Y(
+                    f"{value_column}:Q"
+                ),
+                text=alt.Text(
+                    f"{value_column}:Q",
+                    format=",",
+                ),
+                color=alt.Color(
+                    f"{group_column}:N",
+                    scale=color_scale,
+                    legend=None,
+                ),
+            )
+        )
+
+        chart = (
+            bars
+            + labels
+        )
+
+    st.altair_chart(
+        chart,
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# AGE-GENDER POPULATION PYRAMID
+# ============================================================
+
+def _render_population_pyramid(
+    df,
+):
+
+    if (
+        "Age Group" not in df.columns
+        or "Gender" not in df.columns
+    ):
+        st.info(
+            "Age Group and Gender information "
+            "is required for the population pyramid."
+        )
         return
 
     pyramid_df = df[
@@ -254,223 +599,176 @@ def _render_population_pyramid(df):
     pyramid_df = pyramid_df[
         pyramid_df["Age Group"].ne("")
         & pyramid_df["Gender"].ne("")
-    ].copy()
+        & pyramid_df["Age Group"].ne("nan")
+        & pyramid_df["Gender"].ne("nan")
+        & pyramid_df["Age Group"].ne("NaT")
+        & pyramid_df["Gender"].ne("NaT")
+    ]
 
     if pyramid_df.empty:
 
         st.info(
-            "Valid Age Group and Gender information "
+            "Age Group and Gender data "
             "is not available for the population pyramid."
         )
 
         return
 
-    gender_counts = (
-        pyramid_df["Gender"]
-        .value_counts()
-    )
-
-    has_male = (
-        gender_counts.get(
-            "Male",
-            0,
+    counts = (
+        pyramid_df
+        .groupby(
+            [
+                "Age Group",
+                "Gender",
+            ],
+            observed=True,
         )
-        > 0
-    )
-
-    has_female = (
-        gender_counts.get(
-            "Female",
-            0,
+        .size()
+        .reset_index(
+            name="Records"
         )
-        > 0
     )
 
-    if not (
-        has_male
-        or has_female
+    present_age_groups = (
+        counts["Age Group"]
+        .astype(str)
+        .unique()
+        .tolist()
+    )
+
+    age_order = [
+        value
+        for value in AGE_GROUP_ORDER
+        if value in present_age_groups
+    ]
+
+    age_order += sorted(
+        [
+            value
+            for value in present_age_groups
+            if value not in AGE_GROUP_ORDER
+        ]
+    )
+
+    genders = (
+        counts["Gender"]
+        .astype(str)
+        .unique()
+        .tolist()
+    )
+
+    ordered_genders = [
+        value
+        for value in GENDER_ORDER
+        if value in genders
+    ]
+
+    ordered_genders += sorted(
+        [
+            value
+            for value in genders
+            if value not in GENDER_ORDER
+        ]
+    )
+
+    # --------------------------------------------------------
+    # Male is displayed on the left side.
+    # All other gender categories remain on the right side.
+    # Transgender / Other records are never removed even when
+    # the count is very small.
+    # --------------------------------------------------------
+
+    counts["Plot Records"] = (
+        counts["Records"]
+        .astype(float)
+    )
+
+    counts.loc[
+        counts["Gender"].eq("Male"),
+        "Plot Records",
+    ] *= -1
+
+    color_range = []
+
+    for index, gender in enumerate(
+        ordered_genders
     ):
 
-        st.info(
-            "Male or Female records are not available "
-            "for the population pyramid."
-        )
+        if gender in GENDER_COLORS:
 
-        return
-
-    # --------------------------------------------------------
-    # Male / Female pyramid
-    # --------------------------------------------------------
-
-    mf_df = pyramid_df[
-        pyramid_df["Gender"].isin(
-            [
-                "Male",
-                "Female",
-            ]
-        )
-    ].copy()
-
-    pyramid_table = pd.crosstab(
-        mf_df["Age Group"],
-        mf_df["Gender"],
-    )
-
-    if "Male" not in pyramid_table.columns:
-        pyramid_table["Male"] = 0
-
-    if "Female" not in pyramid_table.columns:
-        pyramid_table["Female"] = 0
-
-    age_order = (
-        _get_age_group_order(
-            pyramid_table.index
-        )
-    )
-
-    pyramid_table = (
-        pyramid_table
-        .reindex(
-            age_order,
-            fill_value=0,
-        )
-        .reset_index()
-    )
-
-    male_df = pyramid_table[
-        [
-            "Age Group",
-            "Male",
-        ]
-    ].copy()
-
-    male_df["Gender"] = "Male"
-
-    male_df["Records"] = (
-        pd.to_numeric(
-            male_df["Male"],
-            errors="coerce",
-        )
-        .fillna(0)
-        .astype(int)
-    )
-
-    male_df["Plot Value"] = (
-        -male_df["Records"]
-    )
-
-    female_df = pyramid_table[
-        [
-            "Age Group",
-            "Female",
-        ]
-    ].copy()
-
-    female_df["Gender"] = "Female"
-
-    female_df["Records"] = (
-        pd.to_numeric(
-            female_df["Female"],
-            errors="coerce",
-        )
-        .fillna(0)
-        .astype(int)
-    )
-
-    female_df["Plot Value"] = (
-        female_df["Records"]
-    )
-
-    chart_df = pd.concat(
-        [
-            male_df[
-                [
-                    "Age Group",
-                    "Gender",
-                    "Records",
-                    "Plot Value",
+            color_range.append(
+                GENDER_COLORS[
+                    gender
                 ]
-            ],
-            female_df[
-                [
-                    "Age Group",
-                    "Gender",
-                    "Records",
-                    "Plot Value",
+            )
+
+        else:
+
+            color_range.append(
+                DEFAULT_CATEGORY_COLORS[
+                    index
+                    % len(
+                        DEFAULT_CATEGORY_COLORS
+                    )
                 ]
-            ],
-        ],
-        ignore_index=True,
+            )
+
+    color_scale = alt.Scale(
+        domain=ordered_genders,
+        range=color_range,
     )
 
-    max_value = max(
-        int(
-            chart_df["Records"].max()
-        ),
+    max_count = (
+        counts["Records"]
+        .max()
+    )
+
+    if pd.isna(max_count):
+        max_count = 1
+
+    max_count = max(
+        int(max_count),
         1,
     )
 
-    scale_limit = (
-        max_value
-        * 1.22
+    domain_limit = (
+        max_count
+        * 1.18
     )
 
-    gender_domain = [
-        "Male",
-        "Female",
-    ]
-
-    gender_range = [
-        GENDER_COLORS["Male"],
-        GENDER_COLORS["Female"],
-    ]
-
     bars = (
-        alt.Chart(chart_df)
+        alt.Chart(counts)
         .mark_bar()
         .encode(
             y=alt.Y(
                 "Age Group:N",
                 sort=age_order,
-                title="Age Group",
                 axis=alt.Axis(
+                    title="Age Group",
                     labelFontSize=11,
                     titleFontSize=12,
                 ),
             ),
             x=alt.X(
-                "Plot Value:Q",
-                title="Records",
+                "Plot Records:Q",
                 scale=alt.Scale(
                     domain=[
-                        -scale_limit,
-                        scale_limit,
-                    ],
-                    nice=False,
+                        -domain_limit,
+                        domain_limit,
+                    ]
                 ),
                 axis=alt.Axis(
-                    labelExpr=(
-                        "abs(datum.value)"
-                    ),
-                    labelFontSize=10,
-                    titleFontSize=11,
-                    grid=True,
+                    title="Records",
+                    labelExpr="abs(datum.value)",
+                    labelFontSize=11,
+                    titleFontSize=12,
                 ),
             ),
             color=alt.Color(
                 "Gender:N",
-                title=None,
-                scale=alt.Scale(
-                    domain=gender_domain,
-                    range=gender_range,
-                ),
-                legend=alt.Legend(
-                    orient="bottom",
-                    direction="horizontal",
-                    columns=2,
-                    labelFontSize=9,
-                    symbolSize=70,
-                    offset=8,
+                scale=color_scale,
+                legend=_bottom_legend(
+                    "Gender"
                 ),
             ),
             tooltip=[
@@ -490,48 +788,40 @@ def _render_population_pyramid(df):
             ],
         )
         .properties(
-            height=430,
+            height=430
         )
     )
 
-    centre_line = (
+    zero_line = (
         alt.Chart(
             pd.DataFrame(
                 {
-                    "Zero": [0]
+                    "x": [0]
                 }
             )
         )
         .mark_rule(
-            strokeWidth=1.2
+            color="#777777",
+            strokeWidth=1,
         )
         .encode(
-            x="Zero:Q"
+            x="x:Q"
         )
     )
 
-    pyramid_chart = (
+    chart = (
         bars
-        + centre_line
+        + zero_line
     )
-
-    # --------------------------------------------------------
-    # Data labels controlled by global Show Data Labels
-    # --------------------------------------------------------
 
     if data_labels_enabled():
 
-        male_labels = (
-            alt.Chart(male_df)
+        labels = (
+            alt.Chart(counts)
             .mark_text(
-                align="right",
-                baseline="middle",
-                dx=-5,
-                fontSize=11,
                 fontWeight="bold",
-                color=GENDER_COLORS[
-                    "Male"
-                ],
+                fontSize=10,
+                dx=0,
             )
             .encode(
                 y=alt.Y(
@@ -539,104 +829,60 @@ def _render_population_pyramid(df):
                     sort=age_order,
                 ),
                 x=alt.X(
-                    "Plot Value:Q",
-                    scale=alt.Scale(
-                        domain=[
-                            -scale_limit,
-                            scale_limit,
-                        ],
-                        nice=False,
-                    ),
+                    "Plot Records:Q"
                 ),
                 text=alt.Text(
                     "Records:Q",
                     format=",",
                 ),
-            )
-        )
-
-        female_labels = (
-            alt.Chart(female_df)
-            .mark_text(
-                align="left",
-                baseline="middle",
-                dx=5,
-                fontSize=11,
-                fontWeight="bold",
-                color=GENDER_COLORS[
-                    "Female"
-                ],
-            )
-            .encode(
-                y=alt.Y(
-                    "Age Group:N",
-                    sort=age_order,
-                ),
-                x=alt.X(
-                    "Plot Value:Q",
-                    scale=alt.Scale(
-                        domain=[
-                            -scale_limit,
-                            scale_limit,
-                        ],
-                        nice=False,
-                    ),
-                ),
-                text=alt.Text(
-                    "Records:Q",
-                    format=",",
+                color=alt.Color(
+                    "Gender:N",
+                    scale=color_scale,
+                    legend=None,
                 ),
             )
         )
 
-        pyramid_chart = (
-            pyramid_chart
-            + male_labels
-            + female_labels
+        chart = (
+            bars
+            + zero_line
+            + labels
         )
-
-    pyramid_chart = (
-        pyramid_chart
-        .configure_view(
-            strokeWidth=0
-        )
-        .configure_legend(
-            labelFontSize=9,
-            titleFontSize=9,
-        )
-    )
 
     st.altair_chart(
-        pyramid_chart,
+        chart,
         use_container_width=True,
     )
 
-    st.caption(
-        "Male records are displayed on the left and "
-        "Female records on the right. Axis values represent "
-        "absolute record counts."
-    )
-
-    # --------------------------------------------------------
-    # Display pyramid table
-    # --------------------------------------------------------
-
     display_table = (
-        pyramid_table[
+        counts[
             [
                 "Age Group",
-                "Male",
-                "Female",
+                "Gender",
+                "Records",
             ]
         ]
-        .copy()
+        .pivot_table(
+            index="Age Group",
+            columns="Gender",
+            values="Records",
+            aggfunc="sum",
+            fill_value=0,
+            observed=True,
+        )
+        .reset_index()
     )
 
-    display_table[
-        "Total"
-    ] = (
-        display_table["Male"]
-        + display_table["Female"]
+    display_table["Age Group"] = pd.Categorical(
+        display_table["Age Group"],
+        categories=age_order,
+        ordered=True,
+    )
+
+    display_table = (
+        display_table
+        .sort_values("Age Group")
+        .reset_index(drop=True)
     )
 
     st.dataframe(
@@ -645,86 +891,27 @@ def _render_population_pyramid(df):
         hide_index=True,
     )
 
-    # --------------------------------------------------------
-    # Transgender / Other genders
-    # --------------------------------------------------------
-
-    additional_gender_df = pyramid_df[
-        ~pyramid_df["Gender"].isin(
-            [
-                "Male",
-                "Female",
-            ]
-        )
-    ].copy()
-
-    if not additional_gender_df.empty:
-
-        st.caption(
-            "Additional gender categories are reported "
-            "separately below and are not forced into the "
-            "two-sided Male–Female pyramid."
-        )
-
-        additional_table = (
-            additional_gender_df
-            .groupby(
-                [
-                    "Age Group",
-                    "Gender",
-                ],
-                observed=True,
-            )
-            .size()
-            .reset_index(
-                name="Records"
-            )
-        )
-
-        additional_table[
-            "Age Group"
-        ] = pd.Categorical(
-            additional_table[
-                "Age Group"
-            ],
-            categories=age_order,
-            ordered=True,
-        )
-
-        additional_table = (
-            additional_table
-            .sort_values(
-                [
-                    "Age Group",
-                    "Gender",
-                ]
-            )
-            .reset_index(
-                drop=True
-            )
-        )
-
-        st.dataframe(
-            additional_table,
-            use_container_width=True,
-            hide_index=True,
-        )
+    st.caption(
+        "Male records are displayed on the left side of the "
+        "pyramid. Female, Transgender and other recorded gender "
+        "categories are displayed on the right side. Small counts "
+        "are retained in the chart and table."
+    )
 
 
 # ============================================================
 # MAIN DEMOGRAPHICS PAGE
 # ============================================================
 
-def render_demographics(df):
+def render_demographics(
+    df,
+):
 
     st.subheader(
         "👥 Demographic Analysis"
     )
 
-    if (
-        df is None
-        or df.empty
-    ):
+    if df is None or df.empty:
 
         st.warning(
             "No records available for the selected filters."
@@ -745,7 +932,9 @@ def render_demographics(df):
         "### 1. 📊 Demographic Summary"
     )
 
-    total_records = len(df)
+    total_records = len(
+        df
+    )
 
     if "Age" in df.columns:
 
@@ -769,21 +958,10 @@ def render_demographics(df):
 
     if not valid_age.empty:
 
-        mean_age = (
-            valid_age.mean()
-        )
-
-        median_age = (
-            valid_age.median()
-        )
-
-        min_age = (
-            valid_age.min()
-        )
-
-        max_age = (
-            valid_age.max()
-        )
+        mean_age = valid_age.mean()
+        median_age = valid_age.median()
+        min_age = valid_age.min()
+        max_age = valid_age.max()
 
     else:
 
@@ -902,110 +1080,11 @@ def render_demographics(df):
                 * 100
             ).round(2)
 
-            chart_df = (
-                age_group_counts.copy()
-            )
-
-            age_order = (
-                _get_age_group_order(
-                    chart_df[
-                        "Age Group"
-                    ]
-                )
-            )
-
-            chart_df[
-                "Age Group"
-            ] = pd.Categorical(
-                chart_df[
-                    "Age Group"
-                ],
-                categories=age_order,
-                ordered=True,
-            )
-
-            chart_df = (
-                chart_df
-                .sort_values(
-                    "Age Group"
-                )
-            )
-
-            age_chart = (
-                alt.Chart(
-                    chart_df
-                )
-                .mark_bar()
-                .encode(
-                    x=alt.X(
-                        "Age Group:N",
-                        sort=age_order,
-                        title="Age Group",
-                    ),
-                    y=alt.Y(
-                        "Records:Q",
-                        title="Records",
-                    ),
-                    color=alt.Color(
-                        "Age Group:N",
-                        title=None,
-                        sort=age_order,
-                        legend=alt.Legend(
-                            orient="bottom",
-                            direction="horizontal",
-                            labelFontSize=9,
-                            symbolSize=60,
-                        ),
-                    ),
-                    tooltip=[
-                        alt.Tooltip(
-                            "Age Group:N",
-                            title="Age Group",
-                        ),
-                        alt.Tooltip(
-                            "Records:Q",
-                            title="Records",
-                            format=",",
-                        ),
-                    ],
-                )
-                .properties(
-                    height=400
-                )
-            )
-
-            if data_labels_enabled():
-
-                labels = (
-                    alt.Chart(
-                        chart_df
-                    )
-                    .mark_text(
-                        dy=-8,
-                        fontWeight="bold",
-                        fontSize=11,
-                    )
-                    .encode(
-                        x=alt.X(
-                            "Age Group:N",
-                            sort=age_order,
-                        ),
-                        y="Records:Q",
-                        text=alt.Text(
-                            "Records:Q",
-                            format=",",
-                        ),
-                    )
-                )
-
-                age_chart = (
-                    age_chart
-                    + labels
-                )
-
-            st.altair_chart(
-                age_chart,
-                use_container_width=True,
+            _render_category_bar_chart(
+                dataframe=age_group_counts,
+                category_column="Age Group",
+                value_column="Records",
+                height=400,
             )
 
             display_age_group = (
@@ -1019,8 +1098,9 @@ def render_demographics(df):
                     "Percentage"
                 ]
                 .map(
-                    lambda x:
-                    f"{x:.2f}%"
+                    lambda x: (
+                        f"{x:.2f}%"
+                    )
                 )
             )
 
@@ -1035,6 +1115,12 @@ def render_demographics(df):
             st.info(
                 "Age Group information is not available."
             )
+
+    else:
+
+        st.info(
+            "Age Group column is not available."
+        )
 
     # ========================================================
     # 3. GENDER-WISE DISTRIBUTION
@@ -1056,6 +1142,8 @@ def render_demographics(df):
 
         gender = gender[
             gender.ne("")
+            & gender.ne("nan")
+            & gender.ne("NaT")
         ]
 
         if not gender.empty:
@@ -1083,20 +1171,54 @@ def render_demographics(df):
                 * 100
             ).round(2)
 
-            gender_order = (
-                gender_counts[
+            gender_order = [
+                value
+                for value in GENDER_ORDER
+                if value
+                in gender_counts[
                     "Gender"
                 ].tolist()
+            ]
+
+            gender_order += [
+                value
+                for value in (
+                    gender_counts[
+                        "Gender"
+                    ].tolist()
+                )
+                if value
+                not in GENDER_ORDER
+            ]
+
+            gender_counts[
+                "_order"
+            ] = (
+                gender_counts[
+                    "Gender"
+                ]
+                .map(
+                    {
+                        value: index
+                        for index, value
+                        in enumerate(
+                            gender_order
+                        )
+                    }
+                )
             )
 
-            gender_colors = [
-                GENDER_COLORS.get(
-                    gender_name,
-                    "#7F8C8D",
+            gender_counts = (
+                gender_counts
+                .sort_values(
+                    "_order"
                 )
-                for gender_name
-                in gender_order
-            ]
+                .drop(
+                    columns=[
+                        "_order"
+                    ]
+                )
+            )
 
             left, right = (
                 st.columns(
@@ -1107,42 +1229,79 @@ def render_demographics(df):
 
             with left:
 
-                gender_chart = (
+                chart_df = (
+                    gender_counts.copy()
+                )
+
+                domains = (
+                    chart_df[
+                        "Gender"
+                    ].tolist()
+                )
+
+                ranges = []
+
+                for index, value in enumerate(
+                    domains
+                ):
+
+                    ranges.append(
+                        GENDER_COLORS.get(
+                            value,
+                            DEFAULT_CATEGORY_COLORS[
+                                index
+                                % len(
+                                    DEFAULT_CATEGORY_COLORS
+                                )
+                            ],
+                        )
+                    )
+
+                color_scale = alt.Scale(
+                    domain=domains,
+                    range=ranges,
+                )
+
+                bars = (
                     alt.Chart(
-                        gender_counts
+                        chart_df
                     )
                     .mark_bar()
                     .encode(
                         x=alt.X(
                             "Gender:N",
-                            sort=gender_order,
-                            title="Gender",
+                            sort=domains,
+                            axis=_x_axis(
+                                "Gender"
+                            ),
                         ),
                         y=alt.Y(
                             "Records:Q",
-                            title="Records",
+                            axis=_y_axis(
+                                "Records"
+                            ),
                         ),
                         color=alt.Color(
                             "Gender:N",
-                            title=None,
-                            scale=alt.Scale(
-                                domain=gender_order,
-                                range=gender_colors,
-                            ),
-                            legend=alt.Legend(
-                                orient="bottom",
-                                direction="horizontal",
-                                labelFontSize=9,
-                                symbolSize=70,
+                            scale=color_scale,
+                            legend=_bottom_legend(
+                                "Gender"
                             ),
                         ),
                         tooltip=[
                             alt.Tooltip(
-                                "Gender:N"
+                                "Gender:N",
+                                title="Gender",
                             ),
                             alt.Tooltip(
                                 "Records:Q",
+                                title="Records",
                                 format=",",
+                            ),
+                            alt.Tooltip(
+                                "Percentage:Q",
+                                title="Percentage",
+                                format=".2f",
                             ),
                         ],
                     )
@@ -1151,33 +1310,40 @@ def render_demographics(df):
                     )
                 )
 
+                gender_chart = bars
+
                 if data_labels_enabled():
 
-                    gender_labels = (
+                    labels = (
                         alt.Chart(
-                            gender_counts
+                            chart_df
                         )
                         .mark_text(
                             dy=-8,
                             fontWeight="bold",
-                            fontSize=11,
+                            fontSize=12,
                         )
                         .encode(
                             x=alt.X(
                                 "Gender:N",
-                                sort=gender_order,
+                                sort=domains,
                             ),
                             y="Records:Q",
                             text=alt.Text(
                                 "Records:Q",
                                 format=",",
                             ),
+                            color=alt.Color(
+                                "Gender:N",
+                                scale=color_scale,
+                                legend=None,
+                            ),
                         )
                     )
 
                     gender_chart = (
-                        gender_chart
-                        + gender_labels
+                        bars
+                        + labels
                     )
 
                 st.altair_chart(
@@ -1198,8 +1364,9 @@ def render_demographics(df):
                         "Percentage"
                     ]
                     .map(
-                        lambda x:
-                        f"{x:.2f}%"
+                        lambda x: (
+                            f"{x:.2f}%"
+                        )
                     )
                 )
 
@@ -1214,6 +1381,12 @@ def render_demographics(df):
             st.info(
                 "Gender information is not available."
             )
+
+    else:
+
+        st.info(
+            "Gender column is not available."
+        )
 
     # ========================================================
     # 4. AGE-WISE DISTRIBUTION
@@ -1255,10 +1428,79 @@ def render_demographics(df):
                 )
             )
 
-            render_line_chart(
-                age_counts.set_index(
-                    "Age"
-                )["Records"],
+            age_line = (
+                alt.Chart(
+                    age_counts
+                )
+                .mark_line(
+                    point=True
+                )
+                .encode(
+                    x=alt.X(
+                        "Age:O",
+                        sort="ascending",
+                        axis=_x_axis(
+                            "Age"
+                        ),
+                    ),
+                    y=alt.Y(
+                        "Records:Q",
+                        axis=_y_axis(
+                            "Records"
+                        ),
+                    ),
+                    tooltip=[
+                        alt.Tooltip(
+                            "Age:O",
+                            title="Age",
+                        ),
+                        alt.Tooltip(
+                            "Records:Q",
+                            title="Records",
+                            format=",",
+                        ),
+                    ],
+                )
+                .properties(
+                    height=420
+                )
+            )
+
+            age_chart = (
+                age_line
+            )
+
+            if data_labels_enabled():
+
+                age_labels = (
+                    alt.Chart(
+                        age_counts
+                    )
+                    .mark_text(
+                        dy=-9,
+                        fontSize=9,
+                        fontWeight="bold",
+                    )
+                    .encode(
+                        x=alt.X(
+                            "Age:O",
+                            sort="ascending",
+                        ),
+                        y="Records:Q",
+                        text=alt.Text(
+                            "Records:Q",
+                            format=",",
+                        ),
+                    )
+                )
+
+                age_chart = (
+                    age_line
+                    + age_labels
+                )
+
+            st.altair_chart(
+                age_chart,
                 use_container_width=True,
             )
 
@@ -1273,6 +1515,12 @@ def render_demographics(df):
             st.info(
                 "Valid age information is not available."
             )
+
+    else:
+
+        st.info(
+            "Age column is not available."
+        )
 
     # ========================================================
     # 5. AGE-GENDER POPULATION PYRAMID
@@ -1312,26 +1560,66 @@ def render_demographics(df):
 
         cross_df[
             "Gender"
-        ] = _standardize_gender(
-            cross_df["Gender"]
+        ] = (
+            _standardize_gender(
+                cross_df[
+                    "Gender"
+                ]
+            )
         )
 
         cross_df[
             "Age Group"
-        ] = _standardize_age_group(
-            cross_df["Age Group"]
+        ] = (
+            _standardize_age_group(
+                cross_df[
+                    "Age Group"
+                ]
+            )
         )
 
         cross_df = cross_df[
-            cross_df["Gender"].ne("")
+            cross_df[
+                "Gender"
+            ].ne("")
             & cross_df[
                 "Age Group"
             ].ne("")
+            & cross_df[
+                "Gender"
+            ].ne("nan")
+            & cross_df[
+                "Age Group"
+            ].ne("nan")
         ]
 
         if not cross_df.empty:
 
             gender_age = (
+                cross_df
+                .groupby(
+                    [
+                        "Age Group",
+                        "Gender",
+                    ],
+                    observed=True,
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+            )
+
+            _render_grouped_bar_chart(
+                dataframe=gender_age,
+                x_column="Age Group",
+                group_column="Gender",
+                value_column="Records",
+                x_order=AGE_GROUP_ORDER,
+                height=450,
+            )
+
+            gender_age_table = (
                 pd.crosstab(
                     cross_df[
                         "Age Group"
@@ -1342,25 +1630,35 @@ def render_demographics(df):
                 )
             )
 
-            age_order = (
-                _get_age_group_order(
-                    gender_age.index
-                )
+            available = [
+                value
+                for value
+                in AGE_GROUP_ORDER
+                if value
+                in gender_age_table.index
+            ]
+
+            remaining = sorted(
+                [
+                    value
+                    for value
+                    in gender_age_table.index
+                    if value
+                    not in AGE_GROUP_ORDER
+                ]
             )
 
-            gender_age = (
-                gender_age.reindex(
-                    age_order
+            gender_age_table = (
+                gender_age_table
+                .reindex(
+                    available
+                    + remaining
                 )
-            )
-
-            render_bar_chart(
-                gender_age,
-                use_container_width=True,
             )
 
             st.dataframe(
-                gender_age.reset_index(),
+                gender_age_table
+                .reset_index(),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -1371,6 +1669,12 @@ def render_demographics(df):
                 "Gender and Age Group cross-analysis "
                 "is not available."
             )
+
+    else:
+
+        st.info(
+            "Gender and Age Group columns are required."
+        )
 
     # ========================================================
     # 7. OPD / IPD DEMOGRAPHIC DISTRIBUTION
@@ -1429,11 +1733,11 @@ def render_demographics(df):
 
             with c1:
 
-                render_bar_chart(
-                    opd_counts.set_index(
-                        "OPD/IPD"
-                    )["Records"],
-                    use_container_width=True,
+                _render_category_bar_chart(
+                    dataframe=opd_counts,
+                    category_column="OPD/IPD",
+                    value_column="Records",
+                    height=400,
                 )
 
             with c2:
@@ -1449,8 +1753,9 @@ def render_demographics(df):
                         "Percentage"
                     ]
                     .map(
-                        lambda x:
-                        f"{x:.2f}%"
+                        lambda x: (
+                            f"{x:.2f}%"
+                        )
                     )
                 )
 
@@ -1465,6 +1770,12 @@ def render_demographics(df):
             st.info(
                 "OPD/IPD information is not available."
             )
+
+    else:
+
+        st.info(
+            "OPD/IPD column is not available."
+        )
 
     # ========================================================
     # 8. AGE GROUP × OPD/IPD
@@ -1490,10 +1801,12 @@ def render_demographics(df):
 
         age_opd[
             "Age Group"
-        ] = _standardize_age_group(
-            age_opd[
-                "Age Group"
-            ]
+        ] = (
+            _standardize_age_group(
+                age_opd[
+                    "Age Group"
+                ]
+            )
         )
 
         age_opd[
@@ -1515,11 +1828,38 @@ def render_demographics(df):
                 "OPD/IPD"
             ].ne("")
             & age_opd[
+                "Age Group"
+            ].ne("nan")
+            & age_opd[
                 "OPD/IPD"
             ].ne("nan")
         ]
 
         if not age_opd.empty:
+
+            chart_long = (
+                age_opd
+                .groupby(
+                    [
+                        "Age Group",
+                        "OPD/IPD",
+                    ],
+                    observed=True,
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+            )
+
+            _render_grouped_bar_chart(
+                dataframe=chart_long,
+                x_column="Age Group",
+                group_column="OPD/IPD",
+                value_column="Records",
+                x_order=AGE_GROUP_ORDER,
+                height=450,
+            )
 
             age_opd_table = (
                 pd.crosstab(
@@ -1532,129 +1872,35 @@ def render_demographics(df):
                 )
             )
 
-            age_order = (
-                _get_age_group_order(
-                    age_opd_table.index
-                )
+            available = [
+                value
+                for value
+                in AGE_GROUP_ORDER
+                if value
+                in age_opd_table.index
+            ]
+
+            remaining = sorted(
+                [
+                    value
+                    for value
+                    in age_opd_table.index
+                    if value
+                    not in AGE_GROUP_ORDER
+                ]
             )
 
             age_opd_table = (
-                age_opd_table.reindex(
-                    age_order
-                )
-            )
-
-            chart_df = (
                 age_opd_table
-                .reset_index()
-            )
-
-            chart_long = (
-                chart_df.melt(
-                    id_vars=[
-                        "Age Group"
-                    ],
-                    var_name="OPD/IPD",
-                    value_name="Records",
+                .reindex(
+                    available
+                    + remaining
                 )
-            )
-
-            opd_order = (
-                chart_long[
-                    "OPD/IPD"
-                ]
-                .drop_duplicates()
-                .tolist()
-            )
-
-            age_opd_chart = (
-                alt.Chart(
-                    chart_long
-                )
-                .mark_bar()
-                .encode(
-                    x=alt.X(
-                        "Age Group:N",
-                        sort=age_order,
-                        title="Age Group",
-                    ),
-                    y=alt.Y(
-                        "Records:Q",
-                        title="Records",
-                    ),
-                    xOffset=alt.XOffset(
-                        "OPD/IPD:N"
-                    ),
-                    color=alt.Color(
-                        "OPD/IPD:N",
-                        title=None,
-                        legend=alt.Legend(
-                            orient="bottom",
-                            direction="horizontal",
-                            columns=len(
-                                opd_order
-                            ),
-                            labelFontSize=9,
-                            symbolSize=70,
-                        ),
-                    ),
-                    tooltip=[
-                        alt.Tooltip(
-                            "Age Group:N"
-                        ),
-                        alt.Tooltip(
-                            "OPD/IPD:N"
-                        ),
-                        alt.Tooltip(
-                            "Records:Q",
-                            format=",",
-                        ),
-                    ],
-                )
-                .properties(
-                    height=450
-                )
-            )
-
-            if data_labels_enabled():
-
-                labels = (
-                    alt.Chart(
-                        chart_long
-                    )
-                    .mark_text(
-                        dy=-7,
-                        fontSize=10,
-                        fontWeight="bold",
-                    )
-                    .encode(
-                        x=alt.X(
-                            "Age Group:N",
-                            sort=age_order,
-                        ),
-                        xOffset=alt.XOffset(
-                            "OPD/IPD:N"
-                        ),
-                        y="Records:Q",
-                        text=alt.Text(
-                            "Records:Q",
-                            format=",",
-                        ),
-                    )
-                )
-
-                age_opd_chart = (
-                    age_opd_chart
-                    + labels
-                )
-
-            st.altair_chart(
-                age_opd_chart,
-                use_container_width=True,
             )
 
             st.dataframe(
-                chart_df,
+                age_opd_table
+                .reset_index(),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -1665,6 +1911,12 @@ def render_demographics(df):
                 "Age Group and OPD/IPD cross-analysis "
                 "is not available."
             )
+
+    else:
+
+        st.info(
+            "Age Group and OPD/IPD columns are required."
+        )
 
     # ========================================================
     # 9. DISEASE × GENDER
@@ -1701,10 +1953,12 @@ def render_demographics(df):
 
         disease_gender[
             "Gender"
-        ] = _standardize_gender(
-            disease_gender[
-                "Gender"
-            ]
+        ] = (
+            _standardize_gender(
+                disease_gender[
+                    "Gender"
+                ]
+            )
         )
 
         disease_gender = (
@@ -1718,42 +1972,73 @@ def render_demographics(df):
                 & disease_gender[
                     "Disease"
                 ].ne("nan")
+                & disease_gender[
+                    "Gender"
+                ].ne("nan")
             ]
         )
 
         if not disease_gender.empty:
 
-            disease_gender_table = (
-                pd.crosstab(
-                    disease_gender[
-                        "Disease"
-                    ],
-                    disease_gender[
-                        "Gender"
-                    ],
-                )
+            disease_totals = (
+                disease_gender[
+                    "Disease"
+                ]
+                .value_counts()
+                .head(10)
             )
 
             top_diseases = (
-                disease_gender_table
-                .sum(axis=1)
-                .sort_values(
-                    ascending=False
-                )
-                .head(10)
-                .index
+                disease_totals.index
+                .tolist()
             )
 
-            disease_gender_table = (
-                disease_gender_table
-                .loc[
-                    top_diseases
+            top_df = (
+                disease_gender[
+                    disease_gender[
+                        "Disease"
+                    ].isin(
+                        top_diseases
+                    )
                 ]
             )
 
-            render_bar_chart(
-                disease_gender_table,
-                use_container_width=True,
+            chart_long = (
+                top_df
+                .groupby(
+                    [
+                        "Disease",
+                        "Gender",
+                    ],
+                    observed=True,
+                )
+                .size()
+                .reset_index(
+                    name="Records"
+                )
+            )
+
+            _render_grouped_bar_chart(
+                dataframe=chart_long,
+                x_column="Disease",
+                group_column="Gender",
+                value_column="Records",
+                x_order=top_diseases,
+                height=480,
+            )
+
+            disease_gender_table = (
+                pd.crosstab(
+                    top_df[
+                        "Disease"
+                    ],
+                    top_df[
+                        "Gender"
+                    ],
+                )
+                .reindex(
+                    top_diseases
+                )
             )
 
             st.caption(
@@ -1762,7 +2047,8 @@ def render_demographics(df):
             )
 
             st.dataframe(
-                disease_gender_table.reset_index(),
+                disease_gender_table
+                .reset_index(),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -1773,6 +2059,12 @@ def render_demographics(df):
                 "Disease and Gender cross-analysis "
                 "is not available."
             )
+
+    else:
+
+        st.info(
+            "Disease and Gender columns are required."
+        )
 
     # ========================================================
     # 10. DEMOGRAPHIC DATA QUALITY
@@ -1785,30 +2077,36 @@ def render_demographics(df):
     )
 
     missing_age = 0
+    invalid_age = 0
     missing_gender = 0
     missing_age_group = 0
 
     if "Age" in df.columns:
 
+        raw_age = df[
+            "Age"
+        ]
+
         age_numeric = pd.to_numeric(
-            df["Age"],
+            raw_age,
             errors="coerce",
         )
 
-        valid_age_mask = (
-            age_numeric.between(
-                0,
-                120,
-            )
+        missing_age = int(
+            age_numeric
+            .isna()
+            .sum()
         )
 
-        missing_age = int(
+        invalid_age = int(
             (
-                age_numeric.isna()
-                | ~valid_age_mask.fillna(
-                    False
+                age_numeric.notna()
+                & ~age_numeric.between(
+                    0,
+                    120,
                 )
-            ).sum()
+            )
+            .sum()
         )
 
     if "Gender" in df.columns:
@@ -1820,8 +2118,11 @@ def render_demographics(df):
         )
 
         missing_gender = int(
-            gender_values
-            .eq("")
+            (
+                gender_values.eq("")
+                | gender_values.eq("nan")
+                | gender_values.eq("NaT")
+            )
             .sum()
         )
 
@@ -1833,44 +2134,66 @@ def render_demographics(df):
             )
         )
 
-        invalid_age_group = (
-            age_group_values
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .isin(
-                [
-                    "",
-                    "nan",
-                    "nat",
-                    "none",
-                ]
-            )
-        )
-
         missing_age_group = int(
-            invalid_age_group.sum()
+            (
+                age_group_values.eq("")
+                | age_group_values.eq("nan")
+                | age_group_values.eq("NaT")
+            )
+            .sum()
         )
 
     quality_table = pd.DataFrame(
         {
             "Indicator": [
                 "Total Records",
-                "Missing / Invalid Age",
+                "Missing Age",
+                "Invalid Age",
                 "Missing Gender",
                 "Missing Age Group",
             ],
             "Count": [
                 total_records,
                 missing_age,
+                invalid_age,
                 missing_gender,
                 missing_age_group,
             ],
         }
     )
 
+    quality_table[
+        "Percentage"
+    ] = (
+        quality_table[
+            "Count"
+        ]
+        / max(
+            total_records,
+            1,
+        )
+        * 100
+    ).round(2)
+
+    quality_display = (
+        quality_table.copy()
+    )
+
+    quality_display[
+        "Percentage"
+    ] = (
+        quality_display[
+            "Percentage"
+        ]
+        .map(
+            lambda x: (
+                f"{x:.2f}%"
+            )
+        )
+    )
+
     st.dataframe(
-        quality_table,
+        quality_display,
         use_container_width=True,
         hide_index=True,
     )
