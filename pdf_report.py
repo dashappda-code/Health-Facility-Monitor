@@ -11,15 +11,9 @@ import streamlit as st
 # ============================================================
 
 from reportlab.lib import colors
-from reportlab.lib.enums import (
-    TA_CENTER,
-    TA_LEFT,
-)
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import (
-    getSampleStyleSheet,
-    ParagraphStyle,
-)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 
 from reportlab.platypus import (
@@ -30,7 +24,6 @@ from reportlab.platypus import (
     KeepTogether,
     Image,
     LongTable,
-    Table,
     TableStyle,
 )
 
@@ -45,15 +38,11 @@ from displayed_chart_export import (
 )
 
 
-
-
 # ============================================================
 # DASHBOARD BRANDING
 # ============================================================
 
-DASHBOARD_TITLE = (
-    "MSU Mumbai Public Health Surveillance Dashboard"
-)
+DASHBOARD_TITLE = "MSU Mumbai Public Health Surveillance Dashboard"
 
 DASHBOARD_SUBTITLE = (
     "Surveillance • Monitoring • Analysis • Management"
@@ -107,9 +96,7 @@ def _safe_html(value):
 
 def _clean_text(value):
 
-    text = _safe_text(
-        value
-    )
+    text = _safe_text(value)
 
     text = re.sub(
         r"<[^>]+>",
@@ -131,28 +118,20 @@ def _to_dataframe(value):
     if value is None:
         return pd.DataFrame()
 
-    if isinstance(
-        value,
-        pd.DataFrame,
-    ):
+    if isinstance(value, pd.DataFrame):
         return value.copy()
 
-    if isinstance(
-        value,
-        pd.Series,
-    ):
+    if isinstance(value, pd.Series):
+
         return (
             value
             .to_frame()
-            .reset_index(
-                drop=True
-            )
+            .reset_index(drop=True)
         )
 
     try:
-        return pd.DataFrame(
-            value
-        )
+        return pd.DataFrame(value)
+
     except Exception:
         return pd.DataFrame()
 
@@ -161,17 +140,14 @@ def _format_number(value):
 
     try:
         return f"{int(value):,}"
+
     except Exception:
-        return _safe_text(
-            value
-        )
+        return _safe_text(value)
 
 
 def _safe_filename(value):
 
-    value = _safe_text(
-        value
-    )
+    value = _safe_text(value)
 
     value = re.sub(
         r"[^A-Za-z0-9_-]+",
@@ -179,14 +155,95 @@ def _safe_filename(value):
         value,
     )
 
-    value = value.strip(
-        "_"
-    )
+    value = value.strip("_")
 
     if not value:
         value = "Dashboard_Report"
 
     return value
+
+
+# ============================================================
+# ORDER HELPERS
+# ============================================================
+
+def _get_item_order(
+    item,
+    fallback_order,
+):
+
+    """
+    Return explicit dashboard/capture order when available.
+
+    Supported keys:
+        display_order
+        capture_order
+        sequence
+        order
+        index
+        position
+
+    If none exists, fallback_order is used.
+    """
+
+    if not isinstance(item, dict):
+        return fallback_order
+
+    order_keys = (
+        "display_order",
+        "capture_order",
+        "sequence",
+        "order",
+        "index",
+        "position",
+    )
+
+    for key in order_keys:
+
+        value = item.get(key)
+
+        if value is None:
+            continue
+
+        try:
+            return float(value)
+
+        except Exception:
+            continue
+
+    return fallback_order
+
+
+def _get_section_order(
+    item,
+    fallback_order,
+):
+
+    """
+    Prefer explicit section ordering metadata.
+
+    If the capture layer stores section_order, it has priority.
+    Otherwise use the item's display/capture order.
+    """
+
+    if isinstance(item, dict):
+
+        value = item.get(
+            "section_order"
+        )
+
+        if value is not None:
+
+            try:
+                return float(value)
+
+            except Exception:
+                pass
+
+    return _get_item_order(
+        item,
+        fallback_order,
+    )
 
 
 # ============================================================
@@ -248,7 +305,9 @@ def _normalise_filter_summary(
         return dict(
             filter_summary
         )
+
     except Exception:
+
         return {
             "Filters": _safe_text(
                 filter_summary
@@ -289,9 +348,11 @@ def _normalise_captured_content(
             value,
             list,
         ):
+
             result[key] = value
 
         elif value is not None:
+
             result[key] = [
                 value
             ]
@@ -315,15 +376,10 @@ def _get_item_section(
         return fallback
 
     section = (
-        item.get(
-            "section_name"
-        )
-        or item.get(
-            "section"
-        )
-        or item.get(
-            "title"
-        )
+        item.get("section_name")
+        or item.get("section")
+        or item.get("group")
+        or item.get("section_title")
         or fallback
     )
 
@@ -331,10 +387,7 @@ def _get_item_section(
         section
     )
 
-    return (
-        section
-        or fallback
-    )
+    return section or fallback
 
 
 # ============================================================
@@ -361,71 +414,35 @@ def _section_key(value):
 
 
 # ============================================================
-# GROUP CONTENT BY SECTION
+# BUILD MIXED CAPTURE STREAM
 # ============================================================
 
-def _group_content_by_section(
+def _build_capture_stream(
     captured_content,
 ):
 
-    content = (
-        _normalise_captured_content(
-            captured_content
-        )
+    """
+    Convert type-separated capture registry into one ordered stream.
+
+    IMPORTANT:
+    The old implementation processed:
+        metrics -> notes -> charts -> tables -> images
+
+    That caused PDF section order to depend on CONTENT TYPE.
+
+    This implementation collects everything first and sorts using
+    explicit capture/display metadata whenever available.
+    """
+
+    content = _normalise_captured_content(
+        captured_content
     )
 
-    sections = []
-    section_lookup = {}
+    stream = []
 
-    def ensure_section(
-        section_name
-    ):
+    serial = 0
 
-        clean_name = (
-            _clean_text(
-                section_name
-            )
-            or DEFAULT_SECTION_NAME
-        )
-
-        key = _section_key(
-            clean_name
-        )
-
-        if key not in section_lookup:
-
-            section = {
-                "name": clean_name,
-                "metrics": [],
-                "notes": [],
-                "charts": [],
-                "tables": [],
-                "images": [],
-            }
-
-            section_lookup[
-                key
-            ] = section
-
-            sections.append(
-                section
-            )
-
-        return section_lookup[
-            key
-        ]
-
-    # --------------------------------------------------------
-    # IMPORTANT
-    #
-    # The existing capture registry stores content by type,
-    # not as one mixed ordered list.
-    #
-    # We therefore preserve the first-seen SECTION order and
-    # keep all related content together inside that section.
-    # --------------------------------------------------------
-
-    capture_types = (
+    content_types = (
         "metrics",
         "notes",
         "charts",
@@ -433,28 +450,144 @@ def _group_content_by_section(
         "images",
     )
 
-    for content_type in capture_types:
+    for content_type in content_types:
 
         for item in content.get(
             content_type,
             [],
         ):
 
-            section_name = (
-                _get_item_section(
-                    item
-                )
+            serial += 1
+
+            item_order = _get_item_order(
+                item,
+                serial,
             )
 
-            section = ensure_section(
-                section_name
+            section_order = _get_section_order(
+                item,
+                item_order,
             )
 
-            section[
-                content_type
-            ].append(
-                item
+            stream.append(
+                {
+                    "content_type": content_type,
+                    "item": item,
+                    "serial": serial,
+                    "item_order": item_order,
+                    "section_order": section_order,
+                    "section_name": _get_item_section(
+                        item
+                    ),
+                }
             )
+
+    # --------------------------------------------------------
+    # Explicit ordering metadata takes priority.
+    # Serial gives deterministic ordering when values tie.
+    # --------------------------------------------------------
+
+    stream.sort(
+        key=lambda record: (
+            record["section_order"],
+            record["item_order"],
+            record["serial"],
+        )
+    )
+
+    return stream
+
+
+# ============================================================
+# GROUP CONTENT BY SECTION
+# ============================================================
+
+def _group_content_by_section(
+    captured_content,
+):
+
+    """
+    Group captured content without allowing content type to
+    determine section order.
+
+    Section order is based on the earliest display/capture order
+    found for that section.
+    """
+
+    stream = _build_capture_stream(
+        captured_content
+    )
+
+    section_lookup = {}
+
+    for record in stream:
+
+        section_name = (
+            _clean_text(
+                record["section_name"]
+            )
+            or DEFAULT_SECTION_NAME
+        )
+
+        key = _section_key(
+            section_name
+        )
+
+        if not key:
+            key = _section_key(
+                DEFAULT_SECTION_NAME
+            )
+
+        if key not in section_lookup:
+
+            section_lookup[key] = {
+                "name": section_name,
+                "metrics": [],
+                "notes": [],
+                "charts": [],
+                "tables": [],
+                "images": [],
+                "_order": record[
+                    "section_order"
+                ],
+                "_first_serial": record[
+                    "serial"
+                ],
+            }
+
+        section = section_lookup[key]
+
+        section["_order"] = min(
+            section["_order"],
+            record["section_order"],
+        )
+
+        content_type = record[
+            "content_type"
+        ]
+
+        section[
+            content_type
+        ].append(
+            record["item"]
+        )
+
+    sections = list(
+        section_lookup.values()
+    )
+
+    sections.sort(
+        key=lambda section: (
+            section.get(
+                "_order",
+                float("inf"),
+            ),
+            section.get(
+                "_first_serial",
+                float("inf"),
+            ),
+        )
+    )
 
     return sections
 
@@ -476,9 +609,7 @@ def get_page_report_sections(
     return [
         section["name"]
         for section in sections
-        if section.get(
-            "name"
-        )
+        if section.get("name")
     ]
 
 
@@ -497,26 +628,18 @@ def _filter_sections(
     if include_sections:
 
         include_keys = {
-            _section_key(
-                value
-            )
+            _section_key(value)
             for value in include_sections
-            if _clean_text(
-                value
-            )
+            if _clean_text(value)
         }
 
     exclude_keys = {
-        _section_key(
-            value
-        )
+        _section_key(value)
         for value in (
             exclude_sections
             or []
         )
-        if _clean_text(
-            value
-        )
+        if _clean_text(value)
     }
 
     result = []
@@ -553,16 +676,6 @@ def _filter_sections(
 # ============================================================
 
 def _get_styles():
-
-    from reportlab.lib import colors
-    from reportlab.lib.enums import (
-        TA_CENTER,
-        TA_LEFT,
-    )
-    from reportlab.lib.styles import (
-        getSampleStyleSheet,
-        ParagraphStyle,
-    )
 
     styles = getSampleStyleSheet()
 
@@ -732,9 +845,6 @@ def _add_footer(
     doc,
 ):
 
-    from reportlab.lib import colors
-    from reportlab.lib.units import mm
-
     canvas.saveState()
 
     page_width = doc.pagesize[0]
@@ -794,11 +904,6 @@ def _add_report_header(
     filter_summary=None,
     record_count=None,
 ):
-
-    from reportlab.platypus import (
-        Paragraph,
-        Spacer,
-    )
 
     story.append(
         Paragraph(
@@ -1033,13 +1138,6 @@ def _build_table(
     styles,
 ):
 
-    from reportlab.lib import colors
-    from reportlab.platypus import (
-        Paragraph,
-        LongTable,
-        TableStyle,
-    )
-
     df = (
         _prepare_table_dataframe(
             dataframe
@@ -1223,12 +1321,8 @@ def _add_metrics(
         rows.append(
             {
                 "Indicator": (
-                    item.get(
-                        "label"
-                    )
-                    or item.get(
-                        "title"
-                    )
+                    item.get("label")
+                    or item.get("title")
                     or "Metric"
                 ),
                 "Value": item.get(
@@ -1265,7 +1359,6 @@ def _add_metrics(
     )
 
     if table is not None:
-
         story.append(
             table
         )
@@ -1281,11 +1374,6 @@ def _add_notes(
     styles,
 ):
 
-    from reportlab.platypus import (
-        Paragraph,
-        Spacer,
-    )
-
     if not notes:
         return
 
@@ -1299,20 +1387,13 @@ def _add_notes(
         ):
 
             text = (
-                item.get(
-                    "text"
-                )
-                or item.get(
-                    "message"
-                )
-                or item.get(
-                    "note"
-                )
+                item.get("text")
+                or item.get("message")
+                or item.get("note")
                 or ""
             )
 
         else:
-
             text = item
 
         text = _clean_text(
@@ -1387,13 +1468,11 @@ def _get_chart_dataframe(
     )
 
     if data is None:
-
         data = item.get(
             "dataframe"
         )
 
     if data is None:
-
         data = item.get(
             "table"
         )
@@ -1416,13 +1495,6 @@ def _add_chart(
     include_chart_data=True,
 ):
 
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        Image,
-        Paragraph,
-        Spacer,
-    )
-
     if not isinstance(
         item,
         dict,
@@ -1430,12 +1502,8 @@ def _add_chart(
         return
 
     title = (
-        item.get(
-            "title"
-        )
-        or item.get(
-            "section_name"
-        )
+        item.get("title")
+        or item.get("section_name")
         or "Dashboard Chart"
     )
 
@@ -1573,11 +1641,6 @@ def _add_displayed_table(
     available_width,
 ):
 
-    from reportlab.platypus import (
-        Paragraph,
-        Spacer,
-    )
-
     if not isinstance(
         item,
         dict,
@@ -1592,9 +1655,7 @@ def _add_displayed_table(
     else:
 
         title = (
-            item.get(
-                "title"
-            )
+            item.get("title")
             or "Displayed Data"
         )
 
@@ -1603,9 +1664,13 @@ def _add_displayed_table(
         )
 
         if data is None:
-
             data = item.get(
                 "dataframe"
+            )
+
+        if data is None:
+            data = item.get(
+                "table"
             )
 
         dataframe = (
@@ -1652,74 +1717,12 @@ def _add_displayed_table(
 # IMAGE BYTES
 # ============================================================
 
-def _get_image_bytes(
-    item,
+def _bytes_from_value(
+    value,
 ):
 
-    if isinstance(
-        item,
-        bytes,
-    ):
-        return item
-
-    if isinstance(
-        item,
-        bytearray,
-    ):
-        return bytes(
-            item
-        )
-
-    if isinstance(
-        item,
-        io.BytesIO,
-    ):
-
-        try:
-
-            position = item.tell()
-
-        except Exception:
-
-            position = 0
-
-        try:
-
-            item.seek(0)
-
-            value = item.read()
-
-            item.seek(
-                position
-            )
-
-            return value
-
-        except Exception:
-
-            return None
-
-    if not isinstance(
-        item,
-        dict,
-    ):
+    if value is None:
         return None
-
-    value = item.get(
-        "data"
-    )
-
-    if value is None:
-
-        value = item.get(
-            "bytes"
-        )
-
-    if value is None:
-
-        value = item.get(
-            "image"
-        )
 
     if isinstance(
         value,
@@ -1737,15 +1740,19 @@ def _get_image_bytes(
 
     if isinstance(
         value,
+        memoryview,
+    ):
+        return value.tobytes()
+
+    if isinstance(
+        value,
         io.BytesIO,
     ):
 
         try:
-
             position = value.tell()
 
         except Exception:
-
             position = 0
 
         try:
@@ -1761,8 +1768,109 @@ def _get_image_bytes(
             return result
 
         except Exception:
-
             return None
+
+    # --------------------------------------------------------
+    # Matplotlib figure support
+    # --------------------------------------------------------
+
+    if hasattr(
+        value,
+        "savefig",
+    ):
+
+        try:
+
+            buffer = io.BytesIO()
+
+            value.savefig(
+                buffer,
+                format="png",
+                dpi=180,
+                bbox_inches="tight",
+            )
+
+            buffer.seek(0)
+
+            return buffer.getvalue()
+
+        except Exception:
+            pass
+
+    # --------------------------------------------------------
+    # PIL image support
+    # --------------------------------------------------------
+
+    if hasattr(
+        value,
+        "save",
+    ):
+
+        try:
+
+            buffer = io.BytesIO()
+
+            value.save(
+                buffer,
+                format="PNG",
+            )
+
+            buffer.seek(0)
+
+            return buffer.getvalue()
+
+        except Exception:
+            pass
+
+    return None
+
+
+def _get_image_bytes(
+    item,
+):
+
+    direct = _bytes_from_value(
+        item
+    )
+
+    if direct:
+        return direct
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+        return None
+
+    # --------------------------------------------------------
+    # Support all image/map keys used by the dashboard export
+    # layer.
+    # --------------------------------------------------------
+
+    candidate_keys = (
+        "png_bytes",
+        "image_bytes",
+        "map_bytes",
+        "bytes",
+        "image",
+        "png",
+        "figure",
+        "fig",
+        "data",
+    )
+
+    for key in candidate_keys:
+
+        value = item.get(
+            key
+        )
+
+        result = _bytes_from_value(
+            value
+        )
+
+        if result:
+            return result
 
     return None
 
@@ -1779,13 +1887,6 @@ def _add_image(
     available_height,
 ):
 
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        Image,
-        Paragraph,
-        Spacer,
-    )
-
     image_bytes = (
         _get_image_bytes(
             item
@@ -1801,19 +1902,14 @@ def _add_image(
     ):
 
         title = (
-            item.get(
-                "title"
-            )
-            or item.get(
-                "section_name"
-            )
+            item.get("title")
+            or item.get("section_name")
             or "Dashboard Image / Map"
         )
 
         caption = (
-            item.get(
-                "caption"
-            )
+            item.get("caption")
+            or item.get("description")
             or ""
         )
 
@@ -1959,6 +2055,7 @@ def _section_has_content(
     checks = []
 
     if include_metrics:
+
         checks.append(
             bool(
                 section.get(
@@ -1968,6 +2065,7 @@ def _section_has_content(
         )
 
     if include_notes:
+
         checks.append(
             bool(
                 section.get(
@@ -1977,6 +2075,7 @@ def _section_has_content(
         )
 
     if include_charts:
+
         checks.append(
             bool(
                 section.get(
@@ -1986,6 +2085,7 @@ def _section_has_content(
         )
 
     if include_tables:
+
         checks.append(
             bool(
                 section.get(
@@ -1995,6 +2095,7 @@ def _section_has_content(
         )
 
     if include_images:
+
         checks.append(
             bool(
                 section.get(
@@ -2029,30 +2130,15 @@ def generate_page_report_pdf(
 ):
 
     """
-    Standard dynamic PDF generator for any dashboard page.
+    Standard dynamic PDF generator for dashboard pages.
 
-    Every captured section starts on a new PDF page.
-
-    Content is grouped by section so charts, tables,
-    metrics, notes and images/maps belonging to the same
-    dashboard section remain together.
-
-    include_sections:
-        Optional list of section names to include.
-
-    exclude_sections:
-        Optional list of section names to exclude.
+    Key behaviour:
+    1. Dashboard section sequence is preserved using capture /
+       display ordering metadata whenever available.
+    2. Content type no longer controls section sequence.
+    3. Every logical dashboard section starts on a new PDF page.
+    4. Captured static map/image PNG bytes are supported.
     """
-
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        SimpleDocTemplate,
-        Paragraph,
-        Spacer,
-        PageBreak,
-        KeepTogether,
-    )
 
     buffer = io.BytesIO()
 
@@ -2229,10 +2315,7 @@ def generate_page_report_pdf(
         start=1,
     ):
 
-        # ----------------------------------------------------
-        # IMPORTANT:
-        # EVERY NEW DASHBOARD SECTION STARTS ON NEW PDF PAGE.
-        # ----------------------------------------------------
+        # Every dashboard section starts on new PDF page.
 
         story.append(
             PageBreak()
@@ -2244,15 +2327,6 @@ def generate_page_report_pdf(
             )
             or DEFAULT_SECTION_NAME
         )
-
-        # ----------------------------------------------------
-        # Keep section number + heading + small spacer
-        # together.
-        #
-        # Because section already starts on a new page,
-        # the heading can no longer be orphaned at the
-        # bottom of the previous page.
-        # ----------------------------------------------------
 
         section_header = [
             Paragraph(
@@ -2398,7 +2472,7 @@ def generate_page_report_pdf(
                 )
 
     # ========================================================
-    # FALLBACK
+    # FALLBACK DATASET
     # ========================================================
 
     if (
@@ -2573,18 +2647,6 @@ def render_page_pdf_download(
 
     """
     ONE STANDARD DOWNLOAD CONTROL FOR ALL DASHBOARD PAGES.
-
-    Use the same function on:
-        Overview
-        Charts & Trends
-        Demographics
-        Ward Analysis
-        Map
-        Data Explorer
-        Prediction
-        Validation & KPI
-        Drill-down & Export
-        and future pages.
     """
 
     if key_prefix is None:
@@ -2601,7 +2663,8 @@ def render_page_pdf_download(
         )
     )
 
-    # Remove duplicate section names while preserving order.
+    # Remove duplicate section names while preserving
+    # dashboard/capture order.
 
     unique_sections = []
 
@@ -2658,9 +2721,7 @@ def render_page_pdf_download(
 
             selected_sections = (
                 st.multiselect(
-                    (
-                        "Select report sections"
-                    ),
+                    "Select report sections",
                     options=(
                         unique_sections
                     ),
