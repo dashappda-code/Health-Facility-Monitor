@@ -1,28 +1,10 @@
 import io
 import html
+import re
 from datetime import datetime
 
 import pandas as pd
-
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import (
-    getSampleStyleSheet,
-    ParagraphStyle,
-)
-from reportlab.lib.units import mm
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    LongTable,
-    PageBreak,
-    Image,
-    KeepTogether,
-)
+import streamlit as st
 
 from displayed_chart_export import (
     _chart_to_png,
@@ -55,6 +37,11 @@ MAX_TABLE_COLUMNS = 14
 
 MAX_NOTE_LENGTH = 3000
 
+MAX_CHART_HEIGHT_MM = 145
+MAX_IMAGE_HEIGHT_MM = 150
+
+DEFAULT_SECTION_NAME = "Dashboard Section"
+
 
 # ============================================================
 # SAFE HELPERS
@@ -84,6 +71,27 @@ def _safe_html(value):
     )
 
 
+def _clean_text(value):
+
+    text = _safe_text(
+        value
+    )
+
+    text = re.sub(
+        r"<[^>]+>",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
+
+    return text.strip()
+
+
 def _to_dataframe(value):
 
     if value is None:
@@ -111,7 +119,6 @@ def _to_dataframe(value):
         return pd.DataFrame(
             value
         )
-
     except Exception:
         return pd.DataFrame()
 
@@ -120,11 +127,99 @@ def _format_number(value):
 
     try:
         return f"{int(value):,}"
-
     except Exception:
         return _safe_text(
             value
         )
+
+
+def _safe_filename(value):
+
+    value = _safe_text(
+        value
+    )
+
+    value = re.sub(
+        r"[^A-Za-z0-9_-]+",
+        "_",
+        value,
+    )
+
+    value = value.strip(
+        "_"
+    )
+
+    if not value:
+        value = "Dashboard_Report"
+
+    return value
+
+
+# ============================================================
+# NORMALISE FILTER SUMMARY
+# ============================================================
+
+def _normalise_filter_summary(
+    filter_summary,
+):
+
+    if filter_summary is None:
+        return {}
+
+    if isinstance(
+        filter_summary,
+        dict,
+    ):
+        return filter_summary
+
+    if isinstance(
+        filter_summary,
+        str,
+    ):
+
+        text = filter_summary.strip()
+
+        if not text:
+            return {}
+
+        return {
+            "Filters": text
+        }
+
+    if isinstance(
+        filter_summary,
+        (list, tuple),
+    ):
+
+        result = {}
+
+        for index, value in enumerate(
+            filter_summary,
+            start=1,
+        ):
+
+            text = _safe_text(
+                value
+            ).strip()
+
+            if text:
+
+                result[
+                    f"Filter {index}"
+                ] = text
+
+        return result
+
+    try:
+        return dict(
+            filter_summary
+        )
+    except Exception:
+        return {
+            "Filters": _safe_text(
+                filter_summary
+            )
+        }
 
 
 # ============================================================
@@ -135,21 +230,21 @@ def _normalise_captured_content(
     captured_content,
 ):
 
+    result = {
+        "charts": [],
+        "tables": [],
+        "metrics": [],
+        "notes": [],
+        "images": [],
+    }
+
     if not isinstance(
         captured_content,
         dict,
     ):
-        captured_content = {}
+        return result
 
-    result = {}
-
-    for key in (
-        "charts",
-        "tables",
-        "metrics",
-        "notes",
-        "images",
-    ):
+    for key in result:
 
         value = captured_content.get(
             key,
@@ -162,8 +257,10 @@ def _normalise_captured_content(
         ):
             result[key] = value
 
-        else:
-            result[key] = []
+        elif value is not None:
+            result[key] = [
+                value
+            ]
 
     return result
 
@@ -172,9 +269,9 @@ def _normalise_captured_content(
 # SECTION NAME
 # ============================================================
 
-def _get_section_name(
+def _get_item_section(
     item,
-    fallback="Dashboard Section",
+    fallback=DEFAULT_SECTION_NAME,
 ):
 
     if not isinstance(
@@ -183,259 +280,312 @@ def _get_section_name(
     ):
         return fallback
 
-    section_name = (
-        _safe_text(
-            item.get(
-                "section_name",
-                "",
-            )
+    section = (
+        item.get(
+            "section_name"
         )
-        .strip()
+        or item.get(
+            "section"
+        )
+        or item.get(
+            "title"
+        )
+        or fallback
     )
 
-    if section_name:
-        return section_name
-
-    title = (
-        _safe_text(
-            item.get(
-                "title",
-                "",
-            )
-        )
-        .strip()
+    section = _clean_text(
+        section
     )
 
-    if title:
-        return title
-
-    return fallback
+    return (
+        section
+        or fallback
+    )
 
 
 # ============================================================
-# BUILD SECTION GROUPS
+# SECTION KEY
 # ============================================================
 
-def _build_section_groups(
-    content,
+def _section_key(value):
+
+    text = _clean_text(
+        value
+    ).lower()
+
+    text = re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        text,
+    )
+
+    return re.sub(
+        r"\s+",
+        " ",
+        text,
+    ).strip()
+
+
+# ============================================================
+# GROUP CONTENT BY SECTION
+# ============================================================
+
+def _group_content_by_section(
+    captured_content,
 ):
 
-    """
-    Group captured dashboard content by section_name.
+    content = (
+        _normalise_captured_content(
+            captured_content
+        )
+    )
 
-    IMPORTANT:
-    Section order is determined by the first appearance
-    of the section across captured content.
+    sections = []
+    section_lookup = {}
 
-    Within each section the report is rendered as:
+    def ensure_section(
+        section_name
+    ):
 
-        Section heading
-        Metrics
-        Notes
-        Charts
-        Images / Maps
-        Tables / Data
+        clean_name = (
+            _clean_text(
+                section_name
+            )
+            or DEFAULT_SECTION_NAME
+        )
 
-    Each section is rendered on a NEW PDF PAGE.
-    """
+        key = _section_key(
+            clean_name
+        )
 
-    groups = {}
-    section_order = []
+        if key not in section_lookup:
 
-    content_types = (
+            section = {
+                "name": clean_name,
+                "metrics": [],
+                "notes": [],
+                "charts": [],
+                "tables": [],
+                "images": [],
+            }
+
+            section_lookup[
+                key
+            ] = section
+
+            sections.append(
+                section
+            )
+
+        return section_lookup[
+            key
+        ]
+
+    # --------------------------------------------------------
+    # IMPORTANT
+    #
+    # The existing capture registry stores content by type,
+    # not as one mixed ordered list.
+    #
+    # We therefore preserve the first-seen SECTION order and
+    # keep all related content together inside that section.
+    # --------------------------------------------------------
+
+    capture_types = (
         "metrics",
         "notes",
         "charts",
-        "images",
         "tables",
+        "images",
     )
 
-    for content_type in content_types:
+    for content_type in capture_types:
 
-        items = content.get(
+        for item in content.get(
             content_type,
             [],
-        )
-
-        if not isinstance(
-            items,
-            list,
         ):
-            continue
-
-        for item in items:
-
-            if not isinstance(
-                item,
-                dict,
-            ):
-                continue
 
             section_name = (
-                _get_section_name(
+                _get_item_section(
                     item
                 )
             )
 
-            if section_name not in groups:
-
-                groups[
-                    section_name
-                ] = {
-                    "metrics": [],
-                    "notes": [],
-                    "charts": [],
-                    "images": [],
-                    "tables": [],
-                }
-
-                section_order.append(
-                    section_name
-                )
-
-            groups[
+            section = ensure_section(
                 section_name
-            ][
+            )
+
+            section[
                 content_type
             ].append(
                 item
             )
 
-    return [
-        (
-            section_name,
-            groups[
-                section_name
-            ],
+    return sections
+
+
+# ============================================================
+# AVAILABLE SECTIONS
+# ============================================================
+
+def get_page_report_sections(
+    captured_content,
+):
+
+    sections = (
+        _group_content_by_section(
+            captured_content
         )
-        for section_name
-        in section_order
+    )
+
+    return [
+        section["name"]
+        for section in sections
+        if section.get(
+            "name"
+        )
     ]
 
 
 # ============================================================
-# STYLES
+# FILTER SECTIONS
 # ============================================================
 
-def _styles():
+def _filter_sections(
+    sections,
+    include_sections=None,
+    exclude_sections=None,
+):
 
-    styles = (
-        getSampleStyleSheet()
+    include_keys = None
+
+    if include_sections:
+
+        include_keys = {
+            _section_key(
+                value
+            )
+            for value in include_sections
+            if _clean_text(
+                value
+            )
+        }
+
+    exclude_keys = {
+        _section_key(
+            value
+        )
+        for value in (
+            exclude_sections
+            or []
+        )
+        if _clean_text(
+            value
+        )
+    }
+
+    result = []
+
+    for section in sections:
+
+        name = section.get(
+            "name",
+            DEFAULT_SECTION_NAME,
+        )
+
+        key = _section_key(
+            name
+        )
+
+        if (
+            include_keys is not None
+            and key not in include_keys
+        ):
+            continue
+
+        if key in exclude_keys:
+            continue
+
+        result.append(
+            section
+        )
+
+    return result
+
+
+# ============================================================
+# PDF STYLES
+# ============================================================
+
+def _get_styles():
+
+    from reportlab.lib import colors
+    from reportlab.lib.enums import (
+        TA_CENTER,
+        TA_LEFT,
     )
+    from reportlab.lib.styles import (
+        getSampleStyleSheet,
+        ParagraphStyle,
+    )
+
+    styles = getSampleStyleSheet()
 
     styles.add(
         ParagraphStyle(
-            name="PageReportDashboardTitle",
+            name="ReportDashboardTitle",
             parent=styles["Title"],
             fontName="Helvetica-Bold",
-            fontSize=16,
-            leading=20,
+            fontSize=17,
+            leading=21,
             alignment=TA_CENTER,
             textColor=colors.HexColor(
-                "#17365D"
+                "#163A5F"
             ),
-            spaceAfter=4,
+            spaceAfter=5,
         )
     )
 
     styles.add(
         ParagraphStyle(
-            name="PageReportSubtitle",
+            name="ReportDashboardSubtitle",
             parent=styles["Normal"],
             fontName="Helvetica",
-            fontSize=8.5,
-            leading=11,
+            fontSize=9,
+            leading=12,
             alignment=TA_CENTER,
             textColor=colors.HexColor(
                 "#666666"
             ),
-            spaceAfter=10,
+            spaceAfter=12,
         )
     )
 
     styles.add(
         ParagraphStyle(
-            name="PageReportTitle",
+            name="ReportPageTitle",
             parent=styles["Heading1"],
             fontName="Helvetica-Bold",
-            fontSize=14,
-            leading=17,
+            fontSize=15,
+            leading=19,
+            alignment=TA_LEFT,
             textColor=colors.HexColor(
                 "#111827"
             ),
-            spaceBefore=3,
             spaceAfter=7,
         )
     )
 
     styles.add(
         ParagraphStyle(
-            name="PageReportSection",
-            parent=styles["Heading2"],
-            fontName="Helvetica-Bold",
-            fontSize=11,
-            leading=14,
-            textColor=colors.HexColor(
-                "#1F4E78"
-            ),
-            spaceBefore=7,
-            spaceAfter=5,
-        )
-    )
-
-    styles.add(
-        ParagraphStyle(
-            name="PageReportSectionNumber",
+            name="ReportSectionNumber",
             parent=styles["Normal"],
             fontName="Helvetica-Bold",
-            fontSize=8,
-            leading=10,
+            fontSize=8.5,
+            leading=11,
             textColor=colors.HexColor(
                 "#6B7280"
-            ),
-            spaceAfter=2,
-        )
-    )
-
-    styles.add(
-        ParagraphStyle(
-            name="PageReportSectionTitle",
-            parent=styles["Heading1"],
-            fontName="Helvetica-Bold",
-            fontSize=14,
-            leading=17,
-            textColor=colors.HexColor(
-                "#17365D"
-            ),
-            spaceBefore=0,
-            spaceAfter=8,
-        )
-    )
-
-    styles.add(
-        ParagraphStyle(
-            name="PageReportItemTitle",
-            parent=styles["Heading3"],
-            fontName="Helvetica-Bold",
-            fontSize=9.5,
-            leading=12,
-            textColor=colors.HexColor(
-                "#374151"
-            ),
-            spaceBefore=4,
-            spaceAfter=5,
-        )
-    )
-
-    styles.add(
-        ParagraphStyle(
-            name="PageReportSmall",
-            parent=styles["Normal"],
-            fontName="Helvetica",
-            fontSize=8,
-            leading=10,
-            textColor=colors.HexColor(
-                "#4B5563"
             ),
             spaceAfter=3,
         )
@@ -443,7 +593,50 @@ def _styles():
 
     styles.add(
         ParagraphStyle(
-            name="PageReportNormal",
+            name="ReportSectionTitle",
+            parent=styles["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=18,
+            textColor=colors.HexColor(
+                "#163A5F"
+            ),
+            spaceAfter=8,
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="ReportItemTitle",
+            parent=styles["Heading3"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=13,
+            textColor=colors.HexColor(
+                "#1F4E78"
+            ),
+            spaceBefore=3,
+            spaceAfter=5,
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="ReportSmall",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=8,
+            leading=10.5,
+            textColor=colors.HexColor(
+                "#555555"
+            ),
+            spaceAfter=4,
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="ReportNormal",
             parent=styles["Normal"],
             fontName="Helvetica",
             fontSize=8.5,
@@ -457,42 +650,39 @@ def _styles():
 
     styles.add(
         ParagraphStyle(
-            name="PageReportNote",
+            name="ReportNote",
             parent=styles["Normal"],
             fontName="Helvetica",
             fontSize=8,
-            leading=11,
+            leading=10.5,
             textColor=colors.HexColor(
-                "#374151"
+                "#4B5563"
             ),
-            leftIndent=4,
-            rightIndent=4,
-            spaceBefore=3,
             spaceAfter=5,
         )
     )
 
     styles.add(
         ParagraphStyle(
-            name="PageReportTableHeader",
+            name="ReportTableHeader",
             parent=styles["Normal"],
             fontName="Helvetica-Bold",
             fontSize=6.5,
             leading=8,
-            textColor=colors.white,
             alignment=TA_LEFT,
+            textColor=colors.white,
         )
     )
 
     styles.add(
         ParagraphStyle(
-            name="PageReportTableBody",
+            name="ReportTableBody",
             parent=styles["Normal"],
             fontName="Helvetica",
             fontSize=6,
             leading=7.5,
-            textColor=colors.black,
             alignment=TA_LEFT,
+            textColor=colors.black,
         )
     )
 
@@ -500,19 +690,20 @@ def _styles():
 
 
 # ============================================================
-# HEADER / FOOTER
+# FOOTER
 # ============================================================
 
-def _header_footer(
+def _add_footer(
     canvas,
     doc,
 ):
 
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+
     canvas.saveState()
 
-    page_width, _ = (
-        doc.pagesize
-    )
+    page_width = doc.pagesize[0]
 
     canvas.setStrokeColor(
         colors.HexColor(
@@ -526,9 +717,9 @@ def _header_footer(
 
     canvas.line(
         12 * mm,
-        11 * mm,
+        10 * mm,
         page_width - 12 * mm,
-        11 * mm,
+        10 * mm,
     )
 
     canvas.setFont(
@@ -544,14 +735,14 @@ def _header_footer(
 
     canvas.drawString(
         12 * mm,
-        7 * mm,
+        6 * mm,
         DASHBOARD_TITLE,
     )
 
     canvas.drawRightString(
         page_width - 12 * mm,
-        7 * mm,
-        f"Page {doc.page}",
+        6 * mm,
+        f"Page {canvas.getPageNumber()}",
     )
 
     canvas.restoreState()
@@ -568,8 +759,12 @@ def _add_report_header(
     report_period=None,
     filter_summary=None,
     record_count=None,
-    report_type="Page Report",
 ):
+
+    from reportlab.platypus import (
+        Paragraph,
+        Spacer,
+    )
 
     story.append(
         Paragraph(
@@ -577,7 +772,7 @@ def _add_report_header(
                 DASHBOARD_TITLE
             ),
             styles[
-                "PageReportDashboardTitle"
+                "ReportDashboardTitle"
             ],
         )
     )
@@ -588,7 +783,7 @@ def _add_report_header(
                 DASHBOARD_SUBTITLE
             ),
             styles[
-                "PageReportSubtitle"
+                "ReportDashboardSubtitle"
             ],
         )
     )
@@ -599,18 +794,16 @@ def _add_report_header(
                 page_name
             ),
             styles[
-                "PageReportTitle"
+                "ReportPageTitle"
             ],
         )
     )
 
     story.append(
         Paragraph(
-            _safe_html(
-                report_type
-            ),
+            "<b>Report Type:</b> Dynamic Page Report",
             styles[
-                "PageReportSmall"
+                "ReportSmall"
             ],
         )
     )
@@ -626,7 +819,7 @@ def _add_report_header(
                 )
             ),
             styles[
-                "PageReportSmall"
+                "ReportSmall"
             ],
         )
     )
@@ -642,23 +835,7 @@ def _add_report_header(
                     )
                 ),
                 styles[
-                    "PageReportSmall"
-                ],
-            )
-        )
-
-    if filter_summary:
-
-        story.append(
-            Paragraph(
-                (
-                    "<b>Filter Scope:</b> "
-                    + _safe_html(
-                        filter_summary
-                    )
-                ),
-                styles[
-                    "PageReportSmall"
+                    "ReportSmall"
                 ],
             )
         )
@@ -676,10 +853,58 @@ def _add_report_header(
                     )
                 ),
                 styles[
-                    "PageReportSmall"
+                    "ReportSmall"
                 ],
             )
         )
+
+    filters = (
+        _normalise_filter_summary(
+            filter_summary
+        )
+    )
+
+    if filters:
+
+        story.append(
+            Spacer(
+                1,
+                4,
+            )
+        )
+
+        story.append(
+            Paragraph(
+                "<b>Applied Filters</b>",
+                styles[
+                    "ReportItemTitle"
+                ],
+            )
+        )
+
+        for key, value in (
+            filters.items()
+        ):
+
+            if value in (
+                None,
+                "",
+                "All",
+                "All records",
+            ):
+                continue
+
+            story.append(
+                Paragraph(
+                    (
+                        f"<b>{_safe_html(key)}:</b> "
+                        f"{_safe_html(value)}"
+                    ),
+                    styles[
+                        "ReportSmall"
+                    ],
+                )
+            )
 
     story.append(
         Spacer(
@@ -690,262 +915,28 @@ def _add_report_header(
 
 
 # ============================================================
-# SECTION HEADER
-# ============================================================
-
-def _add_section_header(
-    story,
-    styles,
-    section_number,
-    section_name,
-):
-
-    """
-    Add section number and section title together.
-
-    KeepTogether prevents the section number/title from
-    being separated from each other.
-    """
-
-    header_block = [
-        Paragraph(
-            (
-                f"Section "
-                f"{section_number}"
-            ),
-            styles[
-                "PageReportSectionNumber"
-            ],
-        ),
-        Paragraph(
-            _safe_html(
-                section_name
-            ),
-            styles[
-                "PageReportSectionTitle"
-            ],
-        ),
-        Spacer(
-            1,
-            4,
-        ),
-    ]
-
-    story.append(
-        KeepTogether(
-            header_block
-        )
-    )
-
-
-# ============================================================
-# METRICS
-# ============================================================
-
-def _build_metrics_table(
-    metrics,
-    available_width,
-    styles,
-):
-
-    if not metrics:
-        return None
-
-    cells = []
-
-    for item in metrics:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        label = (
-            item.get(
-                "label"
-            )
-            or item.get(
-                "title"
-            )
-            or "Metric"
-        )
-
-        value = item.get(
-            "value",
-            "",
-        )
-
-        delta = item.get(
-            "delta"
-        )
-
-        text = (
-            "<b>"
-            + _safe_html(
-                label
-            )
-            + "</b><br/>"
-            + "<font size='11'>"
-            + _safe_html(
-                value
-            )
-            + "</font>"
-        )
-
-        if delta not in (
-            None,
-            "",
-        ):
-
-            text += (
-                "<br/><font size='7'>"
-                + _safe_html(
-                    delta
-                )
-                + "</font>"
-            )
-
-        cells.append(
-            Paragraph(
-                text,
-                styles[
-                    "PageReportNormal"
-                ],
-            )
-        )
-
-    if not cells:
-        return None
-
-    columns = min(
-        4,
-        len(cells),
-    )
-
-    rows = []
-
-    for start in range(
-        0,
-        len(cells),
-        columns,
-    ):
-
-        row = cells[
-            start:
-            start + columns
-        ]
-
-        while len(row) < columns:
-            row.append("")
-
-        rows.append(
-            row
-        )
-
-    col_width = (
-        available_width
-        / columns
-    )
-
-    table = Table(
-        rows,
-        colWidths=[
-            col_width
-            for _ in range(
-                columns
-            )
-        ],
-        hAlign="LEFT",
-    )
-
-    table.setStyle(
-        TableStyle(
-            [
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (-1, -1),
-                    colors.HexColor(
-                        "#F3F6F9"
-                    ),
-                ),
-                (
-                    "BOX",
-                    (0, 0),
-                    (-1, -1),
-                    0.5,
-                    colors.HexColor(
-                        "#C7D5E0"
-                    ),
-                ),
-                (
-                    "INNERGRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.35,
-                    colors.HexColor(
-                        "#D8E1E8"
-                    ),
-                ),
-                (
-                    "VALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "MIDDLE",
-                ),
-                (
-                    "LEFTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    6,
-                ),
-                (
-                    "RIGHTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    6,
-                ),
-                (
-                    "TOPPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    6,
-                ),
-                (
-                    "BOTTOMPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    6,
-                ),
-            ]
-        )
-    )
-
-    return table
-
-
-# ============================================================
-# TABLE PREPARATION
+# PREPARE TABLE
 # ============================================================
 
 def _prepare_table_dataframe(
-    value,
+    dataframe,
 ):
 
     df = _to_dataframe(
-        value
+        dataframe
     )
 
     if df.empty:
         return pd.DataFrame()
 
-    df = df.copy()
-
     if len(df) > MAX_TABLE_ROWS:
 
-        df = df.head(
-            MAX_TABLE_ROWS
+        df = (
+            df
+            .head(
+                MAX_TABLE_ROWS
+            )
+            .copy()
         )
 
     if (
@@ -953,10 +944,13 @@ def _prepare_table_dataframe(
         > MAX_TABLE_COLUMNS
     ):
 
-        df = df.iloc[
-            :,
-            :MAX_TABLE_COLUMNS,
-        ]
+        df = (
+            df.iloc[
+                :,
+                :MAX_TABLE_COLUMNS,
+            ]
+            .copy()
+        )
 
     for column in df.columns:
 
@@ -996,7 +990,7 @@ def _prepare_table_dataframe(
 
 
 # ============================================================
-# TABLE CREATION
+# BUILD TABLE
 # ============================================================
 
 def _build_table(
@@ -1004,6 +998,13 @@ def _build_table(
     available_width,
     styles,
 ):
+
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        Paragraph,
+        LongTable,
+        TableStyle,
+    )
 
     df = (
         _prepare_table_dataframe(
@@ -1023,36 +1024,36 @@ def _build_table(
 
     data = []
 
-    header_row = []
+    header = []
 
     for column in df.columns:
 
-        header_row.append(
+        header.append(
             Paragraph(
                 _safe_html(
                     column
                 ),
                 styles[
-                    "PageReportTableHeader"
+                    "ReportTableHeader"
                 ],
             )
         )
 
     data.append(
-        header_row
+        header
     )
 
     for _, row in (
         df.iterrows()
     ):
 
-        row_items = []
+        cells = []
 
         for value in (
             row.tolist()
         ):
 
-            row_items.append(
+            cells.append(
                 Paragraph(
                     _safe_html(
                         _format_table_value(
@@ -1060,16 +1061,16 @@ def _build_table(
                         )
                     ),
                     styles[
-                        "PageReportTableBody"
+                        "ReportTableBody"
                     ],
                 )
             )
 
         data.append(
-            row_items
+            cells
         )
 
-    col_width = (
+    column_width = (
         available_width
         / column_count
     )
@@ -1077,7 +1078,7 @@ def _build_table(
     table = LongTable(
         data,
         colWidths=[
-            col_width
+            column_width
             for _ in range(
                 column_count
             )
@@ -1162,10 +1163,10 @@ def _build_table(
 
 
 # ============================================================
-# ADD SECTION METRICS
+# METRICS
 # ============================================================
 
-def _add_section_metrics(
+def _add_metrics(
     story,
     metrics,
     styles,
@@ -1175,54 +1176,9 @@ def _add_section_metrics(
     if not metrics:
         return
 
-    metric_table = (
-        _build_metrics_table(
-            metrics,
-            available_width,
-            styles,
-        )
-    )
+    rows = []
 
-    if metric_table is None:
-        return
-
-    story.append(
-        Paragraph(
-            "Metrics",
-            styles[
-                "PageReportItemTitle"
-            ],
-        )
-    )
-
-    story.append(
-        metric_table
-    )
-
-    story.append(
-        Spacer(
-            1,
-            8,
-        )
-    )
-
-
-# ============================================================
-# ADD SECTION NOTES
-# ============================================================
-
-def _add_section_notes(
-    story,
-    notes,
-    styles,
-):
-
-    if not notes:
-        return
-
-    valid_notes = []
-
-    for item in notes:
+    for item in metrics:
 
         if not isinstance(
             item,
@@ -1230,572 +1186,48 @@ def _add_section_notes(
         ):
             continue
 
-        text = (
-            _safe_text(
-                item.get(
-                    "text",
+        rows.append(
+            {
+                "Indicator": (
+                    item.get(
+                        "label"
+                    )
+                    or item.get(
+                        "title"
+                    )
+                    or "Metric"
+                ),
+                "Value": item.get(
+                    "value",
                     "",
-                )
-            )
-            .strip()
-        )
-
-        if not text:
-            continue
-
-        valid_notes.append(
-            item
-        )
-
-    if not valid_notes:
-        return
-
-    story.append(
-        Paragraph(
-            "Notes / Messages",
-            styles[
-                "PageReportItemTitle"
-            ],
-        )
-    )
-
-    for item in valid_notes:
-
-        text = (
-            _safe_text(
-                item.get(
-                    "text",
+                ),
+                "Change": item.get(
+                    "delta",
                     "",
-                )
-            )
-            .strip()
-        )
-
-        if len(text) > MAX_NOTE_LENGTH:
-
-            text = (
-                text[
-                    :MAX_NOTE_LENGTH
-                ]
-                + "..."
-            )
-
-        note_type = (
-            _safe_text(
-                item.get(
-                    "note_type",
-                    "info",
-                )
-            )
-            .strip()
-            .title()
-        )
-
-        story.append(
-            Paragraph(
-                (
-                    "<b>"
-                    + _safe_html(
-                        note_type
-                    )
-                    + ":</b> "
-                    + _safe_html(
-                        text
-                    )
                 ),
-                styles[
-                    "PageReportNote"
-                ],
-            )
+            }
         )
 
-    story.append(
-        Spacer(
-            1,
-            5,
-        )
-    )
-
-
-# ============================================================
-# ADD SECTION CHARTS
-# ============================================================
-
-def _add_section_charts(
-    story,
-    charts,
-    styles,
-    available_width,
-    available_height,
-):
-
-    if not charts:
+    if not rows:
         return
 
-    chart_number = 0
-
-    for item in charts:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        png_bytes = (
-            _chart_to_png(
-                item
-            )
-        )
-
-        if not png_bytes:
-            continue
-
-        chart_number += 1
-
-        title = (
-            item.get(
-                "title"
-            )
-            or item.get(
-                "section_name"
-            )
-            or f"Chart {chart_number}"
-        )
-
-        max_chart_height = (
-            min(
-                available_height
-                * 0.58,
-                135 * mm,
-            )
-        )
-
-        chart_width, chart_height = (
-            _get_chart_image_size(
-                item,
-                png_bytes,
-                available_width,
-                max_chart_height,
-            )
-        )
-
-        image = Image(
-            io.BytesIO(
-                png_bytes
-            )
-        )
-
-        image.drawWidth = (
-            chart_width
-        )
-
-        image.drawHeight = (
-            chart_height
-        )
-
-        image.hAlign = (
-            "CENTER"
-        )
-
-        # ----------------------------------------------------
-        # Keep chart title with chart whenever possible.
-        # This prevents a chart title being left alone at
-        # the bottom of a PDF page.
-        # ----------------------------------------------------
-
-        chart_block = [
-            Paragraph(
-                (
-                    f"{chart_number}. "
-                    + _safe_html(
-                        title
-                    )
-                ),
-                styles[
-                    "PageReportItemTitle"
-                ],
-            ),
-            image,
-            Spacer(
-                1,
-                9,
-            ),
-        ]
-
-        story.append(
-            KeepTogether(
-                chart_block
-            )
-        )
-
-
-# ============================================================
-# IMAGE DIMENSIONS
-# ============================================================
-
-def _get_image_dimensions(
-    image_bytes,
-):
-
-    try:
-
-        from PIL import Image as PILImage
-
-        image = PILImage.open(
-            io.BytesIO(
-                image_bytes
-            )
-        )
-
-        width, height = (
-            image.size
-        )
-
-        return (
-            float(width),
-            float(height),
-        )
-
-    except Exception:
-
-        return (
-            None,
-            None,
-        )
-
-
-# ============================================================
-# ADD SECTION IMAGES / MAPS
-# ============================================================
-
-def _add_section_images(
-    story,
-    images,
-    styles,
-    available_width,
-    available_height,
-):
-
-    if not images:
-        return
-
-    image_number = 0
-
-    for item in images:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        image_bytes = (
-            item.get(
-                "data"
-            )
-            or item.get(
-                "bytes"
-            )
-        )
-
-        if not image_bytes:
-            continue
-
-        image_number += 1
-
-        title = (
-            item.get(
-                "title"
-            )
-            or item.get(
-                "section_name"
-            )
-            or f"Image {image_number}"
-        )
-
-        caption = (
-            item.get(
-                "caption",
-                "",
-            )
-        )
-
-        width, height = (
-            _get_image_dimensions(
-                image_bytes
-            )
-        )
-
-        max_width = (
-            available_width
-        )
-
-        max_height = min(
-            available_height
-            * 0.60,
-            145 * mm,
-        )
-
-        if (
-            width
-            and height
-            and width > 0
-            and height > 0
-        ):
-
-            ratio = (
-                height
-                / width
-            )
-
-            draw_width = (
-                max_width
-            )
-
-            draw_height = (
-                draw_width
-                * ratio
-            )
-
-            if (
-                draw_height
-                > max_height
-            ):
-
-                draw_height = (
-                    max_height
-                )
-
-                draw_width = (
-                    draw_height
-                    / ratio
-                )
-
-        else:
-
-            draw_width = (
-                max_width
-            )
-
-            draw_height = (
-                90 * mm
-            )
-
-        image = Image(
-            io.BytesIO(
-                image_bytes
-            )
-        )
-
-        image.drawWidth = (
-            draw_width
-        )
-
-        image.drawHeight = (
-            draw_height
-        )
-
-        image.hAlign = (
-            "CENTER"
-        )
-
-        image_block = [
-            Paragraph(
-                (
-                    f"{image_number}. "
-                    + _safe_html(
-                        title
-                    )
-                ),
-                styles[
-                    "PageReportItemTitle"
-                ],
-            ),
-            image,
-        ]
-
-        if caption:
-
-            image_block.append(
-                Paragraph(
-                    _safe_html(
-                        caption
-                    ),
-                    styles[
-                        "PageReportSmall"
-                    ],
-                )
-            )
-
-        image_block.append(
-            Spacer(
-                1,
-                9,
-            )
-        )
-
-        story.append(
-            KeepTogether(
-                image_block
-            )
-        )
-
-
-# ============================================================
-# ADD SECTION TABLES
-# ============================================================
-
-def _add_section_tables(
-    story,
-    tables,
-    styles,
-    available_width,
-):
-
-    if not tables:
-        return
-
-    table_number = 0
-
-    for item in tables:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        data = (
-            item.get(
-                "data"
-            )
-        )
-
-        if data is None:
-
-            data = (
-                item.get(
-                    "dataframe"
-                )
-            )
-
-        dataframe = (
-            _to_dataframe(
-                data
-            )
-        )
-
-        if dataframe.empty:
-            continue
-
-        table_number += 1
-
-        title = (
-            item.get(
-                "title"
-            )
-            or item.get(
-                "section_name"
-            )
-            or f"Displayed Data {table_number}"
-        )
-
-        table = (
-            _build_table(
-                dataframe,
-                available_width,
-                styles,
-            )
-        )
-
-        if table is None:
-            continue
-
-        # Keep title and at least beginning of table together.
-        story.append(
-            KeepTogether(
-                [
-                    Paragraph(
-                        (
-                            f"{table_number}. "
-                            + _safe_html(
-                                title
-                            )
-                        ),
-                        styles[
-                            "PageReportItemTitle"
-                        ],
-                    ),
-                    Spacer(
-                        1,
-                        2,
-                    ),
-                ]
-            )
-        )
-
-        story.append(
-            table
-        )
-
-        story.append(
-            Spacer(
-                1,
-                9,
-            )
-        )
-
-
-# ============================================================
-# FALLBACK DATA
-# ============================================================
-
-def _add_fallback_dataframe(
-    story,
-    df,
-    styles,
-    available_width,
-):
-
-    if (
-        df is None
-        or not isinstance(
-            df,
-            pd.DataFrame,
-        )
-        or df.empty
-    ):
-        return
-
-    story.append(
-        Paragraph(
-            "Filtered Dataset",
-            styles[
-                "PageReportSection"
-            ],
-        )
+    metric_df = pd.DataFrame(
+        rows
     )
 
     story.append(
         Paragraph(
-            (
-                "No separate displayed table was captured "
-                "for this page. The current filtered dataset "
-                "is included below."
-            ),
+            "Displayed Indicators",
             styles[
-                "PageReportSmall"
+                "ReportItemTitle"
             ],
         )
     )
 
-    table = (
-        _build_table(
-            df,
-            available_width,
-            styles,
-        )
+    table = _build_table(
+        metric_df,
+        available_width,
+        styles,
     )
 
     if table is not None:
@@ -1806,243 +1238,797 @@ def _add_fallback_dataframe(
 
 
 # ============================================================
-# RENDER SECTION
+# NOTES
 # ============================================================
 
-def _render_section(
+def _add_notes(
     story,
-    section_number,
-    section_name,
-    section_content,
+    notes,
     styles,
-    available_width,
-    available_height,
-    mode,
 ):
 
-    """
-    Render ONE dashboard section.
-
-    Every call represents one logical dashboard section.
-
-    The section begins with its section heading and then
-    contains only content belonging to that section.
-    """
-
-    _add_section_header(
-        story,
-        styles,
-        section_number,
-        section_name,
+    from reportlab.platypus import (
+        Paragraph,
+        Spacer,
     )
 
-    # ========================================================
-    # FULL REPORT
-    # ========================================================
+    if not notes:
+        return
 
-    if mode == "full":
+    valid_notes = []
 
-        _add_section_metrics(
-            story,
-            section_content.get(
-                "metrics",
-                [],
-            ),
-            styles,
-            available_width,
-        )
+    for item in notes:
 
-        _add_section_notes(
-            story,
-            section_content.get(
-                "notes",
-                [],
-            ),
-            styles,
-        )
+        if isinstance(
+            item,
+            dict,
+        ):
 
-        _add_section_charts(
-            story,
-            section_content.get(
-                "charts",
-                [],
-            ),
-            styles,
-            available_width,
-            available_height,
-        )
-
-        _add_section_images(
-            story,
-            section_content.get(
-                "images",
-                [],
-            ),
-            styles,
-            available_width,
-            available_height,
-        )
-
-        _add_section_tables(
-            story,
-            section_content.get(
-                "tables",
-                [],
-            ),
-            styles,
-            available_width,
-        )
-
-    # ========================================================
-    # VISUALS ONLY
-    # ========================================================
-
-    elif mode == "visuals":
-
-        _add_section_charts(
-            story,
-            section_content.get(
-                "charts",
-                [],
-            ),
-            styles,
-            available_width,
-            available_height,
-        )
-
-        _add_section_images(
-            story,
-            section_content.get(
-                "images",
-                [],
-            ),
-            styles,
-            available_width,
-            available_height,
-        )
-
-    # ========================================================
-    # TABLES ONLY
-    # ========================================================
-
-    elif mode == "tables":
-
-        _add_section_tables(
-            story,
-            section_content.get(
-                "tables",
-                [],
-            ),
-            styles,
-            available_width,
-        )
-
-
-# ============================================================
-# FILTER SECTION GROUPS FOR MODE
-# ============================================================
-
-def _filter_section_groups_for_mode(
-    section_groups,
-    mode,
-):
-
-    result = []
-
-    for (
-        section_name,
-        section_content,
-    ) in section_groups:
-
-        if mode == "full":
-
-            has_content = any(
-                section_content.get(
-                    key,
-                    [],
+            text = (
+                item.get(
+                    "text"
                 )
-                for key in (
-                    "metrics",
-                    "notes",
-                    "charts",
-                    "images",
-                    "tables",
+                or item.get(
+                    "message"
                 )
-            )
-
-        elif mode == "visuals":
-
-            has_content = bool(
-                section_content.get(
-                    "charts",
-                    [],
+                or item.get(
+                    "note"
                 )
-                or section_content.get(
-                    "images",
-                    [],
-                )
-            )
-
-        elif mode == "tables":
-
-            has_content = bool(
-                section_content.get(
-                    "tables",
-                    [],
-                )
+                or ""
             )
 
         else:
 
-            has_content = False
+            text = item
 
-        if has_content:
+        text = _clean_text(
+            text
+        )
 
-            result.append(
-                (
-                    section_name,
-                    section_content,
+        if not text:
+            continue
+
+        if len(text) > MAX_NOTE_LENGTH:
+
+            text = (
+                text[
+                    :MAX_NOTE_LENGTH
+                ]
+                + "..."
+            )
+
+        valid_notes.append(
+            text
+        )
+
+    if not valid_notes:
+        return
+
+    story.append(
+        Paragraph(
+            "Displayed Notes / Messages",
+            styles[
+                "ReportItemTitle"
+            ],
+        )
+    )
+
+    for text in valid_notes:
+
+        story.append(
+            Paragraph(
+                _safe_html(
+                    text
+                ),
+                styles[
+                    "ReportNote"
+                ],
+            )
+        )
+
+        story.append(
+            Spacer(
+                1,
+                3,
+            )
+        )
+
+
+# ============================================================
+# CHART DATA
+# ============================================================
+
+def _get_chart_dataframe(
+    item,
+):
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+        return pd.DataFrame()
+
+    data = item.get(
+        "data"
+    )
+
+    if data is None:
+
+        data = item.get(
+            "dataframe"
+        )
+
+    if data is None:
+
+        data = item.get(
+            "table"
+        )
+
+    return _to_dataframe(
+        data
+    )
+
+
+# ============================================================
+# ADD CHART
+# ============================================================
+
+def _add_chart(
+    story,
+    item,
+    styles,
+    available_width,
+    available_height,
+    include_chart_data=True,
+):
+
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Image,
+        Paragraph,
+        Spacer,
+    )
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+        return
+
+    title = (
+        item.get(
+            "title"
+        )
+        or item.get(
+            "section_name"
+        )
+        or "Dashboard Chart"
+    )
+
+    story.append(
+        Paragraph(
+            _safe_html(
+                title
+            ),
+            styles[
+                "ReportItemTitle"
+            ],
+        )
+    )
+
+    png_bytes = (
+        _chart_to_png(
+            item
+        )
+    )
+
+    if png_bytes:
+
+        max_height = min(
+            MAX_CHART_HEIGHT_MM * mm,
+            available_height * 0.58,
+        )
+
+        try:
+
+            width, height = (
+                _get_chart_image_size(
+                    item,
+                    png_bytes,
+                    available_width,
+                    max_height,
                 )
             )
 
-    return result
+            image = Image(
+                io.BytesIO(
+                    png_bytes
+                )
+            )
+
+            image.drawWidth = width
+            image.drawHeight = height
+            image.hAlign = "CENTER"
+
+            story.append(
+                image
+            )
+
+        except Exception as exc:
+
+            story.append(
+                Paragraph(
+                    (
+                        "Chart image could not "
+                        "be added: "
+                        + _safe_html(
+                            exc
+                        )
+                    ),
+                    styles[
+                        "ReportNote"
+                    ],
+                )
+            )
+
+    else:
+
+        story.append(
+            Paragraph(
+                "Chart image was not available for PDF export.",
+                styles[
+                    "ReportNote"
+                ],
+            )
+        )
+
+    if include_chart_data:
+
+        chart_df = (
+            _get_chart_dataframe(
+                item
+            )
+        )
+
+        if not chart_df.empty:
+
+            story.append(
+                Spacer(
+                    1,
+                    6,
+                )
+            )
+
+            story.append(
+                Paragraph(
+                    "Chart Data",
+                    styles[
+                        "ReportItemTitle"
+                    ],
+                )
+            )
+
+            table = _build_table(
+                chart_df,
+                available_width,
+                styles,
+            )
+
+            if table is not None:
+
+                story.append(
+                    table
+                )
+
+    story.append(
+        Spacer(
+            1,
+            8,
+        )
+    )
 
 
 # ============================================================
-# GENERIC PAGE PDF BUILDER
+# ADD DISPLAYED TABLE
 # ============================================================
 
-def _generate_page_pdf(
+def _add_displayed_table(
+    story,
+    item,
+    styles,
+    available_width,
+):
+
+    from reportlab.platypus import (
+        Paragraph,
+        Spacer,
+    )
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+
+        dataframe = _to_dataframe(
+            item
+        )
+
+        title = "Displayed Data"
+
+    else:
+
+        title = (
+            item.get(
+                "title"
+            )
+            or "Displayed Data"
+        )
+
+        data = item.get(
+            "data"
+        )
+
+        if data is None:
+
+            data = item.get(
+                "dataframe"
+            )
+
+        dataframe = (
+            _to_dataframe(
+                data
+            )
+        )
+
+    if dataframe.empty:
+        return
+
+    story.append(
+        Paragraph(
+            _safe_html(
+                title
+            ),
+            styles[
+                "ReportItemTitle"
+            ],
+        )
+    )
+
+    table = _build_table(
+        dataframe,
+        available_width,
+        styles,
+    )
+
+    if table is not None:
+
+        story.append(
+            table
+        )
+
+        story.append(
+            Spacer(
+                1,
+                8,
+            )
+        )
+
+
+# ============================================================
+# IMAGE BYTES
+# ============================================================
+
+def _get_image_bytes(
+    item,
+):
+
+    if isinstance(
+        item,
+        bytes,
+    ):
+        return item
+
+    if isinstance(
+        item,
+        bytearray,
+    ):
+        return bytes(
+            item
+        )
+
+    if isinstance(
+        item,
+        io.BytesIO,
+    ):
+
+        try:
+
+            position = item.tell()
+
+        except Exception:
+
+            position = 0
+
+        try:
+
+            item.seek(0)
+
+            value = item.read()
+
+            item.seek(
+                position
+            )
+
+            return value
+
+        except Exception:
+
+            return None
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+        return None
+
+    value = item.get(
+        "data"
+    )
+
+    if value is None:
+
+        value = item.get(
+            "bytes"
+        )
+
+    if value is None:
+
+        value = item.get(
+            "image"
+        )
+
+    if isinstance(
+        value,
+        bytes,
+    ):
+        return value
+
+    if isinstance(
+        value,
+        bytearray,
+    ):
+        return bytes(
+            value
+        )
+
+    if isinstance(
+        value,
+        io.BytesIO,
+    ):
+
+        try:
+
+            position = value.tell()
+
+        except Exception:
+
+            position = 0
+
+        try:
+
+            value.seek(0)
+
+            result = value.read()
+
+            value.seek(
+                position
+            )
+
+            return result
+
+        except Exception:
+
+            return None
+
+    return None
+
+
+# ============================================================
+# ADD IMAGE / MAP
+# ============================================================
+
+def _add_image(
+    story,
+    item,
+    styles,
+    available_width,
+    available_height,
+):
+
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Image,
+        Paragraph,
+        Spacer,
+    )
+
+    image_bytes = (
+        _get_image_bytes(
+            item
+        )
+    )
+
+    if not image_bytes:
+        return
+
+    if isinstance(
+        item,
+        dict,
+    ):
+
+        title = (
+            item.get(
+                "title"
+            )
+            or item.get(
+                "section_name"
+            )
+            or "Dashboard Image / Map"
+        )
+
+        caption = (
+            item.get(
+                "caption"
+            )
+            or ""
+        )
+
+    else:
+
+        title = (
+            "Dashboard Image / Map"
+        )
+
+        caption = ""
+
+    story.append(
+        Paragraph(
+            _safe_html(
+                title
+            ),
+            styles[
+                "ReportItemTitle"
+            ],
+        )
+    )
+
+    try:
+
+        image = Image(
+            io.BytesIO(
+                image_bytes
+            )
+        )
+
+        original_width = float(
+            image.imageWidth
+        )
+
+        original_height = float(
+            image.imageHeight
+        )
+
+        draw_width = (
+            available_width
+        )
+
+        if original_width > 0:
+
+            draw_height = (
+                draw_width
+                * original_height
+                / original_width
+            )
+
+        else:
+
+            draw_height = (
+                90 * mm
+            )
+
+        max_height = min(
+            MAX_IMAGE_HEIGHT_MM * mm,
+            available_height * 0.62,
+        )
+
+        if draw_height > max_height:
+
+            scale = (
+                max_height
+                / draw_height
+            )
+
+            draw_height = (
+                max_height
+            )
+
+            draw_width = (
+                draw_width
+                * scale
+            )
+
+        image.drawWidth = (
+            draw_width
+        )
+
+        image.drawHeight = (
+            draw_height
+        )
+
+        image.hAlign = "CENTER"
+
+        story.append(
+            image
+        )
+
+    except Exception as exc:
+
+        story.append(
+            Paragraph(
+                (
+                    "Image / map could not "
+                    "be rendered: "
+                    + _safe_html(
+                        exc
+                    )
+                ),
+                styles[
+                    "ReportNote"
+                ],
+            )
+        )
+
+    if caption:
+
+        story.append(
+            Paragraph(
+                _safe_html(
+                    caption
+                ),
+                styles[
+                    "ReportSmall"
+                ],
+            )
+        )
+
+    story.append(
+        Spacer(
+            1,
+            8,
+        )
+    )
+
+
+# ============================================================
+# SECTION HAS CONTENT
+# ============================================================
+
+def _section_has_content(
+    section,
+    include_metrics=True,
+    include_notes=True,
+    include_charts=True,
+    include_tables=True,
+    include_images=True,
+):
+
+    checks = []
+
+    if include_metrics:
+        checks.append(
+            bool(
+                section.get(
+                    "metrics"
+                )
+            )
+        )
+
+    if include_notes:
+        checks.append(
+            bool(
+                section.get(
+                    "notes"
+                )
+            )
+        )
+
+    if include_charts:
+        checks.append(
+            bool(
+                section.get(
+                    "charts"
+                )
+            )
+        )
+
+    if include_tables:
+        checks.append(
+            bool(
+                section.get(
+                    "tables"
+                )
+            )
+        )
+
+    if include_images:
+        checks.append(
+            bool(
+                section.get(
+                    "images"
+                )
+            )
+        )
+
+    return any(
+        checks
+    )
+
+
+# ============================================================
+# GENERATE STANDARD PAGE REPORT
+# ============================================================
+
+def generate_page_report_pdf(
     page_name,
     captured_content,
     df=None,
     report_period=None,
     filter_summary=None,
-    mode="full",
+    include_sections=None,
+    exclude_sections=None,
+    include_metrics=True,
+    include_notes=True,
+    include_charts=True,
+    include_chart_data=True,
+    include_tables=True,
+    include_images=True,
 ):
 
-    buffer = (
-        io.BytesIO()
+    """
+    Standard dynamic PDF generator for any dashboard page.
+
+    Every captured section starts on a new PDF page.
+
+    Content is grouped by section so charts, tables,
+    metrics, notes and images/maps belonging to the same
+    dashboard section remain together.
+
+    include_sections:
+        Optional list of section names to include.
+
+    exclude_sections:
+        Optional list of section names to exclude.
+    """
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        PageBreak,
+        KeepTogether,
     )
+
+    buffer = io.BytesIO()
 
     document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=(
-            PDF_MARGIN_MM
-            * mm
-        ),
-        leftMargin=(
-            PDF_MARGIN_MM
-            * mm
-        ),
-        topMargin=(
-            PDF_MARGIN_MM
-            * mm
-        ),
-        bottomMargin=(
-            16 * mm
-        ),
+        rightMargin=PDF_MARGIN_MM * mm,
+        leftMargin=PDF_MARGIN_MM * mm,
+        topMargin=PDF_MARGIN_MM * mm,
+        bottomMargin=16 * mm,
         title=(
             f"{page_name} - "
             f"{DASHBOARD_TITLE}"
@@ -2050,9 +2036,7 @@ def _generate_page_pdf(
         author=DASHBOARD_TITLE,
     )
 
-    page_width, page_height = (
-        A4
-    )
+    page_width, page_height = A4
 
     available_width = (
         page_width
@@ -2070,54 +2054,63 @@ def _generate_page_pdf(
             * 2
             * mm
         )
+        - 10 * mm
     )
 
     styles = (
-        _styles()
+        _get_styles()
     )
 
-    content = (
-        _normalise_captured_content(
+    sections = (
+        _group_content_by_section(
             captured_content
         )
     )
 
-    section_groups = (
-        _build_section_groups(
-            content
+    sections = (
+        _filter_sections(
+            sections,
+            include_sections=(
+                include_sections
+            ),
+            exclude_sections=(
+                exclude_sections
+            ),
         )
     )
 
-    section_groups = (
-        _filter_section_groups_for_mode(
-            section_groups,
-            mode,
-        )
+    filtered_sections = []
+
+    for section in sections:
+
+        if _section_has_content(
+            section,
+            include_metrics=(
+                include_metrics
+            ),
+            include_notes=(
+                include_notes
+            ),
+            include_charts=(
+                include_charts
+            ),
+            include_tables=(
+                include_tables
+            ),
+            include_images=(
+                include_images
+            ),
+        ):
+
+            filtered_sections.append(
+                section
+            )
+
+    sections = (
+        filtered_sections
     )
 
     story = []
-
-    # ========================================================
-    # REPORT TYPE
-    # ========================================================
-
-    if mode == "full":
-
-        report_type = (
-            "Complete Page Report"
-        )
-
-    elif mode == "visuals":
-
-        report_type = (
-            "Page Visuals Report"
-        )
-
-    else:
-
-        report_type = (
-            "Page Tables / Data Report"
-        )
 
     record_count = None
 
@@ -2131,7 +2124,7 @@ def _generate_page_pdf(
         )
 
     # ========================================================
-    # COVER / REPORT HEADER
+    # PAGE REPORT INTRODUCTION
     # ========================================================
 
     _add_report_header(
@@ -2141,336 +2134,314 @@ def _generate_page_pdf(
         report_period=report_period,
         filter_summary=filter_summary,
         record_count=record_count,
-        report_type=report_type,
-    )
-
-    # ========================================================
-    # REPORT CONTENT SUMMARY
-    # ========================================================
-
-    if section_groups:
-
-        story.append(
-            Paragraph(
-                "Report Sections",
-                styles[
-                    "PageReportSection"
-                ],
-            )
-        )
-
-        summary_rows = [
-            [
-                Paragraph(
-                    "<b>No.</b>",
-                    styles[
-                        "PageReportSmall"
-                    ],
-                ),
-                Paragraph(
-                    "<b>Section</b>",
-                    styles[
-                        "PageReportSmall"
-                    ],
-                ),
-            ]
-        ]
-
-        for index, (
-            section_name,
-            _
-        ) in enumerate(
-            section_groups,
-            start=1,
-        ):
-
-            summary_rows.append(
-                [
-                    _safe_text(
-                        index
-                    ),
-                    Paragraph(
-                        _safe_html(
-                            section_name
-                        ),
-                        styles[
-                            "PageReportSmall"
-                        ],
-                    ),
-                ]
-            )
-
-        summary_table = Table(
-            summary_rows,
-            colWidths=[
-                18 * mm,
-                available_width
-                - 18 * mm,
-            ],
-            hAlign="LEFT",
-        )
-
-        summary_table.setStyle(
-            TableStyle(
-                [
-                    (
-                        "BACKGROUND",
-                        (0, 0),
-                        (-1, 0),
-                        colors.HexColor(
-                            "#EAF1F7"
-                        ),
-                    ),
-                    (
-                        "GRID",
-                        (0, 0),
-                        (-1, -1),
-                        0.3,
-                        colors.HexColor(
-                            "#C7D5E0"
-                        ),
-                    ),
-                    (
-                        "VALIGN",
-                        (0, 0),
-                        (-1, -1),
-                        "TOP",
-                    ),
-                    (
-                        "LEFTPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        4,
-                    ),
-                    (
-                        "RIGHTPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        4,
-                    ),
-                    (
-                        "TOPPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        4,
-                    ),
-                    (
-                        "BOTTOMPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        4,
-                    ),
-                ]
-            )
-        )
-
-        story.append(
-            summary_table
-        )
-
-    # ========================================================
-    # SECTION-WISE OUTPUT
-    #
-    # CRITICAL FIX:
-    # Every new dashboard section starts on a NEW PDF PAGE.
-    # ========================================================
-
-    if section_groups:
-
-        for section_number, (
-            section_name,
-            section_content,
-        ) in enumerate(
-            section_groups,
-            start=1,
-        ):
-
-            # ------------------------------------------------
-            # ALWAYS start every section on a fresh PDF page.
-            # ------------------------------------------------
-
-            story.append(
-                PageBreak()
-            )
-
-            _render_section(
-                story=story,
-                section_number=section_number,
-                section_name=section_name,
-                section_content=section_content,
-                styles=styles,
-                available_width=available_width,
-                available_height=available_height,
-                mode=mode,
-            )
-
-    # ========================================================
-    # NO CAPTURED CONTENT / FALLBACK
-    # ========================================================
-
-    else:
-
-        if (
-            mode in (
-                "full",
-                "tables",
-            )
-            and isinstance(
-                df,
-                pd.DataFrame,
-            )
-            and not df.empty
-        ):
-
-            story.append(
-                PageBreak()
-            )
-
-            _add_section_header(
-                story,
-                styles,
-                1,
-                "Filtered Dataset",
-            )
-
-            _add_fallback_dataframe(
-                story,
-                df,
-                styles,
-                available_width,
-            )
-
-        elif mode == "visuals":
-
-            story.append(
-                Paragraph(
-                    (
-                        "No chart, graph, image or static map "
-                        "was captured from this dashboard page."
-                    ),
-                    styles[
-                        "PageReportNormal"
-                    ],
-                )
-            )
-
-        else:
-
-            story.append(
-                Paragraph(
-                    (
-                        "No displayed table or data was "
-                        "captured from this dashboard page."
-                    ),
-                    styles[
-                        "PageReportNormal"
-                    ],
-                )
-            )
-
-    # ========================================================
-    # COMPLETION NOTE
-    # ========================================================
-
-    story.append(
-        Spacer(
-            1,
-            12,
-        )
     )
 
     story.append(
         Paragraph(
             (
-                "Report generated from the dashboard "
-                "content available under the selected "
-                "filter scope."
+                "<b>Included sections:</b> "
+                f"{len(sections)}"
             ),
             styles[
-                "PageReportSmall"
+                "ReportSmall"
             ],
         )
     )
 
+    if sections:
+
+        for index, section in enumerate(
+            sections,
+            start=1,
+        ):
+
+            story.append(
+                Paragraph(
+                    (
+                        f"{index}. "
+                        + _safe_html(
+                            section[
+                                "name"
+                            ]
+                        )
+                    ),
+                    styles[
+                        "ReportSmall"
+                    ],
+                )
+            )
+
+    else:
+
+        story.append(
+            Paragraph(
+                (
+                    "No reportable content was "
+                    "captured for the selected "
+                    "page and report options."
+                ),
+                styles[
+                    "ReportNormal"
+                ],
+            )
+        )
+
     # ========================================================
-    # BUILD PDF
+    # SECTIONS
     # ========================================================
+
+    for section_number, section in enumerate(
+        sections,
+        start=1,
+    ):
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # EVERY NEW DASHBOARD SECTION STARTS ON NEW PDF PAGE.
+        # ----------------------------------------------------
+
+        story.append(
+            PageBreak()
+        )
+
+        section_name = (
+            section.get(
+                "name"
+            )
+            or DEFAULT_SECTION_NAME
+        )
+
+        # ----------------------------------------------------
+        # Keep section number + heading + small spacer
+        # together.
+        #
+        # Because section already starts on a new page,
+        # the heading can no longer be orphaned at the
+        # bottom of the previous page.
+        # ----------------------------------------------------
+
+        section_header = [
+            Paragraph(
+                (
+                    f"Section "
+                    f"{section_number}"
+                ),
+                styles[
+                    "ReportSectionNumber"
+                ],
+            ),
+            Paragraph(
+                _safe_html(
+                    section_name
+                ),
+                styles[
+                    "ReportSectionTitle"
+                ],
+            ),
+            Spacer(
+                1,
+                4,
+            ),
+        ]
+
+        story.append(
+            KeepTogether(
+                section_header
+            )
+        )
+
+        # ====================================================
+        # METRICS
+        # ====================================================
+
+        if include_metrics:
+
+            _add_metrics(
+                story=story,
+                metrics=section.get(
+                    "metrics",
+                    [],
+                ),
+                styles=styles,
+                available_width=(
+                    available_width
+                ),
+            )
+
+            if section.get(
+                "metrics"
+            ):
+
+                story.append(
+                    Spacer(
+                        1,
+                        8,
+                    )
+                )
+
+        # ====================================================
+        # NOTES
+        # ====================================================
+
+        if include_notes:
+
+            _add_notes(
+                story=story,
+                notes=section.get(
+                    "notes",
+                    [],
+                ),
+                styles=styles,
+            )
+
+        # ====================================================
+        # CHARTS
+        # ====================================================
+
+        if include_charts:
+
+            for chart in section.get(
+                "charts",
+                [],
+            ):
+
+                _add_chart(
+                    story=story,
+                    item=chart,
+                    styles=styles,
+                    available_width=(
+                        available_width
+                    ),
+                    available_height=(
+                        available_height
+                    ),
+                    include_chart_data=(
+                        include_chart_data
+                    ),
+                )
+
+        # ====================================================
+        # DISPLAYED TABLES
+        # ====================================================
+
+        if include_tables:
+
+            for table_item in section.get(
+                "tables",
+                [],
+            ):
+
+                _add_displayed_table(
+                    story=story,
+                    item=table_item,
+                    styles=styles,
+                    available_width=(
+                        available_width
+                    ),
+                )
+
+        # ====================================================
+        # IMAGES / MAPS
+        # ====================================================
+
+        if include_images:
+
+            for image_item in section.get(
+                "images",
+                [],
+            ):
+
+                _add_image(
+                    story=story,
+                    item=image_item,
+                    styles=styles,
+                    available_width=(
+                        available_width
+                    ),
+                    available_height=(
+                        available_height
+                    ),
+                )
+
+    # ========================================================
+    # FALLBACK
+    # ========================================================
+
+    if (
+        not sections
+        and isinstance(
+            df,
+            pd.DataFrame,
+        )
+        and not df.empty
+        and include_tables
+    ):
+
+        story.append(
+            PageBreak()
+        )
+
+        story.append(
+            KeepTogether(
+                [
+                    Paragraph(
+                        "Section 1",
+                        styles[
+                            "ReportSectionNumber"
+                        ],
+                    ),
+                    Paragraph(
+                        "Filtered Dataset",
+                        styles[
+                            "ReportSectionTitle"
+                        ],
+                    ),
+                    Spacer(
+                        1,
+                        4,
+                    ),
+                ]
+            )
+        )
+
+        story.append(
+            Paragraph(
+                (
+                    "No separate displayed report "
+                    "content was captured. The current "
+                    "filtered dataset is included below."
+                ),
+                styles[
+                    "ReportSmall"
+                ],
+            )
+        )
+
+        table = _build_table(
+            df,
+            available_width,
+            styles,
+        )
+
+        if table is not None:
+
+            story.append(
+                table
+            )
 
     document.build(
         story,
-        onFirstPage=(
-            _header_footer
-        ),
-        onLaterPages=(
-            _header_footer
-        ),
+        onFirstPage=_add_footer,
+        onLaterPages=_add_footer,
     )
 
-    buffer.seek(
-        0
-    )
+    buffer.seek(0)
 
-    return (
-        buffer.getvalue()
-    )
+    return buffer.getvalue()
 
 
 # ============================================================
-# PUBLIC FUNCTION
-# FULL PAGE REPORT
-# ============================================================
-
-def generate_page_report_pdf(
-    page_name,
-    captured_content,
-    df=None,
-    report_period=None,
-    filter_summary=None,
-):
-
-    """
-    Generate the complete report for the currently
-    displayed dashboard page.
-
-    NEW BEHAVIOUR:
-
-    - Dashboard content is grouped by section.
-    - Every dashboard section starts on a new PDF page.
-    - Charts, images/maps and tables remain with their
-      corresponding dashboard section.
-    - Chart title and chart are kept together whenever
-      possible.
-    - Image title and image are kept together whenever
-      possible.
-
-    Includes:
-        - captured metrics
-        - captured notes/messages
-        - captured Altair charts
-        - captured st.image images/maps
-        - captured displayed tables/dataframes
-        - fallback filtered data when nothing was captured
-    """
-
-    return _generate_page_pdf(
-        page_name=page_name,
-        captured_content=(
-            captured_content
-        ),
-        df=df,
-        report_period=(
-            report_period
-        ),
-        filter_summary=(
-            filter_summary
-        ),
-        mode="full",
-    )
-
-
-# ============================================================
-# PUBLIC FUNCTION
-# VISUALS ONLY
+# VISUALS PDF
 # ============================================================
 
 def generate_page_visuals_pdf(
@@ -2479,20 +2450,11 @@ def generate_page_visuals_pdf(
     df=None,
     report_period=None,
     filter_summary=None,
+    include_sections=None,
+    exclude_sections=None,
 ):
 
-    """
-    Generate section-wise visual PDF.
-
-    Includes:
-        - Altair charts / graphs
-        - st.image images
-        - static map images when captured through st.image
-
-    Every dashboard section starts on a new PDF page.
-    """
-
-    return _generate_page_pdf(
+    return generate_page_report_pdf(
         page_name=page_name,
         captured_content=(
             captured_content
@@ -2504,13 +2466,23 @@ def generate_page_visuals_pdf(
         filter_summary=(
             filter_summary
         ),
-        mode="visuals",
+        include_sections=(
+            include_sections
+        ),
+        exclude_sections=(
+            exclude_sections
+        ),
+        include_metrics=False,
+        include_notes=False,
+        include_charts=True,
+        include_chart_data=False,
+        include_tables=False,
+        include_images=True,
     )
 
 
 # ============================================================
-# PUBLIC FUNCTION
-# TABLES / DATA ONLY
+# TABLES PDF
 # ============================================================
 
 def generate_page_tables_pdf(
@@ -2519,18 +2491,11 @@ def generate_page_tables_pdf(
     df=None,
     report_period=None,
     filter_summary=None,
+    include_sections=None,
+    exclude_sections=None,
 ):
 
-    """
-    Generate section-wise tables/data PDF.
-
-    Every dashboard section starts on a new PDF page.
-
-    If no displayed table was captured, the current
-    filtered dataset is used as fallback.
-    """
-
-    return _generate_page_pdf(
+    return generate_page_report_pdf(
         page_name=page_name,
         captured_content=(
             captured_content
@@ -2542,5 +2507,372 @@ def generate_page_tables_pdf(
         filter_summary=(
             filter_summary
         ),
-        mode="tables",
+        include_sections=(
+            include_sections
+        ),
+        exclude_sections=(
+            exclude_sections
+        ),
+        include_metrics=True,
+        include_notes=False,
+        include_charts=False,
+        include_chart_data=False,
+        include_tables=True,
+        include_images=False,
+    )
+
+
+# ============================================================
+# COMMON DOWNLOAD CONTROL
+# ============================================================
+
+def render_page_pdf_download(
+    page_name,
+    captured_content,
+    df=None,
+    report_period=None,
+    filter_summary=None,
+    key_prefix=None,
+    show_section_selector=True,
+    expanded=False,
+):
+
+    """
+    ONE STANDARD DOWNLOAD CONTROL FOR ALL DASHBOARD PAGES.
+
+    Use the same function on:
+        Overview
+        Charts & Trends
+        Demographics
+        Ward Analysis
+        Map
+        Data Explorer
+        Prediction
+        Validation & KPI
+        Drill-down & Export
+        and future pages.
+    """
+
+    if key_prefix is None:
+
+        key_prefix = (
+            _safe_filename(
+                page_name
+            ).lower()
+        )
+
+    sections = (
+        get_page_report_sections(
+            captured_content
+        )
+    )
+
+    # Remove duplicate section names while preserving order.
+
+    unique_sections = []
+
+    seen = set()
+
+    for section in sections:
+
+        key = _section_key(
+            section
+        )
+
+        if not key:
+            continue
+
+        if key in seen:
+            continue
+
+        seen.add(
+            key
+        )
+
+        unique_sections.append(
+            section
+        )
+
+    with st.expander(
+        "📄 Download Page PDF Report",
+        expanded=expanded,
+    ):
+
+        st.caption(
+            (
+                "Generate a PDF from the content "
+                "currently displayed on this dashboard page."
+            )
+        )
+
+        selected_sections = (
+            unique_sections
+        )
+
+        # ====================================================
+        # SECTION SELECTOR
+        # ====================================================
+
+        if (
+            show_section_selector
+            and unique_sections
+        ):
+
+            st.markdown(
+                "**Sections to include**"
+            )
+
+            selected_sections = (
+                st.multiselect(
+                    (
+                        "Select report sections"
+                    ),
+                    options=(
+                        unique_sections
+                    ),
+                    default=(
+                        unique_sections
+                    ),
+                    key=(
+                        f"{key_prefix}_"
+                        "pdf_sections"
+                    ),
+                    help=(
+                        "Unselect large or unnecessary "
+                        "sections to reduce PDF size."
+                    ),
+                )
+            )
+
+        elif not unique_sections:
+
+            st.info(
+                (
+                    "No named report sections were "
+                    "captured. If filtered data is "
+                    "available, it can still be used "
+                    "as a fallback."
+                )
+            )
+
+        # ====================================================
+        # CONTENT OPTIONS
+        # ====================================================
+
+        st.markdown(
+            "**Content to include**"
+        )
+
+        col1, col2, col3 = (
+            st.columns(3)
+        )
+
+        with col1:
+
+            include_charts = (
+                st.checkbox(
+                    "Charts / Graphs",
+                    value=True,
+                    key=(
+                        f"{key_prefix}_"
+                        "pdf_charts"
+                    ),
+                )
+            )
+
+            include_metrics = (
+                st.checkbox(
+                    "Metrics / KPIs",
+                    value=True,
+                    key=(
+                        f"{key_prefix}_"
+                        "pdf_metrics"
+                    ),
+                )
+            )
+
+        with col2:
+
+            include_tables = (
+                st.checkbox(
+                    "Displayed Tables",
+                    value=True,
+                    key=(
+                        f"{key_prefix}_"
+                        "pdf_tables"
+                    ),
+                )
+            )
+
+            include_chart_data = (
+                st.checkbox(
+                    "Chart Data Tables",
+                    value=True,
+                    key=(
+                        f"{key_prefix}_"
+                        "pdf_chart_data"
+                    ),
+                    disabled=(
+                        not include_charts
+                    ),
+                )
+            )
+
+        with col3:
+
+            include_images = (
+                st.checkbox(
+                    "Images / Maps",
+                    value=True,
+                    key=(
+                        f"{key_prefix}_"
+                        "pdf_images"
+                    ),
+                )
+            )
+
+            include_notes = (
+                st.checkbox(
+                    "Notes / Messages",
+                    value=True,
+                    key=(
+                        f"{key_prefix}_"
+                        "pdf_notes"
+                    ),
+                )
+            )
+
+        # ====================================================
+        # SUMMARY
+        # ====================================================
+
+        if unique_sections:
+
+            st.caption(
+                (
+                    f"{len(selected_sections)} of "
+                    f"{len(unique_sections)} "
+                    "section(s) selected."
+                )
+            )
+
+        # ====================================================
+        # GENERATE PDF
+        # ====================================================
+
+        try:
+
+            pdf_bytes = (
+                generate_page_report_pdf(
+                    page_name=page_name,
+                    captured_content=(
+                        captured_content
+                    ),
+                    df=df,
+                    report_period=(
+                        report_period
+                    ),
+                    filter_summary=(
+                        filter_summary
+                    ),
+                    include_sections=(
+                        selected_sections
+                        if unique_sections
+                        else None
+                    ),
+                    include_metrics=(
+                        include_metrics
+                    ),
+                    include_notes=(
+                        include_notes
+                    ),
+                    include_charts=(
+                        include_charts
+                    ),
+                    include_chart_data=(
+                        include_chart_data
+                        and include_charts
+                    ),
+                    include_tables=(
+                        include_tables
+                    ),
+                    include_images=(
+                        include_images
+                    ),
+                )
+            )
+
+            filename = (
+                _safe_filename(
+                    page_name
+                )
+                + "_Page_Report.pdf"
+            )
+
+            st.download_button(
+                label=(
+                    "⬇️ Download Page PDF Report"
+                ),
+                data=pdf_bytes,
+                file_name=filename,
+                mime="application/pdf",
+                use_container_width=True,
+                key=(
+                    f"{key_prefix}_"
+                    "download_page_pdf"
+                ),
+            )
+
+        except Exception as exc:
+
+            st.error(
+                (
+                    "Page PDF report could not "
+                    "be generated."
+                )
+            )
+
+            with st.expander(
+                "Technical details"
+            ):
+
+                st.code(
+                    str(exc)
+                )
+
+
+# ============================================================
+# ALIAS
+# ============================================================
+
+def render_page_pdf_download_controls(
+    page_name,
+    captured_content,
+    df=None,
+    report_period=None,
+    filter_summary=None,
+    key_prefix=None,
+    show_section_selector=True,
+    expanded=False,
+):
+
+    return render_page_pdf_download(
+        page_name=page_name,
+        captured_content=(
+            captured_content
+        ),
+        df=df,
+        report_period=(
+            report_period
+        ),
+        filter_summary=(
+            filter_summary
+        ),
+        key_prefix=(
+            key_prefix
+        ),
+        show_section_selector=(
+            show_section_selector
+        ),
+        expanded=expanded,
     )
