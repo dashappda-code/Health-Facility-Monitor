@@ -6,11 +6,45 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+# ============================================================
+# REPORTLAB IMPORTS
+# ============================================================
+
+from reportlab.lib import colors
+from reportlab.lib.enums import (
+    TA_CENTER,
+    TA_LEFT,
+)
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import (
+    getSampleStyleSheet,
+    ParagraphStyle,
+)
+from reportlab.lib.units import mm
+
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    PageBreak,
+    KeepTogether,
+    Image,
+    LongTable,
+    Table,
+    TableStyle,
+)
+
+# ============================================================
+# DISPLAYED CHART EXPORT
+# ============================================================
+
 from displayed_chart_export import (
     _chart_to_png,
     _get_chart_image_size,
     _format_table_value,
 )
+
+
 
 
 # ============================================================
