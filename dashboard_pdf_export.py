@@ -1473,9 +1473,8 @@ def _add_chart_to_story(
 
         try:
 
-            from PIL import Image as (
-                PILImage,
-            )
+            from PIL import Image as PILImage
+           
 
             pil_image = (
                 PILImage.open(
