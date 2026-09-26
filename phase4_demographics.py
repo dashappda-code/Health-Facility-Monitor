@@ -53,6 +53,13 @@ DEFAULT_CATEGORY_COLORS = [
     "#17BECF",
 ]
 
+AGE_LINE_COLOR = "#1F77B4"
+
+# Slightly larger and bold data labels across demographic charts.
+DATA_LABEL_FONT_SIZE = 13
+GROUPED_DATA_LABEL_FONT_SIZE = 12
+PYRAMID_DATA_LABEL_FONT_SIZE = 12
+
 
 # ============================================================
 # COMMON CHART CONFIGURATION
@@ -362,9 +369,9 @@ def _render_category_bar_chart(
         labels = (
             alt.Chart(chart_df)
             .mark_text(
-                dy=-8,
+                dy=-9,
                 fontWeight="bold",
-                fontSize=12,
+                fontSize=DATA_LABEL_FONT_SIZE,
             )
             .encode(
                 x=alt.X(
@@ -440,10 +447,13 @@ def _render_grouped_bar_chart(
     ):
 
         if group in GENDER_COLORS:
+
             group_colors.append(
                 GENDER_COLORS[group]
             )
+
         else:
+
             group_colors.append(
                 DEFAULT_CATEGORY_COLORS[
                     index
@@ -521,8 +531,8 @@ def _render_grouped_bar_chart(
         labels = (
             alt.Chart(chart_df)
             .mark_text(
-                dy=-7,
-                fontSize=10,
+                dy=-8,
+                fontSize=GROUPED_DATA_LABEL_FONT_SIZE,
                 fontWeight="bold",
             )
             .encode(
@@ -571,10 +581,12 @@ def _render_population_pyramid(
         "Age Group" not in df.columns
         or "Gender" not in df.columns
     ):
+
         st.info(
             "Age Group and Gender information "
             "is required for the population pyramid."
         )
+
         return
 
     pyramid_df = df[
@@ -674,8 +686,8 @@ def _render_population_pyramid(
     # --------------------------------------------------------
     # Male is displayed on the left side.
     # All other gender categories remain on the right side.
-    # Transgender / Other records are never removed even when
-    # the count is very small.
+    # Transgender / Other records are retained even when
+    # their counts are very small.
     # --------------------------------------------------------
 
     counts["Plot Records"] = (
@@ -820,7 +832,7 @@ def _render_population_pyramid(
             alt.Chart(counts)
             .mark_text(
                 fontWeight="bold",
-                fontSize=10,
+                fontSize=PYRAMID_DATA_LABEL_FONT_SIZE,
                 dx=0,
             )
             .encode(
@@ -1319,16 +1331,18 @@ def render_demographics(
                             chart_df
                         )
                         .mark_text(
-                            dy=-8,
+                            dy=-9,
                             fontWeight="bold",
-                            fontSize=12,
+                            fontSize=DATA_LABEL_FONT_SIZE,
                         )
                         .encode(
                             x=alt.X(
                                 "Gender:N",
                                 sort=domains,
                             ),
-                            y="Records:Q",
+                            y=alt.Y(
+                                "Records:Q"
+                            ),
                             text=alt.Text(
                                 "Records:Q",
                                 format=",",
@@ -1428,12 +1442,22 @@ def render_demographics(
                 )
             )
 
+            # ------------------------------------------------
+            # Fixed chart color:
+            # line, points and data labels use the same color.
+            # ------------------------------------------------
+
             age_line = (
                 alt.Chart(
                     age_counts
                 )
                 .mark_line(
-                    point=True
+                    point=alt.OverlayMarkDef(
+                        filled=True,
+                        size=60,
+                    ),
+                    strokeWidth=3,
+                    color=AGE_LINE_COLOR,
                 )
                 .encode(
                     x=alt.X(
@@ -1466,9 +1490,7 @@ def render_demographics(
                 )
             )
 
-            age_chart = (
-                age_line
-            )
+            age_chart = age_line
 
             if data_labels_enabled():
 
@@ -1477,16 +1499,19 @@ def render_demographics(
                         age_counts
                     )
                     .mark_text(
-                        dy=-9,
-                        fontSize=9,
+                        dy=-10,
+                        fontSize=DATA_LABEL_FONT_SIZE,
                         fontWeight="bold",
+                        color=AGE_LINE_COLOR,
                     )
                     .encode(
                         x=alt.X(
                             "Age:O",
                             sort="ascending",
                         ),
-                        y="Records:Q",
+                        y=alt.Y(
+                            "Records:Q"
+                        ),
                         text=alt.Text(
                             "Records:Q",
                             format=",",
