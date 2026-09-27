@@ -208,6 +208,28 @@ def _bottom_legend(title=None):
     )
 
 
+def _ward_single_row_legend(title=None):
+
+    return alt.Legend(
+        title=title,
+        orient="bottom",
+        direction="horizontal",
+
+        # Keep all available ward legend items in one row.
+        columns=50,
+
+        labelFontSize=8,
+        titleFontSize=9,
+        symbolSize=55,
+        symbolStrokeWidth=1,
+
+        labelLimit=60,
+        columnPadding=5,
+        rowPadding=2,
+        offset=6,
+    )
+
+
 # ============================================================
 # AXIS
 # ============================================================
@@ -260,6 +282,7 @@ def _render_category_bar_chart(
     category_order=None,
     height=430,
     vertical_labels=False,
+    single_row_legend=False,
 ):
 
     if dataframe is None or dataframe.empty:
@@ -294,6 +317,22 @@ def _render_category_bar_chart(
         range=colors,
     )
 
+    if single_row_legend:
+
+        legend = (
+            _ward_single_row_legend(
+                category_column
+            )
+        )
+
+    else:
+
+        legend = (
+            _bottom_legend(
+                category_column
+            )
+        )
+
     bars = (
         alt.Chart(chart_df)
         .mark_bar()
@@ -315,9 +354,7 @@ def _render_category_bar_chart(
             color=alt.Color(
                 f"{category_column}:N",
                 scale=color_scale,
-                legend=_bottom_legend(
-                    category_column
-                ),
+                legend=legend,
             ),
             tooltip=[
                 alt.Tooltip(
@@ -562,24 +599,42 @@ def _checkbox_multiselect(
     if not options:
         return []
 
-    state_key = (
-        f"{key_prefix}_initialized"
-    )
-
     select_all_key = (
         f"{key_prefix}_select_all"
     )
 
-    if state_key not in st.session_state:
+    previous_select_all_key = (
+        f"{key_prefix}_previous_select_all"
+    )
 
-        st.session_state[state_key] = True
-        st.session_state[select_all_key] = True
+    option_keys = [
+        f"{key_prefix}_option_{index}"
+        for index in range(len(options))
+    ]
 
-        for index, option in enumerate(
-            options
-        ):
+    # --------------------------------------------------------
+    # INITIAL STATE
+    # Default = Select All + every option selected.
+    # --------------------------------------------------------
+
+    if select_all_key not in st.session_state:
+
+        st.session_state[
+            select_all_key
+        ] = True
+
+    if previous_select_all_key not in st.session_state:
+
+        st.session_state[
+            previous_select_all_key
+        ] = True
+
+    for option_key in option_keys:
+
+        if option_key not in st.session_state:
+
             st.session_state[
-                f"{key_prefix}_option_{index}"
+                option_key
             ] = True
 
     with st.popover(
@@ -587,10 +642,60 @@ def _checkbox_multiselect(
         use_container_width=True,
     ):
 
-        select_all = st.checkbox(
+        st.checkbox(
             "Select All",
             key=select_all_key,
         )
+
+        current_select_all = bool(
+            st.session_state[
+                select_all_key
+            ]
+        )
+
+        previous_select_all = bool(
+            st.session_state[
+                previous_select_all_key
+            ]
+        )
+
+        # ----------------------------------------------------
+        # SELECT ALL CHANGED FROM ON -> OFF
+        # Clear every individual checkbox.
+        # ----------------------------------------------------
+
+        if (
+            previous_select_all
+            and not current_select_all
+        ):
+
+            for option_key in option_keys:
+
+                st.session_state[
+                    option_key
+                ] = False
+
+        # ----------------------------------------------------
+        # SELECT ALL CHANGED FROM OFF -> ON
+        # Select every individual checkbox.
+        # ----------------------------------------------------
+
+        elif (
+            not previous_select_all
+            and current_select_all
+        ):
+
+            for option_key in option_keys:
+
+                st.session_state[
+                    option_key
+                ] = True
+
+        st.session_state[
+            previous_select_all_key
+        ] = current_select_all
+
+        st.divider()
 
         selected = []
 
@@ -599,37 +704,49 @@ def _checkbox_multiselect(
         ):
 
             option_key = (
-                f"{key_prefix}_option_{index}"
+                option_keys[index]
             )
 
-            if option_key not in st.session_state:
-
-                st.session_state[
-                    option_key
-                ] = True
-
-            if not select_all:
-
-                checked = st.checkbox(
-                    str(option),
-                    key=option_key,
-                )
-
-            else:
-
-                st.session_state[
-                    option_key
-                ] = True
-
-                checked = st.checkbox(
-                    str(option),
-                    key=option_key,
-                )
+            checked = st.checkbox(
+                str(option),
+                key=option_key,
+            )
 
             if checked:
+
                 selected.append(
                     option
                 )
+
+        # ----------------------------------------------------
+        # SYNCHRONISE SELECT ALL
+        #
+        # If all individual items are manually selected,
+        # Select All becomes checked.
+        #
+        # If any individual item is unselected,
+        # Select All becomes unchecked.
+        # ----------------------------------------------------
+
+        all_individual_selected = (
+            len(selected)
+            == len(options)
+        )
+
+        if (
+            st.session_state[
+                select_all_key
+            ]
+            != all_individual_selected
+        ):
+
+            st.session_state[
+                select_all_key
+            ] = all_individual_selected
+
+            st.session_state[
+                previous_select_all_key
+            ] = all_individual_selected
 
     return selected
 
@@ -879,6 +996,7 @@ def render_ward(df):
         value_column="Records",
         category_order=all_wards,
         height=450,
+        single_row_legend=True,
     )
 
     st.caption(
