@@ -86,6 +86,19 @@ def _x_axis(title=None):
     )
 
 
+def _vertical_x_axis(title=None):
+
+    return alt.Axis(
+        title=title,
+        labelAngle=-90,
+        labelAlign="right",
+        labelBaseline="middle",
+        labelFontSize=10,
+        titleFontSize=12,
+        labelLimit=260,
+    )
+
+
 def _y_axis(title=None):
 
     return alt.Axis(
@@ -124,6 +137,25 @@ def _valid_text(series):
         & series.ne("NaT")
         & series.ne("None")
     ]
+
+
+def _alphabetical_order(values):
+
+    clean_values = [
+        str(value).strip()
+        for value in values
+        if str(value).strip()
+        and str(value).strip() not in {
+            "nan",
+            "NaT",
+            "None",
+        }
+    ]
+
+    return sorted(
+        list(dict.fromkeys(clean_values)),
+        key=lambda value: value.upper(),
+    )
 
 
 # ============================================================
@@ -260,6 +292,7 @@ def _render_category_bar_chart(
     value_column="Records",
     category_order=None,
     height=430,
+    vertical_x_labels=False,
 ):
 
     if dataframe is None or dataframe.empty:
@@ -302,6 +335,18 @@ def _render_category_bar_chart(
         category_order
     )
 
+    if vertical_x_labels:
+
+        x_axis = _vertical_x_axis(
+            category_column
+        )
+
+    else:
+
+        x_axis = _x_axis(
+            category_column
+        )
+
     bars = (
         alt.Chart(chart_df)
         .mark_bar()
@@ -309,9 +354,7 @@ def _render_category_bar_chart(
             x=alt.X(
                 f"{category_column}:N",
                 sort=category_order,
-                axis=_x_axis(
-                    category_column
-                ),
+                axis=x_axis,
             ),
             y=alt.Y(
                 f"{value_column}:Q",
@@ -644,6 +687,12 @@ def render_ward(df):
         ),
     )
 
+    all_wards_alphabetical = (
+        _alphabetical_order(
+            ward_counts["Ward"].tolist()
+        )
+    )
+
     summary1, summary2, summary3 = (
         st.columns(3)
     )
@@ -766,21 +815,25 @@ def render_ward(df):
         .copy()
     )
 
+    chart_ward_order = (
+        _alphabetical_order(
+            chart_wards["Ward"].tolist()
+        )
+    )
+
     _render_category_bar_chart(
         dataframe=chart_wards,
         category_column="Ward",
         value_column="Records",
-        category_order=(
-            chart_wards["Ward"]
-            .tolist()
-        ),
+        category_order=chart_ward_order,
         height=450,
     )
 
     if len(ward_counts) > 25:
 
         st.caption(
-            "Chart displays the top 25 wards by record volume. "
+            "Chart displays the top 25 wards by record volume, "
+            "arranged alphabetically from A to Z. "
             "The Ward-wise Burden Ranking table contains all available wards."
         )
 
@@ -869,18 +922,15 @@ def render_ward(df):
 
         if not disease_ward.empty:
 
-            disease_totals = (
+            top_diseases = (
                 disease_ward["Disease"]
                 .value_counts()
                 .head(10)
-            )
-
-            top_diseases = (
-                disease_totals.index
+                .index
                 .tolist()
             )
 
-            top_ward_order = (
+            top_wards_by_volume = (
                 disease_ward["Ward Name"]
                 .value_counts()
                 .head(25)
@@ -888,12 +938,18 @@ def render_ward(df):
                 .tolist()
             )
 
+            top_ward_order = (
+                _alphabetical_order(
+                    top_wards_by_volume
+                )
+            )
+
             chart_source = (
                 disease_ward[
                     disease_ward["Disease"]
                     .isin(top_diseases)
                     & disease_ward["Ward Name"]
-                    .isin(top_ward_order)
+                    .isin(top_wards_by_volume)
                 ]
             )
 
@@ -936,7 +992,8 @@ def render_ward(df):
 
             st.caption(
                 "Chart displays the top 10 diseases across "
-                "the top 25 wards by record volume."
+                "the top 25 wards by record volume. "
+                "Wards are arranged alphabetically from A to Z."
             )
 
             st.dataframe(
@@ -1010,7 +1067,7 @@ def render_ward(df):
                 .tolist()
             )
 
-            top_ward_order = (
+            top_wards_by_volume = (
                 facility_ward["Ward Name"]
                 .value_counts()
                 .head(25)
@@ -1018,12 +1075,18 @@ def render_ward(df):
                 .tolist()
             )
 
+            top_ward_order = (
+                _alphabetical_order(
+                    top_wards_by_volume
+                )
+            )
+
             chart_source = (
                 facility_ward[
                     facility_ward["Facility Name"]
                     .isin(top_facilities)
                     & facility_ward["Ward Name"]
-                    .isin(top_ward_order)
+                    .isin(top_wards_by_volume)
                 ]
             )
 
@@ -1066,7 +1129,8 @@ def render_ward(df):
 
             st.caption(
                 "Chart displays the top 10 facilities across "
-                "the top 25 wards by record volume."
+                "the top 25 wards by record volume. "
+                "Wards are arranged alphabetically from A to Z."
             )
 
             st.dataframe(
@@ -1131,7 +1195,7 @@ def render_ward(df):
 
         if not ward_gender.empty:
 
-            top_ward_order = (
+            top_wards_by_volume = (
                 ward_gender["Ward Name"]
                 .value_counts()
                 .head(20)
@@ -1139,10 +1203,16 @@ def render_ward(df):
                 .tolist()
             )
 
+            top_ward_order = (
+                _alphabetical_order(
+                    top_wards_by_volume
+                )
+            )
+
             chart_source = (
                 ward_gender[
                     ward_gender["Ward Name"]
-                    .isin(top_ward_order)
+                    .isin(top_wards_by_volume)
                 ]
             )
 
@@ -1262,7 +1332,7 @@ def render_ward(df):
 
         if not ward_age.empty:
 
-            top_ward_order = (
+            top_wards_by_volume = (
                 ward_age["Ward Name"]
                 .value_counts()
                 .head(20)
@@ -1270,10 +1340,16 @@ def render_ward(df):
                 .tolist()
             )
 
+            top_ward_order = (
+                _alphabetical_order(
+                    top_wards_by_volume
+                )
+            )
+
             chart_source = (
                 ward_age[
                     ward_age["Ward Name"]
-                    .isin(top_ward_order)
+                    .isin(top_wards_by_volume)
                 ]
             )
 
@@ -1374,150 +1450,230 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 10. TOP WARD × TOP FACILITY DETAIL
+    # 10. SELECTED WARD × FACILITY DETAIL
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 10. 🏥 Top Ward – Facility Detail"
+        "### 10. 🏥 Ward – Facility Detail"
     )
 
     if "Facility Name" in df.columns:
 
-        top_ward_name = str(
-            top_ward["Ward"]
+        available_wards = (
+            _alphabetical_order(
+                ward.tolist()
+            )
         )
 
-        ward_name_series = (
-            df["Ward Name"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
+        if available_wards:
 
-        ward_facility_df = (
-            df[
-                ward_name_series
-                .eq(top_ward_name)
-            ]
-            .copy()
-        )
+            # ------------------------------------------------
+            # IMPORTANT:
+            # df already contains the Global Dashboard Filter.
+            #
+            # Therefore, when a ward has been selected globally,
+            # only that ward will normally remain in df and it
+            # becomes the automatic selection here.
+            #
+            # When multiple wards remain, the user can choose
+            # the ward specifically for this section.
+            # ------------------------------------------------
 
-        if not ward_facility_df.empty:
+            if len(available_wards) == 1:
 
-            facility_values = (
-                ward_facility_df[
-                    "Facility Name"
-                ]
+                selected_ward = (
+                    available_wards[0]
+                )
+
+                st.selectbox(
+                    "Select Ward",
+                    options=available_wards,
+                    index=0,
+                    key="phase5_facility_ward_selector",
+                    disabled=True,
+                )
+
+                st.caption(
+                    "Ward selection is currently determined by "
+                    "the Global Dashboard Filters."
+                )
+
+            else:
+
+                default_ward = str(
+                    top_ward["Ward"]
+                )
+
+                if default_ward in available_wards:
+
+                    default_index = (
+                        available_wards.index(
+                            default_ward
+                        )
+                    )
+
+                else:
+
+                    default_index = 0
+
+                selected_ward = (
+                    st.selectbox(
+                        "Select Ward",
+                        options=available_wards,
+                        index=default_index,
+                        key="phase5_facility_ward_selector",
+                    )
+                )
+
+            ward_name_series = (
+                df["Ward Name"]
                 .fillna("")
                 .astype(str)
                 .str.strip()
             )
 
-            facility_values = (
-                _valid_text(
-                    facility_values
-                )
+            ward_facility_df = (
+                df[
+                    ward_name_series
+                    .eq(selected_ward)
+                ]
+                .copy()
             )
 
-            if not facility_values.empty:
+            if not ward_facility_df.empty:
 
-                top_facilities = (
-                    facility_values
-                    .value_counts()
-                    .rename_axis(
-                        "Facility"
-                    )
-                    .reset_index(
-                        name="Records"
-                    )
-                )
-
-                top_facilities.insert(
-                    0,
-                    "Rank",
-                    range(
-                        1,
-                        len(top_facilities) + 1,
-                    ),
-                )
-
-                top_facilities[
-                    "Percentage"
-                ] = (
-                    top_facilities[
-                        "Records"
+                facility_values = (
+                    ward_facility_df[
+                        "Facility Name"
                     ]
-                    / top_facilities[
-                        "Records"
-                    ].sum()
-                    * 100
-                ).round(2)
-
-                chart_facilities = (
-                    top_facilities
-                    .head(15)
-                    .copy()
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
                 )
 
-                _render_category_bar_chart(
-                    dataframe=chart_facilities,
-                    category_column="Facility",
-                    value_column="Records",
-                    category_order=(
-                        chart_facilities[
+                facility_values = (
+                    _valid_text(
+                        facility_values
+                    )
+                )
+
+                if not facility_values.empty:
+
+                    selected_ward_facilities = (
+                        facility_values
+                        .value_counts()
+                        .rename_axis(
                             "Facility"
-                        ]
-                        .tolist()
-                    ),
-                    height=450,
-                )
-
-                display_top_facilities = (
-                    top_facilities.copy()
-                )
-
-                display_top_facilities[
-                    "Percentage"
-                ] = (
-                    display_top_facilities[
-                        "Percentage"
-                    ]
-                    .map(
-                        lambda x: (
-                            f"{x:.2f}%"
+                        )
+                        .reset_index(
+                            name="Records"
                         )
                     )
-                )
 
-                st.dataframe(
-                    display_top_facilities,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                    selected_ward_facilities.insert(
+                        0,
+                        "Rank",
+                        range(
+                            1,
+                            len(
+                                selected_ward_facilities
+                            ) + 1,
+                        ),
+                    )
 
-                if len(
-                    top_facilities
-                ) > 15:
+                    selected_ward_facilities[
+                        "Percentage"
+                    ] = (
+                        selected_ward_facilities[
+                            "Records"
+                        ]
+                        / selected_ward_facilities[
+                            "Records"
+                        ].sum()
+                        * 100
+                    ).round(2)
 
-                    st.caption(
-                        "Chart displays the top 15 facilities "
-                        f"within Ward {top_ward_name}. "
-                        "The table contains all facilities."
+                    chart_facilities = (
+                        selected_ward_facilities
+                        .head(15)
+                        .copy()
+                    )
+
+                    _render_category_bar_chart(
+                        dataframe=chart_facilities,
+                        category_column="Facility",
+                        value_column="Records",
+                        category_order=(
+                            chart_facilities[
+                                "Facility"
+                            ]
+                            .tolist()
+                        ),
+                        height=500,
+                        vertical_x_labels=True,
+                    )
+
+                    display_facilities = (
+                        selected_ward_facilities
+                        .copy()
+                    )
+
+                    display_facilities[
+                        "Percentage"
+                    ] = (
+                        display_facilities[
+                            "Percentage"
+                        ]
+                        .map(
+                            lambda x: (
+                                f"{x:.2f}%"
+                            )
+                        )
+                    )
+
+                    st.dataframe(
+                        display_facilities,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    if len(
+                        selected_ward_facilities
+                    ) > 15:
+
+                        st.caption(
+                            "Chart displays the top 15 facilities "
+                            f"within Ward {selected_ward}. "
+                            "The table contains all facilities "
+                            "for the selected ward."
+                        )
+
+                    else:
+
+                        st.caption(
+                            f"Facility distribution for Ward "
+                            f"{selected_ward}."
+                        )
+
+                else:
+
+                    st.info(
+                        "Facility information is not available "
+                        "for the selected ward."
                     )
 
             else:
 
                 st.info(
-                    "Facility information is not available "
-                    "for the top burden ward."
+                    "No records found for the selected ward."
                 )
 
         else:
 
             st.info(
-                "No records found for the top burden ward."
+                "No valid ward information is available."
             )
 
     else:
