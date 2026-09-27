@@ -1263,20 +1263,6 @@ def render_ward(df):
 
                 
 
-                
-
-                disease_table = (
-                    pd.crosstab(
-                        chart_source["Ward Name"],
-                        chart_source["Disease"],
-                    )
-                    .reindex(
-                        index=all_wards,
-                        columns=selected_diseases,
-                        fill_value=0,
-                    )
-                )
-
                 st.caption(
                     f"{len(selected_diseases)} of "
                     f"{len(disease_order)} available diseases "
