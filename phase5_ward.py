@@ -1215,8 +1215,7 @@ def render_ward(df):
                     .copy()
                 )
 
-
-                                chart_long = (
+                chart_long = (
                     _complete_grouped_data(
                         source=chart_source,
                         x_column="Ward Name",
@@ -1224,17 +1223,6 @@ def render_ward(df):
                         x_order=all_wards,
                         group_order=selected_diseases,
                     )
-                )
-
-                # ------------------------------------------------
-                # DISEASE LEGEND
-                # Keep selected diseases within approximately
-                # one or two legend rows.
-                # ------------------------------------------------
-
-                disease_legend_columns = max(
-                    1,
-                    (len(selected_diseases) + 1) // 2,
                 )
 
                 _render_grouped_bar_chart(
@@ -1245,8 +1233,8 @@ def render_ward(df):
                     x_order=all_wards,
                     group_order=selected_diseases,
                     height=500,
-                    legend_columns=disease_legend_columns,
-                    legend_label_limit=220,
+                    legend_columns=4,
+                    legend_label_limit=250,
                 )
 
                 disease_table = (
@@ -1260,8 +1248,6 @@ def render_ward(df):
                         fill_value=0,
                     )
                 )
-
-                
 
                 st.caption(
                     f"{len(selected_diseases)} of "
