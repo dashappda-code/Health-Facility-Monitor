@@ -189,7 +189,7 @@ def _standardize_age_group(series):
 
 
 # ============================================================
-# LEGEND
+# LEGENDS
 # ============================================================
 
 def _bottom_legend(title=None):
@@ -214,15 +214,11 @@ def _ward_single_row_legend(title=None):
         title=title,
         orient="bottom",
         direction="horizontal",
-
-        # Keep all available ward legend items in one row.
         columns=50,
-
         labelFontSize=8,
         titleFontSize=9,
         symbolSize=55,
         symbolStrokeWidth=1,
-
         labelLimit=60,
         columnPadding=5,
         rowPadding=2,
@@ -603,31 +599,40 @@ def _checkbox_multiselect(
         f"{key_prefix}_select_all"
     )
 
-    previous_select_all_key = (
-        f"{key_prefix}_previous_select_all"
+    initialized_key = (
+        f"{key_prefix}_initialized"
     )
 
     option_keys = [
         f"{key_prefix}_option_{index}"
-        for index in range(len(options))
+        for index in range(
+            len(options)
+        )
     ]
 
     # --------------------------------------------------------
     # INITIAL STATE
-    # Default = Select All + every option selected.
     # --------------------------------------------------------
 
-    if select_all_key not in st.session_state:
+    if initialized_key not in st.session_state:
+
+        st.session_state[
+            initialized_key
+        ] = True
 
         st.session_state[
             select_all_key
         ] = True
 
-    if previous_select_all_key not in st.session_state:
+        for option_key in option_keys:
 
-        st.session_state[
-            previous_select_all_key
-        ] = True
+            st.session_state[
+                option_key
+            ] = True
+
+    # --------------------------------------------------------
+    # NEW OPTIONS
+    # --------------------------------------------------------
 
     for option_key in option_keys:
 
@@ -637,63 +642,59 @@ def _checkbox_multiselect(
                 option_key
             ] = True
 
+    # --------------------------------------------------------
+    # SELECT ALL CALLBACK
+    # --------------------------------------------------------
+
+    def _select_all_changed():
+
+        new_value = bool(
+            st.session_state.get(
+                select_all_key,
+                False,
+            )
+        )
+
+        for option_key in option_keys:
+
+            st.session_state[
+                option_key
+            ] = new_value
+
+    # --------------------------------------------------------
+    # INDIVIDUAL CALLBACK
+    # --------------------------------------------------------
+
+    def _individual_changed():
+
+        all_selected = all(
+            bool(
+                st.session_state.get(
+                    option_key,
+                    False,
+                )
+            )
+            for option_key in option_keys
+        )
+
+        st.session_state[
+            select_all_key
+        ] = all_selected
+
+    # --------------------------------------------------------
+    # POPOVER
+    # --------------------------------------------------------
+
     with st.popover(
         label,
         use_container_width=True,
     ):
 
-        st.checkbox(
+        st.toggle(
             "Select All",
             key=select_all_key,
+            on_change=_select_all_changed,
         )
-
-        current_select_all = bool(
-            st.session_state[
-                select_all_key
-            ]
-        )
-
-        previous_select_all = bool(
-            st.session_state[
-                previous_select_all_key
-            ]
-        )
-
-        # ----------------------------------------------------
-        # SELECT ALL CHANGED FROM ON -> OFF
-        # Clear every individual checkbox.
-        # ----------------------------------------------------
-
-        if (
-            previous_select_all
-            and not current_select_all
-        ):
-
-            for option_key in option_keys:
-
-                st.session_state[
-                    option_key
-                ] = False
-
-        # ----------------------------------------------------
-        # SELECT ALL CHANGED FROM OFF -> ON
-        # Select every individual checkbox.
-        # ----------------------------------------------------
-
-        elif (
-            not previous_select_all
-            and current_select_all
-        ):
-
-            for option_key in option_keys:
-
-                st.session_state[
-                    option_key
-                ] = True
-
-        st.session_state[
-            previous_select_all_key
-        ] = current_select_all
 
         st.divider()
 
@@ -710,6 +711,7 @@ def _checkbox_multiselect(
             checked = st.checkbox(
                 str(option),
                 key=option_key,
+                on_change=_individual_changed,
             )
 
             if checked:
@@ -718,37 +720,46 @@ def _checkbox_multiselect(
                     option
                 )
 
-        # ----------------------------------------------------
-        # SYNCHRONISE SELECT ALL
-        #
-        # If all individual items are manually selected,
-        # Select All becomes checked.
-        #
-        # If any individual item is unselected,
-        # Select All becomes unchecked.
-        # ----------------------------------------------------
-
-        all_individual_selected = (
-            len(selected)
-            == len(options)
-        )
-
-        if (
-            st.session_state[
-                select_all_key
-            ]
-            != all_individual_selected
-        ):
-
-            st.session_state[
-                select_all_key
-            ] = all_individual_selected
-
-            st.session_state[
-                previous_select_all_key
-            ] = all_individual_selected
-
     return selected
+
+
+# ============================================================
+# LIGHT INFORMATION BOX
+# ============================================================
+
+def _light_info_box(
+    title,
+    text,
+    background="#F6F9FD",
+    border="#DCE7F5",
+):
+
+    st.markdown(
+        f"""
+        <div style="
+            background:{background};
+            border:1px solid {border};
+            border-radius:10px;
+            padding:10px 14px;
+            margin:4px 0 12px 0;
+        ">
+            <div style="
+                font-size:14px;
+                font-weight:600;
+                margin-bottom:2px;
+            ">
+                {title}
+            </div>
+            <div style="
+                font-size:13px;
+                color:#5B6573;
+            ">
+                {text}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
@@ -786,8 +797,24 @@ def render_ward(df):
 
         return
 
-    ward = _valid_text(
+    raw_ward_values = (
         df["Ward Name"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    valid_ward_mask = (
+        raw_ward_values.ne("")
+        & raw_ward_values.ne("nan")
+        & raw_ward_values.ne("NaT")
+        & raw_ward_values.ne("None")
+    )
+
+    ward = (
+        raw_ward_values[
+            valid_ward_mask
+        ]
     )
 
     if ward.empty:
@@ -799,28 +826,49 @@ def render_ward(df):
         return
 
     # ========================================================
-    # COMMON WARD ORDER
+    # COMMON WARD DATA
     # ========================================================
 
-    all_wards = _alphabetical_order(
-        ward.unique().tolist()
+    all_wards = (
+        _alphabetical_order(
+            ward.unique().tolist()
+        )
     )
 
     ward_counts = (
         ward
         .value_counts()
-        .rename_axis("Ward")
+        .rename_axis(
+            "Ward"
+        )
         .reset_index(
             name="Records"
         )
     )
 
-    total_valid_ward_records = int(
-        ward_counts["Records"].sum()
+    total_records = len(df)
+
+    valid_ward_count = int(
+        valid_ward_mask.sum()
     )
 
-    ward_counts["Percentage"] = (
-        ward_counts["Records"]
+    missing_ward = (
+        total_records
+        - valid_ward_count
+    )
+
+    total_valid_ward_records = int(
+        ward_counts[
+            "Records"
+        ].sum()
+    )
+
+    ward_counts[
+        "Percentage"
+    ] = (
+        ward_counts[
+            "Records"
+        ]
         / max(
             total_valid_ward_records,
             1,
@@ -837,6 +885,43 @@ def render_ward(df):
         ),
     )
 
+    top_ward = (
+        ward_counts.iloc[0]
+    )
+
+    lowest_ward = (
+        ward_counts.iloc[-1]
+    )
+
+    average_records = float(
+        ward_counts[
+            "Records"
+        ].mean()
+    )
+
+    median_records = float(
+        ward_counts[
+            "Records"
+        ].median()
+    )
+
+    top5_records = int(
+        ward_counts
+        .head(5)[
+            "Records"
+        ]
+        .sum()
+    )
+
+    top5_share = (
+        top5_records
+        / max(
+            total_valid_ward_records,
+            1,
+        )
+        * 100
+    )
+
     # ========================================================
     # 1. WARD SUMMARY
     # ========================================================
@@ -845,8 +930,10 @@ def render_ward(df):
         "### 1. 📊 Ward Summary"
     )
 
-    top_ward = (
-        ward_counts.iloc[0]
+    _light_info_box(
+        "Overall Ward Snapshot",
+        "Summary of ward coverage and completeness within the "
+        "currently selected Global Dashboard Filters.",
     )
 
     c1, c2, c3, c4 = (
@@ -856,41 +943,47 @@ def render_ward(df):
     with c1:
 
         st.metric(
-            "Top Ward",
-            str(
-                top_ward["Ward"]
-            ),
+            "Total Records",
+            f"{total_records:,}",
         )
 
     with c2:
 
         st.metric(
-            "Records",
-            f"{int(top_ward['Records']):,}",
+            "Valid Ward Records",
+            f"{valid_ward_count:,}",
         )
 
     with c3:
 
         st.metric(
-            "Share",
-            f"{float(top_ward['Percentage']):.2f}%",
+            "Total Wards",
+            f"{len(all_wards):,}",
         )
 
     with c4:
 
         st.metric(
-            "Total Wards",
-            f"{len(ward_counts):,}",
+            "Missing Ward Records",
+            f"{missing_ward:,}",
         )
 
     # ========================================================
-    # 2. TOP BURDEN WARD
+    # 2. WARD BURDEN HIGHLIGHTS
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 2. 🏆 Top Burden Ward"
+        "### 2. 🏆 Ward Burden Highlights"
+    )
+
+    _light_info_box(
+        "Burden Snapshot",
+        "Key ward-level burden indicators within the current "
+        "dashboard filter selection.",
+        background="#FFF9EF",
+        border="#F2E3C3",
     )
 
     c1, c2, c3, c4 = (
@@ -900,31 +993,66 @@ def render_ward(df):
     with c1:
 
         st.metric(
-            "Top Ward",
+            "Highest Burden Ward",
             str(
                 top_ward["Ward"]
+            ),
+            help=(
+                f"{int(top_ward['Records']):,} records "
+                f"({float(top_ward['Percentage']):.2f}%)"
             ),
         )
 
     with c2:
 
         st.metric(
-            "Records",
-            f"{int(top_ward['Records']):,}",
+            "Lowest Burden Ward",
+            str(
+                lowest_ward["Ward"]
+            ),
+            help=(
+                f"{int(lowest_ward['Records']):,} records "
+                f"({float(lowest_ward['Percentage']):.2f}%)"
+            ),
         )
 
     with c3:
 
         st.metric(
-            "Share",
-            f"{float(top_ward['Percentage']):.2f}%",
+            "Top 5 Wards Share",
+            f"{top5_share:.2f}%",
         )
 
     with c4:
 
         st.metric(
-            "Total Wards",
-            f"{len(ward_counts):,}",
+            "Average / Ward",
+            f"{average_records:,.1f}",
+        )
+
+    c1, c2, c3 = (
+        st.columns(3)
+    )
+
+    with c1:
+
+        st.metric(
+            "Top Ward Records",
+            f"{int(top_ward['Records']):,}",
+        )
+
+    with c2:
+
+        st.metric(
+            "Top Ward Share",
+            f"{float(top_ward['Percentage']):.2f}%",
+        )
+
+    with c3:
+
+        st.metric(
+            "Median Records / Ward",
+            f"{median_records:,.1f}",
         )
 
     # ========================================================
@@ -935,6 +1063,12 @@ def render_ward(df):
 
     st.markdown(
         "### 3. 📋 Ward-wise Burden Ranking"
+    )
+
+    _light_info_box(
+        "Complete Ward Ranking",
+        "All available wards are ranked from highest to lowest "
+        "record burden.",
     )
 
     display_wards = (
@@ -961,13 +1095,129 @@ def render_ward(df):
     )
 
     # ========================================================
-    # 4. WARD-WISE RECORD DISTRIBUTION
+    # 4. TOP BURDEN WARDS
+    # ========================================================
+
+    st.markdown(
+        "### 4. 🔝 Top Burden Wards"
+    )
+
+    _light_info_box(
+        "Focused Burden Comparison",
+        "Select the number of highest-burden wards to display "
+        "for focused programme review.",
+        background="#F8FAF4",
+        border="#E1E9D3",
+    )
+
+    burden_options = [
+        "Top 5",
+        "Top 10",
+        "Top 15",
+        "All Wards",
+    ]
+
+    burden_selection = (
+        st.selectbox(
+            "Display",
+            options=burden_options,
+            index=1,
+            key="phase5_top_burden_display",
+        )
+    )
+
+    if burden_selection == "Top 5":
+
+        burden_display_df = (
+            ward_counts
+            .head(5)
+            .copy()
+        )
+
+    elif burden_selection == "Top 10":
+
+        burden_display_df = (
+            ward_counts
+            .head(10)
+            .copy()
+        )
+
+    elif burden_selection == "Top 15":
+
+        burden_display_df = (
+            ward_counts
+            .head(15)
+            .copy()
+        )
+
+    else:
+
+        burden_display_df = (
+            ward_counts.copy()
+        )
+
+    burden_order = (
+        burden_display_df[
+            "Ward"
+        ]
+        .astype(str)
+        .tolist()
+    )
+
+    _render_category_bar_chart(
+        dataframe=(
+            burden_display_df[
+                [
+                    "Ward",
+                    "Records",
+                ]
+            ]
+        ),
+        category_column="Ward",
+        value_column="Records",
+        category_order=burden_order,
+        height=420,
+    )
+
+    burden_table = (
+        burden_display_df[
+            [
+                "Rank",
+                "Ward",
+                "Records",
+                "Percentage",
+            ]
+        ]
+        .copy()
+    )
+
+    burden_table[
+        "Percentage"
+    ] = (
+        burden_table[
+            "Percentage"
+        ]
+        .map(
+            lambda value: (
+                f"{value:.2f}%"
+            )
+        )
+    )
+
+    st.dataframe(
+        burden_table,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # ========================================================
+    # 5. WARD-WISE RECORD DISTRIBUTION
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 4. 📊 Ward-wise Record Distribution"
+        "### 5. 📊 Ward-wise Record Distribution"
     )
 
     chart_wards = (
@@ -982,7 +1232,9 @@ def render_ward(df):
 
     chart_wards = (
         chart_wards
-        .set_index("Ward")
+        .set_index(
+            "Ward"
+        )
         .reindex(
             all_wards
         )
@@ -1002,53 +1254,6 @@ def render_ward(df):
     st.caption(
         "All wards available within the selected Global Dashboard "
         "Filters are displayed alphabetically from A to Z."
-    )
-
-    # ========================================================
-    # 5. TOP 10 BURDEN WARDS
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 5. 🔝 Top 10 Burden Wards"
-    )
-
-    top10 = (
-        ward_counts
-        .head(10)
-        .copy()
-    )
-
-    top10_display = (
-        top10[
-            [
-                "Rank",
-                "Ward",
-                "Records",
-                "Percentage",
-            ]
-        ]
-        .copy()
-    )
-
-    top10_display[
-        "Percentage"
-    ] = (
-        top10_display[
-            "Percentage"
-        ]
-        .map(
-            lambda value: (
-                f"{value:.2f}%"
-            )
-        )
-    )
-
-    st.dataframe(
-        top10_display,
-        use_container_width=True,
-        hide_index=True,
     )
 
     # ========================================================
@@ -1106,6 +1311,12 @@ def render_ward(df):
                 & disease_ward[
                     "Disease"
                 ].ne("nan")
+                & disease_ward[
+                    "Ward Name"
+                ].ne("NaT")
+                & disease_ward[
+                    "Disease"
+                ].ne("NaT")
             ]
         )
 
@@ -1306,6 +1517,12 @@ def render_ward(df):
                 & facility_ward[
                     "Facility Name"
                 ].ne("nan")
+                & facility_ward[
+                    "Ward Name"
+                ].ne("NaT")
+                & facility_ward[
+                    "Facility Name"
+                ].ne("NaT")
             ]
         )
 
@@ -1917,6 +2134,7 @@ def render_ward(df):
                     values.ne("")
                     & values.ne("nan")
                     & values.ne("NaT")
+                    & values.ne("None")
                 ]
                 .unique()
                 .tolist()
@@ -2017,6 +2235,9 @@ def render_ward(df):
                         & facility_values.ne(
                             "NaT"
                         )
+                        & facility_values.ne(
+                            "None"
+                        )
                     ]
                 )
 
@@ -2114,35 +2335,6 @@ def render_ward(df):
 
     st.markdown(
         "### 11. ℹ️ Ward Data Quality"
-    )
-
-    total_records = len(
-        df
-    )
-
-    raw_ward_values = (
-        df[
-            "Ward Name"
-        ]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
-
-    valid_ward_mask = (
-        raw_ward_values.ne("")
-        & raw_ward_values.ne("nan")
-        & raw_ward_values.ne("NaT")
-        & raw_ward_values.ne("None")
-    )
-
-    valid_ward_count = int(
-        valid_ward_mask.sum()
-    )
-
-    missing_ward = (
-        total_records
-        - valid_ward_count
     )
 
     ward_quality = pd.DataFrame(
