@@ -743,9 +743,11 @@ def _render_population_pyramid(
         1,
     )
 
+    # Extra space is retained on both sides so that
+    # outside data labels are not clipped.
     domain_limit = (
         max_count
-        * 1.18
+        * 1.28
     )
 
     bars = (
@@ -828,12 +830,68 @@ def _render_population_pyramid(
 
     if data_labels_enabled():
 
-        labels = (
-            alt.Chart(counts)
+        # ----------------------------------------------------
+        # OUTSIDE DATA LABEL POSITION
+        #
+        # Male:
+        # label is positioned outside the left edge.
+        #
+        # Female / Transgender / Other / Unknown:
+        # label is positioned outside the right edge.
+        #
+        # This keeps even very small counts clearly visible.
+        # ----------------------------------------------------
+
+        label_df = counts.copy()
+
+        label_offset = max(
+            max_count * 0.025,
+            0.5,
+        )
+
+        label_df["Label Position"] = (
+            label_df["Plot Records"]
+        )
+
+        male_mask = (
+            label_df["Gender"].eq(
+                "Male"
+            )
+        )
+
+        label_df.loc[
+            male_mask,
+            "Label Position",
+        ] = (
+            label_df.loc[
+                male_mask,
+                "Plot Records",
+            ]
+            - label_offset
+        )
+
+        label_df.loc[
+            ~male_mask,
+            "Label Position",
+        ] = (
+            label_df.loc[
+                ~male_mask,
+                "Plot Records",
+            ]
+            + label_offset
+        )
+
+        male_labels = (
+            alt.Chart(
+                label_df[
+                    male_mask
+                ]
+            )
             .mark_text(
+                align="right",
+                baseline="middle",
                 fontWeight="bold",
                 fontSize=PYRAMID_DATA_LABEL_FONT_SIZE,
-                dx=0,
             )
             .encode(
                 y=alt.Y(
@@ -841,7 +899,39 @@ def _render_population_pyramid(
                     sort=age_order,
                 ),
                 x=alt.X(
-                    "Plot Records:Q"
+                    "Label Position:Q"
+                ),
+                text=alt.Text(
+                    "Records:Q",
+                    format=",",
+                ),
+                color=alt.Color(
+                    "Gender:N",
+                    scale=color_scale,
+                    legend=None,
+                ),
+            )
+        )
+
+        other_labels = (
+            alt.Chart(
+                label_df[
+                    ~male_mask
+                ]
+            )
+            .mark_text(
+                align="left",
+                baseline="middle",
+                fontWeight="bold",
+                fontSize=PYRAMID_DATA_LABEL_FONT_SIZE,
+            )
+            .encode(
+                y=alt.Y(
+                    "Age Group:N",
+                    sort=age_order,
+                ),
+                x=alt.X(
+                    "Label Position:Q"
                 ),
                 text=alt.Text(
                     "Records:Q",
@@ -858,7 +948,8 @@ def _render_population_pyramid(
         chart = (
             bars
             + zero_line
-            + labels
+            + male_labels
+            + other_labels
         )
 
     st.altair_chart(
