@@ -1494,16 +1494,16 @@ def render_ward(df):
             
 
             # ------------------------------------------------
-# MULTIPLE AGE GROUP SELECTION
-# Default = all available age groups
-# ------------------------------------------------
+            # MULTIPLE AGE GROUP SELECTION
+            # Default = all available age groups
+            # ------------------------------------------------
 
-selected_age_groups = st.multiselect(
-    "Select Age Group(s)",
-    options=age_group_order,
-    default=age_group_order,
-    key="phase5_ward_age_group_multiselect",
-)
+           selected_age_groups = st.multiselect(
+                     "Select Age Group(s)",
+                     options=age_group_order,
+                     default=age_group_order,
+                      key="phase5_ward_age_group_multiselect",
+                     )
 
             
 
