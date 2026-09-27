@@ -1395,6 +1395,7 @@ def render_ward(df):
             "Gender column is not available."
         )
 
+
     # ========================================================
     # 9. WARD × AGE GROUP
     # ========================================================
@@ -1460,6 +1461,10 @@ def render_ward(df):
 
         if not ward_age.empty:
 
+            # ------------------------------------------------
+            # AGE GROUP ORDER
+            # ------------------------------------------------
+
             present_age_groups = (
                 ward_age[
                     "Age Group"
@@ -1486,152 +1491,206 @@ def render_ward(df):
                 ]
             )
 
-            selected_age_group = (
-                st.selectbox(
-                    "Select Age Group",
-                    options=(
-                        ["All Age Groups"]
-                        + age_group_order
-                    ),
-                    index=0,
+            # ------------------------------------------------
+            # MULTIPLE AGE GROUP SELECTION
+            # Default = all available age groups
+            # ------------------------------------------------
+
+            selected_age_groups = (
+                st.multiselect(
+                    "Select Age Group(s)",
+                    options=age_group_order,
+                    default=age_group_order,
                     key=(
                         "phase5_ward_"
-                        "age_group_selector"
+                        "age_group_multiselect"
                     ),
                 )
             )
 
-            if (
-                selected_age_group
-                == "All Age Groups"
-            ):
+            # ------------------------------------------------
+            # NO AGE GROUP SELECTED
+            # ------------------------------------------------
 
-                chart_source = (
-                    ward_age.copy()
-                )
+            if not selected_age_groups:
 
-                chart_group_order = (
-                    age_group_order
+                st.info(
+                    "Please select at least one Age Group "
+                    "to display the ward-wise distribution."
                 )
 
             else:
+
+                # --------------------------------------------
+                # Preserve standard age-group order even when
+                # multiple groups are selected.
+                # --------------------------------------------
+
+                selected_age_groups = [
+                    value
+                    for value
+                    in age_group_order
+                    if value
+                    in selected_age_groups
+                ]
+
+                # --------------------------------------------
+                # FILTER SELECTED AGE GROUPS
+                # --------------------------------------------
 
                 chart_source = (
                     ward_age[
                         ward_age[
                             "Age Group"
-                        ].eq(
-                            selected_age_group
+                        ].isin(
+                            selected_age_groups
                         )
                     ]
                     .copy()
                 )
 
-                chart_group_order = [
-                    selected_age_group
-                ]
+                # --------------------------------------------
+                # GROUP DATA
+                # --------------------------------------------
 
-            chart_long = (
-                chart_source
-                .groupby(
-                    [
-                        "Ward Name",
-                        "Age Group",
-                    ],
-                    observed=True,
-                )
-                .size()
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            complete_index = (
-                pd.MultiIndex
-                .from_product(
-                    [
-                        all_wards,
-                        chart_group_order,
-                    ],
-                    names=[
-                        "Ward Name",
-                        "Age Group",
-                    ],
-                )
-            )
-
-            chart_long = (
-                chart_long
-                .set_index(
-                    [
-                        "Ward Name",
-                        "Age Group",
-                    ]
-                )
-                .reindex(
-                    complete_index,
-                    fill_value=0,
-                )
-                .reset_index()
-            )
-
-            _render_grouped_bar_chart(
-                dataframe=chart_long,
-                x_column="Ward Name",
-                group_column="Age Group",
-                value_column="Records",
-                x_order=all_wards,
-                group_order=chart_group_order,
-                height=520,
-            )
-
-            age_table = (
-                pd.crosstab(
-                    chart_source[
-                        "Ward Name"
-                    ],
-                    chart_source[
-                        "Age Group"
-                    ],
-                )
-            )
-
-            age_table = (
-                age_table
-                .reindex(
-                    index=all_wards,
-                    columns=chart_group_order,
-                    fill_value=0,
-                )
-            )
-
-            if (
-                selected_age_group
-                == "All Age Groups"
-            ):
-
-                st.caption(
-                    "All age groups and all wards available within "
-                    "the selected Global Dashboard Filters are "
-                    "displayed. Wards are arranged alphabetically "
-                    "from A to Z."
+                chart_long = (
+                    chart_source
+                    .groupby(
+                        [
+                            "Ward Name",
+                            "Age Group",
+                        ],
+                        observed=True,
+                    )
+                    .size()
+                    .reset_index(
+                        name="Records"
+                    )
                 )
 
-            else:
+                # --------------------------------------------
+                # RETAIN ALL WARDS
+                #
+                # Even if a ward has zero records for one of
+                # the selected age groups, that ward remains
+                # visible in the chart/table.
+                # --------------------------------------------
 
-                st.caption(
-                    f"Age Group: {selected_age_group}. "
-                    "All available wards are displayed "
-                    "alphabetically from A to Z. Wards with zero "
-                    "records for the selected age group are retained."
+                complete_index = (
+                    pd.MultiIndex
+                    .from_product(
+                        [
+                            all_wards,
+                            selected_age_groups,
+                        ],
+                        names=[
+                            "Ward Name",
+                            "Age Group",
+                        ],
+                    )
                 )
 
-            st.dataframe(
-                age_table
-                .reset_index(),
-                use_container_width=True,
-                hide_index=True,
-            )
+                chart_long = (
+                    chart_long
+                    .set_index(
+                        [
+                            "Ward Name",
+                            "Age Group",
+                        ]
+                    )
+                    .reindex(
+                        complete_index,
+                        fill_value=0,
+                    )
+                    .reset_index()
+                )
+
+                # --------------------------------------------
+                # CHART
+                # --------------------------------------------
+
+                _render_grouped_bar_chart(
+                    dataframe=chart_long,
+                    x_column="Ward Name",
+                    group_column="Age Group",
+                    value_column="Records",
+                    x_order=all_wards,
+                    group_order=selected_age_groups,
+                    height=520,
+                )
+
+                # --------------------------------------------
+                # TABLE
+                # --------------------------------------------
+
+                age_table = (
+                    pd.crosstab(
+                        chart_source[
+                            "Ward Name"
+                        ],
+                        chart_source[
+                            "Age Group"
+                        ],
+                    )
+                )
+
+                age_table = (
+                    age_table
+                    .reindex(
+                        index=all_wards,
+                        columns=selected_age_groups,
+                        fill_value=0,
+                    )
+                )
+
+                # --------------------------------------------
+                # CAPTION
+                # --------------------------------------------
+
+                if (
+                    len(selected_age_groups)
+                    == len(age_group_order)
+                ):
+
+                    st.caption(
+                        "All available age groups are selected. "
+                        "All wards are displayed alphabetically "
+                        "from A to Z."
+                    )
+
+                elif len(selected_age_groups) == 1:
+
+                    st.caption(
+                        f"Selected Age Group: "
+                        f"{selected_age_groups[0]}. "
+                        "All wards are displayed alphabetically "
+                        "from A to Z, including wards with zero "
+                        "records for the selected age group."
+                    )
+
+                else:
+
+                    selected_text = ", ".join(
+                        selected_age_groups
+                    )
+
+                    st.caption(
+                        f"Selected Age Groups: {selected_text}. "
+                        "All wards are displayed alphabetically "
+                        "from A to Z, including wards with zero "
+                        "records for the selected age groups."
+                    )
+
+                # --------------------------------------------
+                # DISPLAY TABLE
+                # --------------------------------------------
+
+                st.dataframe(
+                    age_table
+                    .reset_index(),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         else:
 
@@ -1645,6 +1704,9 @@ def render_ward(df):
             "Age Group column is not available."
         )
 
+
+
+    
     # ========================================================
     # 10. WARD – FACILITY DETAIL
     # ========================================================
