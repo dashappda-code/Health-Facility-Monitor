@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import altair as alt
 
+from chart_helpers import data_labels_enabled
 
 # ============================================================
 # CONFIGURATION
