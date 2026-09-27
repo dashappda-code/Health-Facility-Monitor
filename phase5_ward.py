@@ -1225,6 +1225,13 @@ def render_ward(df):
                     )
                 )
 
+                # Keep the disease legend within a maximum
+                # of approximately two rows.
+                disease_legend_columns = max(
+                    1,
+                    (len(selected_diseases) + 1) // 2,
+                )
+
                 _render_grouped_bar_chart(
                     dataframe=chart_long,
                     x_column="Ward Name",
@@ -1233,7 +1240,7 @@ def render_ward(df):
                     x_order=all_wards,
                     group_order=selected_diseases,
                     height=500,
-                    legend_columns=4,
+                    legend_columns=disease_legend_columns,
                     legend_label_limit=250,
                 )
 
