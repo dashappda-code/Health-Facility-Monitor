@@ -548,6 +548,93 @@ def _render_grouped_bar_chart(
 
 
 # ============================================================
+# CHECKBOX MULTI-SELECTION
+# ============================================================
+
+def _checkbox_multiselect(
+    label,
+    options,
+    key_prefix,
+):
+
+    options = list(options)
+
+    if not options:
+        return []
+
+    state_key = (
+        f"{key_prefix}_initialized"
+    )
+
+    select_all_key = (
+        f"{key_prefix}_select_all"
+    )
+
+    if state_key not in st.session_state:
+
+        st.session_state[state_key] = True
+        st.session_state[select_all_key] = True
+
+        for index, option in enumerate(
+            options
+        ):
+            st.session_state[
+                f"{key_prefix}_option_{index}"
+            ] = True
+
+    with st.popover(
+        label,
+        use_container_width=True,
+    ):
+
+        select_all = st.checkbox(
+            "Select All",
+            key=select_all_key,
+        )
+
+        selected = []
+
+        for index, option in enumerate(
+            options
+        ):
+
+            option_key = (
+                f"{key_prefix}_option_{index}"
+            )
+
+            if option_key not in st.session_state:
+
+                st.session_state[
+                    option_key
+                ] = True
+
+            if not select_all:
+
+                checked = st.checkbox(
+                    str(option),
+                    key=option_key,
+                )
+
+            else:
+
+                st.session_state[
+                    option_key
+                ] = True
+
+                checked = st.checkbox(
+                    str(option),
+                    key=option_key,
+                )
+
+            if checked:
+                selected.append(
+                    option
+                )
+
+    return selected
+
+
+# ============================================================
 # MAIN WARD PAGE
 # ============================================================
 
@@ -916,103 +1003,123 @@ def render_ward(df):
                 .tolist()
             )
 
-            disease_chart_source = (
-                disease_ward[
+            selected_diseases = (
+                _checkbox_multiselect(
+                    label=(
+                        "Select Disease(s)"
+                    ),
+                    options=top_diseases,
+                    key_prefix=(
+                        "phase5_disease"
+                    ),
+                )
+            )
+
+            if not selected_diseases:
+
+                st.info(
+                    "Please select at least one disease."
+                )
+
+            else:
+
+                disease_chart_source = (
                     disease_ward[
-                        "Disease"
-                    ].isin(
-                        top_diseases
-                    )
-                ]
-                .copy()
-            )
-
-            chart_long = (
-                disease_chart_source
-                .groupby(
-                    [
-                        "Ward Name",
-                        "Disease",
-                    ],
-                    observed=True,
-                )
-                .size()
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            complete_index = (
-                pd.MultiIndex
-                .from_product(
-                    [
-                        all_wards,
-                        top_diseases,
-                    ],
-                    names=[
-                        "Ward Name",
-                        "Disease",
-                    ],
-                )
-            )
-
-            chart_long = (
-                chart_long
-                .set_index(
-                    [
-                        "Ward Name",
-                        "Disease",
+                        disease_ward[
+                            "Disease"
+                        ].isin(
+                            selected_diseases
+                        )
                     ]
+                    .copy()
                 )
-                .reindex(
-                    complete_index,
-                    fill_value=0,
+
+                chart_long = (
+                    disease_chart_source
+                    .groupby(
+                        [
+                            "Ward Name",
+                            "Disease",
+                        ],
+                        observed=True,
+                    )
+                    .size()
+                    .reset_index(
+                        name="Records"
+                    )
                 )
-                .reset_index()
-            )
 
-            _render_grouped_bar_chart(
-                dataframe=chart_long,
-                x_column="Ward Name",
-                group_column="Disease",
-                value_column="Records",
-                x_order=all_wards,
-                group_order=top_diseases,
-                height=500,
-            )
-
-            disease_ward_table = (
-                pd.crosstab(
-                    disease_ward[
-                        "Ward Name"
-                    ],
-                    disease_ward[
-                        "Disease"
-                    ],
+                complete_index = (
+                    pd.MultiIndex
+                    .from_product(
+                        [
+                            all_wards,
+                            selected_diseases,
+                        ],
+                        names=[
+                            "Ward Name",
+                            "Disease",
+                        ],
+                    )
                 )
-            )
 
-            disease_ward_table = (
-                disease_ward_table
-                .reindex(
-                    index=all_wards,
-                    columns=top_diseases,
-                    fill_value=0,
+                chart_long = (
+                    chart_long
+                    .set_index(
+                        [
+                            "Ward Name",
+                            "Disease",
+                        ]
+                    )
+                    .reindex(
+                        complete_index,
+                        fill_value=0,
+                    )
+                    .reset_index()
                 )
-            )
 
-            st.caption(
-                "Chart displays the top 10 diseases across all "
-                "available wards. Wards are arranged alphabetically "
-                "from A to Z."
-            )
+                _render_grouped_bar_chart(
+                    dataframe=chart_long,
+                    x_column="Ward Name",
+                    group_column="Disease",
+                    value_column="Records",
+                    x_order=all_wards,
+                    group_order=selected_diseases,
+                    height=500,
+                )
 
-            st.dataframe(
-                disease_ward_table
-                .reset_index(),
-                use_container_width=True,
-                hide_index=True,
-            )
+                disease_ward_table = (
+                    pd.crosstab(
+                        disease_chart_source[
+                            "Ward Name"
+                        ],
+                        disease_chart_source[
+                            "Disease"
+                        ],
+                    )
+                )
+
+                disease_ward_table = (
+                    disease_ward_table
+                    .reindex(
+                        index=all_wards,
+                        columns=selected_diseases,
+                        fill_value=0,
+                    )
+                )
+
+                st.caption(
+                    "Selected diseases are displayed across all "
+                    "available wards. Wards are arranged "
+                    "alphabetically from A to Z."
+                )
+
+                st.dataframe(
+                    disease_ward_table
+                    .reset_index(),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         else:
 
@@ -1096,103 +1203,123 @@ def render_ward(df):
                 .tolist()
             )
 
-            facility_chart_source = (
-                facility_ward[
+            selected_facilities = (
+                _checkbox_multiselect(
+                    label=(
+                        "Select Facility(s)"
+                    ),
+                    options=top_facilities,
+                    key_prefix=(
+                        "phase5_facility"
+                    ),
+                )
+            )
+
+            if not selected_facilities:
+
+                st.info(
+                    "Please select at least one facility."
+                )
+
+            else:
+
+                facility_chart_source = (
                     facility_ward[
-                        "Facility Name"
-                    ].isin(
-                        top_facilities
-                    )
-                ]
-                .copy()
-            )
-
-            chart_long = (
-                facility_chart_source
-                .groupby(
-                    [
-                        "Ward Name",
-                        "Facility Name",
-                    ],
-                    observed=True,
-                )
-                .size()
-                .reset_index(
-                    name="Records"
-                )
-            )
-
-            complete_index = (
-                pd.MultiIndex
-                .from_product(
-                    [
-                        all_wards,
-                        top_facilities,
-                    ],
-                    names=[
-                        "Ward Name",
-                        "Facility Name",
-                    ],
-                )
-            )
-
-            chart_long = (
-                chart_long
-                .set_index(
-                    [
-                        "Ward Name",
-                        "Facility Name",
+                        facility_ward[
+                            "Facility Name"
+                        ].isin(
+                            selected_facilities
+                        )
                     ]
+                    .copy()
                 )
-                .reindex(
-                    complete_index,
-                    fill_value=0,
+
+                chart_long = (
+                    facility_chart_source
+                    .groupby(
+                        [
+                            "Ward Name",
+                            "Facility Name",
+                        ],
+                        observed=True,
+                    )
+                    .size()
+                    .reset_index(
+                        name="Records"
+                    )
                 )
-                .reset_index()
-            )
 
-            _render_grouped_bar_chart(
-                dataframe=chart_long,
-                x_column="Ward Name",
-                group_column="Facility Name",
-                value_column="Records",
-                x_order=all_wards,
-                group_order=top_facilities,
-                height=500,
-            )
-
-            facility_ward_table = (
-                pd.crosstab(
-                    facility_ward[
-                        "Ward Name"
-                    ],
-                    facility_ward[
-                        "Facility Name"
-                    ],
+                complete_index = (
+                    pd.MultiIndex
+                    .from_product(
+                        [
+                            all_wards,
+                            selected_facilities,
+                        ],
+                        names=[
+                            "Ward Name",
+                            "Facility Name",
+                        ],
+                    )
                 )
-            )
 
-            facility_ward_table = (
-                facility_ward_table
-                .reindex(
-                    index=all_wards,
-                    columns=top_facilities,
-                    fill_value=0,
+                chart_long = (
+                    chart_long
+                    .set_index(
+                        [
+                            "Ward Name",
+                            "Facility Name",
+                        ]
+                    )
+                    .reindex(
+                        complete_index,
+                        fill_value=0,
+                    )
+                    .reset_index()
                 )
-            )
 
-            st.caption(
-                "Chart displays the top 10 facilities across all "
-                "available wards. Wards are arranged alphabetically "
-                "from A to Z."
-            )
+                _render_grouped_bar_chart(
+                    dataframe=chart_long,
+                    x_column="Ward Name",
+                    group_column="Facility Name",
+                    value_column="Records",
+                    x_order=all_wards,
+                    group_order=selected_facilities,
+                    height=500,
+                )
 
-            st.dataframe(
-                facility_ward_table
-                .reset_index(),
-                use_container_width=True,
-                hide_index=True,
-            )
+                facility_ward_table = (
+                    pd.crosstab(
+                        facility_chart_source[
+                            "Ward Name"
+                        ],
+                        facility_chart_source[
+                            "Facility Name"
+                        ],
+                    )
+                )
+
+                facility_ward_table = (
+                    facility_ward_table
+                    .reindex(
+                        index=all_wards,
+                        columns=selected_facilities,
+                        fill_value=0,
+                    )
+                )
+
+                st.caption(
+                    "Selected facilities are displayed across all "
+                    "available wards. Wards are arranged "
+                    "alphabetically from A to Z."
+                )
+
+                st.dataframe(
+                    facility_ward_table
+                    .reset_index(),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         else:
 
@@ -1282,17 +1409,14 @@ def render_ward(df):
             gender_order = [
                 value
                 for value in GENDER_ORDER
-                if value
-                in present_genders
+                if value in present_genders
             ]
 
             gender_order += sorted(
                 [
                     value
-                    for value
-                    in present_genders
-                    if value
-                    not in GENDER_ORDER
+                    for value in present_genders
+                    if value not in GENDER_ORDER
                 ]
             )
 
@@ -1395,7 +1519,6 @@ def render_ward(df):
             "Gender column is not available."
         )
 
-
     # ========================================================
     # 9. WARD × AGE GROUP
     # ========================================================
@@ -1461,10 +1584,6 @@ def render_ward(df):
 
         if not ward_age.empty:
 
-            # ------------------------------------------------
-            # AGE GROUP ORDER
-            # ------------------------------------------------
-
             present_age_groups = (
                 ward_age[
                     "Age Group"
@@ -1475,41 +1594,29 @@ def render_ward(df):
 
             age_group_order = [
                 value
-                for value
-                in AGE_GROUP_ORDER
-                if value
-                in present_age_groups
+                for value in AGE_GROUP_ORDER
+                if value in present_age_groups
             ]
 
             age_group_order += sorted(
                 [
                     value
-                    for value
-                    in present_age_groups
-                    if value
-                    not in AGE_GROUP_ORDER
+                    for value in present_age_groups
+                    if value not in AGE_GROUP_ORDER
                 ]
             )
 
-            
-
-            # ------------------------------------------------
-            # MULTIPLE AGE GROUP SELECTION
-            # Default = all available age groups
-            # ------------------------------------------------
-
-            selected_age_groups = st.multiselect(
-                "Select Age Group(s)",
-                options=age_group_order,
-                default=age_group_order,
-                key="phase5_ward_age_group_multiselect",
+            selected_age_groups = (
+                _checkbox_multiselect(
+                    label=(
+                        "Select Age Group(s)"
+                    ),
+                    options=age_group_order,
+                    key_prefix=(
+                        "phase5_age_group"
+                    ),
+                )
             )
-
-            
-
-            # ------------------------------------------------
-            # NO AGE GROUP SELECTED
-            # ------------------------------------------------
 
             if not selected_age_groups:
 
@@ -1520,22 +1627,11 @@ def render_ward(df):
 
             else:
 
-                # --------------------------------------------
-                # Preserve standard age-group order even when
-                # multiple groups are selected.
-                # --------------------------------------------
-
                 selected_age_groups = [
                     value
-                    for value
-                    in age_group_order
-                    if value
-                    in selected_age_groups
+                    for value in age_group_order
+                    if value in selected_age_groups
                 ]
-
-                # --------------------------------------------
-                # FILTER SELECTED AGE GROUPS
-                # --------------------------------------------
 
                 chart_source = (
                     ward_age[
@@ -1547,10 +1643,6 @@ def render_ward(df):
                     ]
                     .copy()
                 )
-
-                # --------------------------------------------
-                # GROUP DATA
-                # --------------------------------------------
 
                 chart_long = (
                     chart_source
@@ -1566,14 +1658,6 @@ def render_ward(df):
                         name="Records"
                     )
                 )
-
-                # --------------------------------------------
-                # RETAIN ALL WARDS
-                #
-                # Even if a ward has zero records for one of
-                # the selected age groups, that ward remains
-                # visible in the chart/table.
-                # --------------------------------------------
 
                 complete_index = (
                     pd.MultiIndex
@@ -1604,10 +1688,6 @@ def render_ward(df):
                     .reset_index()
                 )
 
-                # --------------------------------------------
-                # CHART
-                # --------------------------------------------
-
                 _render_grouped_bar_chart(
                     dataframe=chart_long,
                     x_column="Ward Name",
@@ -1617,10 +1697,6 @@ def render_ward(df):
                     group_order=selected_age_groups,
                     height=520,
                 )
-
-                # --------------------------------------------
-                # TABLE
-                # --------------------------------------------
 
                 age_table = (
                     pd.crosstab(
@@ -1642,10 +1718,6 @@ def render_ward(df):
                     )
                 )
 
-                # --------------------------------------------
-                # CAPTION
-                # --------------------------------------------
-
                 if (
                     len(selected_age_groups)
                     == len(age_group_order)
@@ -1657,7 +1729,10 @@ def render_ward(df):
                         "from A to Z."
                     )
 
-                elif len(selected_age_groups) == 1:
+                elif (
+                    len(selected_age_groups)
+                    == 1
+                ):
 
                     st.caption(
                         f"Selected Age Group: "
@@ -1680,10 +1755,6 @@ def render_ward(df):
                         "records for the selected age groups."
                     )
 
-                # --------------------------------------------
-                # DISPLAY TABLE
-                # --------------------------------------------
-
                 st.dataframe(
                     age_table
                     .reset_index(),
@@ -1703,9 +1774,6 @@ def render_ward(df):
             "Age Group column is not available."
         )
 
-
-
-    
     # ========================================================
     # 10. WARD – FACILITY DETAIL
     # ========================================================
@@ -1717,14 +1785,6 @@ def render_ward(df):
     )
 
     if "Facility Name" in df.columns:
-
-        # ----------------------------------------------------
-        # Ward selector
-        #
-        # If the Global Dashboard Ward filter has already
-        # reduced the data to one ward, only that ward appears.
-        # Otherwise all currently available wards can be chosen.
-        # ----------------------------------------------------
 
         available_detail_wards = (
             _alphabetical_order(
@@ -1747,9 +1807,12 @@ def render_ward(df):
 
         if available_detail_wards:
 
-            if len(
-                available_detail_wards
-            ) == 1:
+            if (
+                len(
+                    available_detail_wards
+                )
+                == 1
+            ):
 
                 selected_ward = (
                     available_detail_wards[0]
@@ -1867,11 +1930,6 @@ def render_ward(df):
                         f"Facility distribution for Ward "
                         f"{selected_ward}."
                     )
-
-                    # ----------------------------------------
-                    # Facility chart
-                    # X-axis labels intentionally vertical.
-                    # ----------------------------------------
 
                     _render_category_bar_chart(
                         dataframe=(
