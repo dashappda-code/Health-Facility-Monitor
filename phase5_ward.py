@@ -545,7 +545,7 @@ def _render_grouped_bar_chart(
 
 
 # ============================================================
-# CHECKBOX MULTI SELECT
+# CHECKBOX SELECTOR
 # ============================================================
 
 def _checkbox_selector(
@@ -567,13 +567,26 @@ def _checkbox_selector(
         f"{key_prefix}_select_all"
     )
 
+    previous_all_key = (
+        f"{key_prefix}_previous_all"
+    )
+
     initialized_key = (
         f"{key_prefix}_initialized"
     )
 
-    previous_all_key = (
-        f"{key_prefix}_previous_all"
-    )
+    option_keys = {
+        option: (
+            f"{key_prefix}_option_{index}"
+        )
+        for index, option
+        in enumerate(options)
+    }
+
+    # --------------------------------------------------------
+    # INITIAL STATE
+    # Default = Select All ON
+    # --------------------------------------------------------
 
     if initialized_key not in st.session_state:
 
@@ -592,10 +605,37 @@ def _checkbox_selector(
         for option in options:
 
             st.session_state[
-                f"{key_prefix}_{option}"
+                option_keys[option]
             ] = True
 
-    select_all = st.checkbox(
+    else:
+
+        # Add newly appearing options safely.
+        for option in options:
+
+            option_key = (
+                option_keys[option]
+            )
+
+            if (
+                option_key
+                not in st.session_state
+            ):
+
+                st.session_state[
+                    option_key
+                ] = bool(
+                    st.session_state.get(
+                        select_all_key,
+                        True,
+                    )
+                )
+
+    # --------------------------------------------------------
+    # SELECT ALL TOGGLE
+    # --------------------------------------------------------
+
+    select_all = st.toggle(
         "Select All",
         key=select_all_key,
     )
@@ -607,23 +647,39 @@ def _checkbox_selector(
         )
     )
 
+    # --------------------------------------------------------
+    # If user manually changes Select All:
+    #
+    # ON  -> all options ON
+    # OFF -> all options OFF
+    # --------------------------------------------------------
+
     if select_all != previous_all:
 
         for option in options:
 
             st.session_state[
-                f"{key_prefix}_{option}"
+                option_keys[option]
             ] = select_all
 
         st.session_state[
             previous_all_key
         ] = select_all
 
-    columns = st.columns(
-        min(
+    # --------------------------------------------------------
+    # INDIVIDUAL CHECKBOXES
+    # --------------------------------------------------------
+
+    column_count = min(
+        max(
             len(options),
-            4,
-        )
+            1,
+        ),
+        4,
+    )
+
+    columns = st.columns(
+        column_count
     )
 
     selected = []
@@ -633,12 +689,11 @@ def _checkbox_selector(
     ):
 
         option_key = (
-            f"{key_prefix}_{option}"
+            option_keys[option]
         )
 
         with columns[
-            index
-            % len(columns)
+            index % column_count
         ]:
 
             checked = st.checkbox(
@@ -647,30 +702,46 @@ def _checkbox_selector(
             )
 
         if checked:
+
             selected.append(
                 option
             )
+
+    # --------------------------------------------------------
+    # Synchronize Select All state.
+    #
+    # If one individual option is unticked:
+    # Select All becomes OFF, but remaining checked options
+    # stay selected.
+    #
+    # If all individual options are checked:
+    # Select All becomes ON.
+    # --------------------------------------------------------
 
     all_selected = (
         len(selected)
         == len(options)
     )
 
-    if (
-        all_selected
-        != st.session_state.get(
+    current_select_all = (
+        st.session_state.get(
             select_all_key,
             False,
         )
+    )
+
+    if (
+        all_selected
+        != current_select_all
     ):
 
         st.session_state[
             select_all_key
         ] = all_selected
 
-        st.session_state[
-            previous_all_key
-        ] = all_selected
+    st.session_state[
+        previous_all_key
+    ] = all_selected
 
     return selected
 
@@ -1005,13 +1076,161 @@ def render_ward(df):
 
 
     # ========================================================
-    # 4. WARD-WISE RECORD DISTRIBUTION
+    # 4. TOP WARD BURDEN COMPARISON
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 4. 📊 Ward-wise Record Distribution"
+        "### 4. 🔝 Top Ward Burden Comparison"
+    )
+
+    st.caption(
+        "By default, the top 10 burden wards are selected. "
+        "You can change the ward selection below for comparison."
+    )
+
+    default_comparison_wards = (
+        ward_counts
+        .head(10)["Ward"]
+        .astype(str)
+        .tolist()
+    )
+
+    comparison_options = (
+        ward_counts["Ward"]
+        .astype(str)
+        .tolist()
+    )
+
+    selected_comparison_wards = (
+        st.multiselect(
+            "Select Ward(s) for Comparison",
+            options=comparison_options,
+            default=default_comparison_wards,
+            key=(
+                "phase5_top_ward_"
+                "comparison_selector"
+            ),
+        )
+    )
+
+    if not selected_comparison_wards:
+
+        st.info(
+            "Please select at least one ward "
+            "for burden comparison."
+        )
+
+    else:
+
+        comparison_df = (
+            ward_counts[
+                ward_counts["Ward"]
+                .astype(str)
+                .isin(
+                    selected_comparison_wards
+                )
+            ]
+            .copy()
+        )
+
+        comparison_df[
+            "_selection_order"
+        ] = (
+            comparison_df["Ward"]
+            .astype(str)
+            .map(
+                {
+                    value: index
+                    for index, value
+                    in enumerate(
+                        selected_comparison_wards
+                    )
+                }
+            )
+        )
+
+        comparison_df = (
+            comparison_df
+            .sort_values(
+                "_selection_order"
+            )
+            .drop(
+                columns=[
+                    "_selection_order"
+                ]
+            )
+            .reset_index(
+                drop=True
+            )
+        )
+
+        comparison_order = (
+            comparison_df["Ward"]
+            .astype(str)
+            .tolist()
+        )
+
+        _render_category_bar_chart(
+            dataframe=(
+                comparison_df[
+                    [
+                        "Ward",
+                        "Records",
+                    ]
+                ]
+            ),
+            category_column="Ward",
+            value_column="Records",
+            category_order=comparison_order,
+            height=440,
+            legend_columns=max(
+                len(comparison_order),
+                1,
+            ),
+        )
+
+        comparison_display = (
+            comparison_df[
+                [
+                    "Rank",
+                    "Ward",
+                    "Records",
+                    "Percentage",
+                ]
+            ]
+            .copy()
+        )
+
+        comparison_display[
+            "Percentage"
+        ] = (
+            comparison_display[
+                "Percentage"
+            ]
+            .map(
+                lambda value: (
+                    f"{value:.2f}%"
+                )
+            )
+        )
+
+        st.dataframe(
+            comparison_display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+    # ========================================================
+    # 5. WARD-WISE RECORD DISTRIBUTION
+    # ========================================================
+
+    st.divider()
+
+    st.markdown(
+        "### 5. 📊 Ward-wise Record Distribution"
     )
 
     chart_wards = (
@@ -1049,54 +1268,6 @@ def render_ward(df):
     st.caption(
         "All wards available within the selected Global Dashboard "
         "Filters are displayed alphabetically from A to Z."
-    )
-
-
-    # ========================================================
-    # 5. TOP 10 BURDEN WARDS
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 5. 🔝 Top 10 Burden Wards"
-    )
-
-    top10 = (
-        ward_counts
-        .head(10)
-        .copy()
-    )
-
-    top10_display = (
-        top10[
-            [
-                "Rank",
-                "Ward",
-                "Records",
-                "Percentage",
-            ]
-        ]
-        .copy()
-    )
-
-    top10_display[
-        "Percentage"
-    ] = (
-        top10_display[
-            "Percentage"
-        ]
-        .map(
-            lambda value: (
-                f"{value:.2f}%"
-            )
-        )
-    )
-
-    st.dataframe(
-        top10_display,
-        use_container_width=True,
-        hide_index=True,
     )
 
 
