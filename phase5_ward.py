@@ -1215,7 +1215,8 @@ def render_ward(df):
                     .copy()
                 )
 
-                chart_long = (
+
+                                chart_long = (
                     _complete_grouped_data(
                         source=chart_source,
                         x_column="Ward Name",
@@ -1225,25 +1226,42 @@ def render_ward(df):
                     )
                 )
 
+                # ------------------------------------------------
+                # DISEASE LEGEND
+                # Keep selected diseases within approximately
+                # one or two legend rows.
+                # ------------------------------------------------
 
-                # Keep Disease legend compact:
-# up to 2 rows depending on the number of selected diseases.
-disease_legend_columns = max(
-    1,
-    (len(selected_diseases) + 1) // 2,
-)
+                disease_legend_columns = max(
+                    1,
+                    (len(selected_diseases) + 1) // 2,
+                )
 
-_render_grouped_bar_chart(
-    dataframe=chart_long,
-    x_column="Ward Name",
-    group_column="Disease",
-    value_column="Records",
-    x_order=all_wards,
-    group_order=selected_diseases,
-    height=500,
-    legend_columns=disease_legend_columns,
-    legend_label_limit=220,
-)
+                _render_grouped_bar_chart(
+                    dataframe=chart_long,
+                    x_column="Ward Name",
+                    group_column="Disease",
+                    value_column="Records",
+                    x_order=all_wards,
+                    group_order=selected_diseases,
+                    height=500,
+                    legend_columns=disease_legend_columns,
+                    legend_label_limit=220,
+                )
+
+                disease_table = (
+                    pd.crosstab(
+                        chart_source["Ward Name"],
+                        chart_source["Disease"],
+                    )
+                    .reindex(
+                        index=all_wards,
+                        columns=selected_diseases,
+                        fill_value=0,
+                    )
+                )
+
+                
 
                 
 
