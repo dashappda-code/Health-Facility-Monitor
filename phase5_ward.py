@@ -192,22 +192,41 @@ def _standardize_age_group(series):
 # LEGEND
 # ============================================================
 
-def _bottom_legend(
-    title=None,
-    columns=10,
-):
+def _bottom_legend(title=None):
 
     return alt.Legend(
         title=title,
         orient="bottom",
         direction="horizontal",
-        columns=columns,
-        labelFontSize=9,
+        columns=10,
+        labelFontSize=10,
         titleFontSize=10,
-        symbolSize=65,
+        symbolSize=80,
         symbolStrokeWidth=2,
-        labelLimit=150,
+        labelLimit=160,
         offset=8,
+    )
+
+
+def _ward_single_row_legend(title=None):
+
+    return alt.Legend(
+        title=title,
+        orient="bottom",
+        direction="horizontal",
+
+        # Keep all available ward legend items in one row.
+        columns=50,
+
+        labelFontSize=8,
+        titleFontSize=9,
+        symbolSize=55,
+        symbolStrokeWidth=1,
+
+        labelLimit=60,
+        columnPadding=5,
+        rowPadding=2,
+        offset=6,
     )
 
 
@@ -229,7 +248,7 @@ def _x_axis(
             labelBaseline="middle",
             labelFontSize=10,
             titleFontSize=12,
-            labelLimit=240,
+            labelLimit=220,
         )
 
     return alt.Axis(
@@ -263,7 +282,7 @@ def _render_category_bar_chart(
     category_order=None,
     height=430,
     vertical_labels=False,
-    legend_columns=10,
+    single_row_legend=False,
 ):
 
     if dataframe is None or dataframe.empty:
@@ -298,6 +317,22 @@ def _render_category_bar_chart(
         range=colors,
     )
 
+    if single_row_legend:
+
+        legend = (
+            _ward_single_row_legend(
+                category_column
+            )
+        )
+
+    else:
+
+        legend = (
+            _bottom_legend(
+                category_column
+            )
+        )
+
     bars = (
         alt.Chart(chart_df)
         .mark_bar()
@@ -319,10 +354,7 @@ def _render_category_bar_chart(
             color=alt.Color(
                 f"{category_column}:N",
                 scale=color_scale,
-                legend=_bottom_legend(
-                    category_column,
-                    columns=legend_columns,
-                ),
+                legend=legend,
             ),
             tooltip=[
                 alt.Tooltip(
@@ -553,11 +585,11 @@ def _render_grouped_bar_chart(
 
 
 # ============================================================
-# CHECKBOX MULTI SELECT WITH SELECT-ALL TOGGLE
+# CHECKBOX MULTI-SELECTION
 # ============================================================
 
-def _checkbox_selector(
-    title,
+def _checkbox_multiselect(
+    label,
     options,
     key_prefix,
 ):
@@ -567,161 +599,154 @@ def _checkbox_selector(
     if not options:
         return []
 
-    st.markdown(
-        f"**{title}**"
-    )
-
     select_all_key = (
         f"{key_prefix}_select_all"
     )
 
-    initialized_key = (
-        f"{key_prefix}_initialized"
+    previous_select_all_key = (
+        f"{key_prefix}_previous_select_all"
     )
 
-    option_keys = {
-        option: (
-            f"{key_prefix}_option_{index}"
-        )
-        for index, option
-        in enumerate(options)
-    }
+    option_keys = [
+        f"{key_prefix}_option_{index}"
+        for index in range(len(options))
+    ]
 
     # --------------------------------------------------------
     # INITIAL STATE
-    # Default = all selected
+    # Default = Select All + every option selected.
     # --------------------------------------------------------
 
-    if initialized_key not in st.session_state:
-
-        st.session_state[
-            initialized_key
-        ] = True
+    if select_all_key not in st.session_state:
 
         st.session_state[
             select_all_key
         ] = True
 
-        for option in options:
+    if previous_select_all_key not in st.session_state:
 
-            st.session_state[
-                option_keys[option]
-            ] = True
+        st.session_state[
+            previous_select_all_key
+        ] = True
 
-    # --------------------------------------------------------
-    # Ensure every current option has state
-    # --------------------------------------------------------
+    for option_key in option_keys:
 
-    for option in options:
-
-        option_key = (
-            option_keys[option]
-        )
-
-        if (
-            option_key
-            not in st.session_state
-        ):
+        if option_key not in st.session_state:
 
             st.session_state[
                 option_key
-            ] = bool(
-                st.session_state.get(
-                    select_all_key,
-                    True,
-                )
-            )
+            ] = True
 
-    # --------------------------------------------------------
-    # SELECT ALL CALLBACK
-    # --------------------------------------------------------
-
-    def _change_all():
-
-        select_all_value = bool(
-            st.session_state.get(
-                select_all_key,
-                False,
-            )
-        )
-
-        for option in options:
-
-            st.session_state[
-                option_keys[option]
-            ] = select_all_value
-
-    # --------------------------------------------------------
-    # INDIVIDUAL CHECKBOX CALLBACK
-    # --------------------------------------------------------
-
-    def _change_individual():
-
-        all_checked = all(
-            bool(
-                st.session_state.get(
-                    option_keys[option],
-                    False,
-                )
-            )
-            for option in options
-        )
-
-        st.session_state[
-            select_all_key
-        ] = all_checked
-
-    # --------------------------------------------------------
-    # SELECT ALL SLIDER
-    # --------------------------------------------------------
-
-    st.toggle(
-        "Select All",
-        key=select_all_key,
-        on_change=_change_all,
-    )
-
-    # --------------------------------------------------------
-    # INDIVIDUAL CHECKBOXES
-    # --------------------------------------------------------
-
-    column_count = min(
-        4,
-        max(
-            len(options),
-            1,
-        ),
-    )
-
-    columns = st.columns(
-        column_count
-    )
-
-    selected = []
-
-    for index, option in enumerate(
-        options
+    with st.popover(
+        label,
+        use_container_width=True,
     ):
 
-        option_key = (
-            option_keys[option]
+        st.checkbox(
+            "Select All",
+            key=select_all_key,
         )
 
-        with columns[
-            index % column_count
-        ]:
+        current_select_all = bool(
+            st.session_state[
+                select_all_key
+            ]
+        )
+
+        previous_select_all = bool(
+            st.session_state[
+                previous_select_all_key
+            ]
+        )
+
+        # ----------------------------------------------------
+        # SELECT ALL CHANGED FROM ON -> OFF
+        # Clear every individual checkbox.
+        # ----------------------------------------------------
+
+        if (
+            previous_select_all
+            and not current_select_all
+        ):
+
+            for option_key in option_keys:
+
+                st.session_state[
+                    option_key
+                ] = False
+
+        # ----------------------------------------------------
+        # SELECT ALL CHANGED FROM OFF -> ON
+        # Select every individual checkbox.
+        # ----------------------------------------------------
+
+        elif (
+            not previous_select_all
+            and current_select_all
+        ):
+
+            for option_key in option_keys:
+
+                st.session_state[
+                    option_key
+                ] = True
+
+        st.session_state[
+            previous_select_all_key
+        ] = current_select_all
+
+        st.divider()
+
+        selected = []
+
+        for index, option in enumerate(
+            options
+        ):
+
+            option_key = (
+                option_keys[index]
+            )
 
             checked = st.checkbox(
                 str(option),
                 key=option_key,
-                on_change=_change_individual,
             )
 
-        if checked:
+            if checked:
 
-            selected.append(
-                option
-            )
+                selected.append(
+                    option
+                )
+
+        # ----------------------------------------------------
+        # SYNCHRONISE SELECT ALL
+        #
+        # If all individual items are manually selected,
+        # Select All becomes checked.
+        #
+        # If any individual item is unselected,
+        # Select All becomes unchecked.
+        # ----------------------------------------------------
+
+        all_individual_selected = (
+            len(selected)
+            == len(options)
+        )
+
+        if (
+            st.session_state[
+                select_all_key
+            ]
+            != all_individual_selected
+        ):
+
+            st.session_state[
+                select_all_key
+            ] = all_individual_selected
+
+            st.session_state[
+                previous_select_all_key
+            ] = all_individual_selected
 
     return selected
 
@@ -750,7 +775,7 @@ def render_ward(df):
     )
 
     # ========================================================
-    # VALIDATE WARD
+    # VALIDATE WARD COLUMN
     # ========================================================
 
     if "Ward Name" not in df.columns:
@@ -761,24 +786,8 @@ def render_ward(df):
 
         return
 
-    raw_ward_values = (
+    ward = _valid_text(
         df["Ward Name"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
-
-    valid_ward_mask = (
-        raw_ward_values.ne("")
-        & raw_ward_values.ne("nan")
-        & raw_ward_values.ne("NaT")
-        & raw_ward_values.ne("None")
-    )
-
-    ward = (
-        raw_ward_values[
-            valid_ward_mask
-        ]
     )
 
     if ward.empty:
@@ -790,49 +799,28 @@ def render_ward(df):
         return
 
     # ========================================================
-    # COMMON WARD INFORMATION
+    # COMMON WARD ORDER
     # ========================================================
 
-    all_wards = (
-        _alphabetical_order(
-            ward.unique().tolist()
-        )
+    all_wards = _alphabetical_order(
+        ward.unique().tolist()
     )
 
     ward_counts = (
         ward
         .value_counts()
-        .rename_axis(
-            "Ward"
-        )
+        .rename_axis("Ward")
         .reset_index(
             name="Records"
         )
     )
 
-    total_records = len(df)
-
-    valid_ward_count = int(
-        valid_ward_mask.sum()
-    )
-
-    missing_ward = (
-        total_records
-        - valid_ward_count
-    )
-
     total_valid_ward_records = int(
-        ward_counts[
-            "Records"
-        ].sum()
+        ward_counts["Records"].sum()
     )
 
-    ward_counts[
-        "Percentage"
-    ] = (
-        ward_counts[
-            "Records"
-        ]
+    ward_counts["Percentage"] = (
+        ward_counts["Records"]
         / max(
             total_valid_ward_records,
             1,
@@ -849,43 +837,6 @@ def render_ward(df):
         ),
     )
 
-    top_ward = (
-        ward_counts.iloc[0]
-    )
-
-    lowest_ward = (
-        ward_counts.iloc[-1]
-    )
-
-    average_records = (
-        ward_counts[
-            "Records"
-        ].mean()
-    )
-
-    median_records = (
-        ward_counts[
-            "Records"
-        ].median()
-    )
-
-    top5_records = int(
-        ward_counts
-        .head(5)[
-            "Records"
-        ]
-        .sum()
-    )
-
-    top5_share = (
-        top5_records
-        / max(
-            total_valid_ward_records,
-            1,
-        )
-        * 100
-    )
-
     # ========================================================
     # 1. WARD SUMMARY
     # ========================================================
@@ -894,22 +845,8 @@ def render_ward(df):
         "### 1. 📊 Ward Summary"
     )
 
-    st.markdown(
-        """
-        <div style="
-            background:#F5F9FF;
-            border:1px solid #DCE9F8;
-            border-radius:10px;
-            padding:10px 14px 4px 14px;
-            margin-bottom:10px;
-        ">
-        <b>Overall Ward Snapshot</b><br>
-        <span style="font-size:13px;color:#5B6573;">
-        Summary based on the currently selected Global Dashboard Filters.
-        </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    top_ward = (
+        ward_counts.iloc[0]
     )
 
     c1, c2, c3, c4 = (
@@ -919,39 +856,7 @@ def render_ward(df):
     with c1:
 
         st.metric(
-            "Total Records",
-            f"{total_records:,}",
-        )
-
-    with c2:
-
-        st.metric(
-            "Valid Ward Records",
-            f"{valid_ward_count:,}",
-        )
-
-    with c3:
-
-        st.metric(
-            "Total Wards",
-            f"{len(all_wards):,}",
-        )
-
-    with c4:
-
-        st.metric(
-            "Missing Ward Records",
-            f"{missing_ward:,}",
-        )
-
-    c1, c2, c3, c4 = (
-        st.columns(4)
-    )
-
-    with c1:
-
-        st.metric(
-            "Top Burden Ward",
+            "Top Ward",
             str(
                 top_ward["Ward"]
             ),
@@ -960,50 +865,32 @@ def render_ward(df):
     with c2:
 
         st.metric(
-            "Top Ward Records",
+            "Records",
             f"{int(top_ward['Records']):,}",
         )
 
     with c3:
 
         st.metric(
-            "Top Ward Share",
+            "Share",
             f"{float(top_ward['Percentage']):.2f}%",
         )
 
     with c4:
 
         st.metric(
-            "Average / Ward",
-            f"{average_records:,.1f}",
+            "Total Wards",
+            f"{len(ward_counts):,}",
         )
 
     # ========================================================
-    # 2. WARD BURDEN HIGHLIGHTS
+    # 2. TOP BURDEN WARD
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 2. 🏆 Ward Burden Highlights"
-    )
-
-    st.markdown(
-        """
-        <div style="
-            background:#FFF9EE;
-            border:1px solid #F3E3BD;
-            border-radius:10px;
-            padding:10px 14px 4px 14px;
-            margin-bottom:10px;
-        ">
-        <b>Burden Highlights</b><br>
-        <span style="font-size:13px;color:#665C4D;">
-        Key ward-level burden indicators within the current filter selection.
-        </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
+        "### 2. 🏆 Top Burden Ward"
     )
 
     c1, c2, c3, c4 = (
@@ -1013,7 +900,7 @@ def render_ward(df):
     with c1:
 
         st.metric(
-            "Highest Burden Ward",
+            "Top Ward",
             str(
                 top_ward["Ward"]
             ),
@@ -1022,39 +909,32 @@ def render_ward(df):
     with c2:
 
         st.metric(
-            "Lowest Burden Ward",
-            str(
-                lowest_ward["Ward"]
-            ),
+            "Records",
+            f"{int(top_ward['Records']):,}",
         )
 
     with c3:
 
         st.metric(
-            "Top 5 Wards Share",
-            f"{top5_share:.2f}%",
+            "Share",
+            f"{float(top_ward['Percentage']):.2f}%",
         )
 
     with c4:
 
         st.metric(
-            "Median Records / Ward",
-            f"{median_records:,.1f}",
+            "Total Wards",
+            f"{len(ward_counts):,}",
         )
 
     # ========================================================
-    # 3. WARD-WISE BURDEN RANKING & COMPARISON
+    # 3. WARD-WISE BURDEN RANKING
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 3. 📋 Ward-wise Burden Ranking & Comparison"
-    )
-
-    st.caption(
-        "Complete ward burden ranking is shown below. "
-        "Use the selector to compare selected wards."
+        "### 3. 📋 Ward-wise Burden Ranking"
     )
 
     display_wards = (
@@ -1080,132 +960,6 @@ def render_ward(df):
         hide_index=True,
     )
 
-    st.markdown(
-        "#### 🔝 Ward Burden Comparison"
-    )
-
-    comparison_options = (
-        ward_counts[
-            "Ward"
-        ]
-        .astype(str)
-        .tolist()
-    )
-
-    default_comparison_wards = (
-        ward_counts
-        .head(10)[
-            "Ward"
-        ]
-        .astype(str)
-        .tolist()
-    )
-
-    selected_comparison_wards = (
-        st.multiselect(
-            "Select Ward(s) for Comparison",
-            options=comparison_options,
-            default=default_comparison_wards,
-            key=(
-                "phase5_ward_"
-                "burden_comparison"
-            ),
-        )
-    )
-
-    if not selected_comparison_wards:
-
-        st.info(
-            "Please select at least one ward "
-            "for comparison."
-        )
-
-    else:
-
-        comparison_df = (
-            ward_counts[
-                ward_counts[
-                    "Ward"
-                ]
-                .astype(str)
-                .isin(
-                    selected_comparison_wards
-                )
-            ]
-            .copy()
-        )
-
-        comparison_df = (
-            comparison_df
-            .sort_values(
-                "Records",
-                ascending=False,
-            )
-            .reset_index(
-                drop=True
-            )
-        )
-
-        comparison_order = (
-            comparison_df[
-                "Ward"
-            ]
-            .astype(str)
-            .tolist()
-        )
-
-        _render_category_bar_chart(
-            dataframe=(
-                comparison_df[
-                    [
-                        "Ward",
-                        "Records",
-                    ]
-                ]
-            ),
-            category_column="Ward",
-            value_column="Records",
-            category_order=comparison_order,
-            height=430,
-            legend_columns=max(
-                len(
-                    comparison_order
-                ),
-                1,
-            ),
-        )
-
-        comparison_display = (
-            comparison_df[
-                [
-                    "Rank",
-                    "Ward",
-                    "Records",
-                    "Percentage",
-                ]
-            ]
-            .copy()
-        )
-
-        comparison_display[
-            "Percentage"
-        ] = (
-            comparison_display[
-                "Percentage"
-            ]
-            .map(
-                lambda value: (
-                    f"{value:.2f}%"
-                )
-            )
-        )
-
-        st.dataframe(
-            comparison_display,
-            use_container_width=True,
-            hide_index=True,
-        )
-
     # ========================================================
     # 4. WARD-WISE RECORD DISTRIBUTION
     # ========================================================
@@ -1228,9 +982,7 @@ def render_ward(df):
 
     chart_wards = (
         chart_wards
-        .set_index(
-            "Ward"
-        )
+        .set_index("Ward")
         .reindex(
             all_wards
         )
@@ -1244,10 +996,7 @@ def render_ward(df):
         value_column="Records",
         category_order=all_wards,
         height=450,
-        legend_columns=max(
-            len(all_wards),
-            1,
-        ),
+        single_row_legend=True,
     )
 
     st.caption(
@@ -1256,13 +1005,60 @@ def render_ward(df):
     )
 
     # ========================================================
-    # 5. DISEASE-WISE WARD BURDEN
+    # 5. TOP 10 BURDEN WARDS
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 5. 🦠 Disease-wise Ward Burden"
+        "### 5. 🔝 Top 10 Burden Wards"
+    )
+
+    top10 = (
+        ward_counts
+        .head(10)
+        .copy()
+    )
+
+    top10_display = (
+        top10[
+            [
+                "Rank",
+                "Ward",
+                "Records",
+                "Percentage",
+            ]
+        ]
+        .copy()
+    )
+
+    top10_display[
+        "Percentage"
+    ] = (
+        top10_display[
+            "Percentage"
+        ]
+        .map(
+            lambda value: (
+                f"{value:.2f}%"
+            )
+        )
+    )
+
+    st.dataframe(
+        top10_display,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # ========================================================
+    # 6. DISEASE × WARD
+    # ========================================================
+
+    st.divider()
+
+    st.markdown(
+        "### 6. 🦠 Disease-wise Ward Burden"
     )
 
     if "Disease" in df.columns:
@@ -1310,32 +1106,27 @@ def render_ward(df):
                 & disease_ward[
                     "Disease"
                 ].ne("nan")
-                & disease_ward[
-                    "Ward Name"
-                ].ne("NaT")
-                & disease_ward[
-                    "Disease"
-                ].ne("NaT")
             ]
         )
 
         if not disease_ward.empty:
 
-            disease_order = (
+            top_diseases = (
                 disease_ward[
                     "Disease"
                 ]
                 .value_counts()
+                .head(10)
                 .index
                 .tolist()
             )
 
             selected_diseases = (
-                _checkbox_selector(
-                    title=(
+                _checkbox_multiselect(
+                    label=(
                         "Select Disease(s)"
                     ),
-                    options=disease_order,
+                    options=top_diseases,
                     key_prefix=(
                         "phase5_disease"
                     ),
@@ -1345,13 +1136,12 @@ def render_ward(df):
             if not selected_diseases:
 
                 st.info(
-                    "Please select at least one disease "
-                    "to display the ward-wise burden."
+                    "Please select at least one disease."
                 )
 
             else:
 
-                chart_source = (
+                disease_chart_source = (
                     disease_ward[
                         disease_ward[
                             "Disease"
@@ -1363,7 +1153,7 @@ def render_ward(df):
                 )
 
                 chart_long = (
-                    chart_source
+                    disease_chart_source
                     .groupby(
                         [
                             "Ward Name",
@@ -1416,19 +1206,19 @@ def render_ward(df):
                     height=500,
                 )
 
-                disease_table = (
+                disease_ward_table = (
                     pd.crosstab(
-                        chart_source[
+                        disease_chart_source[
                             "Ward Name"
                         ],
-                        chart_source[
+                        disease_chart_source[
                             "Disease"
                         ],
                     )
                 )
 
-                disease_table = (
-                    disease_table
+                disease_ward_table = (
+                    disease_ward_table
                     .reindex(
                         index=all_wards,
                         columns=selected_diseases,
@@ -1436,8 +1226,14 @@ def render_ward(df):
                     )
                 )
 
+                st.caption(
+                    "Selected diseases are displayed across all "
+                    "available wards. Wards are arranged "
+                    "alphabetically from A to Z."
+                )
+
                 st.dataframe(
-                    disease_table
+                    disease_ward_table
                     .reset_index(),
                     use_container_width=True,
                     hide_index=True,
@@ -1456,13 +1252,13 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 6. FACILITY-WISE WARD DISTRIBUTION
+    # 7. FACILITY × WARD
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 6. 🏥 Facility-wise Ward Distribution"
+        "### 7. 🏥 Facility-wise Ward Distribution"
     )
 
     if "Facility Name" in df.columns:
@@ -1510,32 +1306,27 @@ def render_ward(df):
                 & facility_ward[
                     "Facility Name"
                 ].ne("nan")
-                & facility_ward[
-                    "Ward Name"
-                ].ne("NaT")
-                & facility_ward[
-                    "Facility Name"
-                ].ne("NaT")
             ]
         )
 
         if not facility_ward.empty:
 
-            facility_order = (
+            top_facilities = (
                 facility_ward[
                     "Facility Name"
                 ]
                 .value_counts()
+                .head(10)
                 .index
                 .tolist()
             )
 
             selected_facilities = (
-                _checkbox_selector(
-                    title=(
+                _checkbox_multiselect(
+                    label=(
                         "Select Facility(s)"
                     ),
-                    options=facility_order,
+                    options=top_facilities,
                     key_prefix=(
                         "phase5_facility"
                     ),
@@ -1545,13 +1336,12 @@ def render_ward(df):
             if not selected_facilities:
 
                 st.info(
-                    "Please select at least one facility "
-                    "to display the ward-wise distribution."
+                    "Please select at least one facility."
                 )
 
             else:
 
-                chart_source = (
+                facility_chart_source = (
                     facility_ward[
                         facility_ward[
                             "Facility Name"
@@ -1563,7 +1353,7 @@ def render_ward(df):
                 )
 
                 chart_long = (
-                    chart_source
+                    facility_chart_source
                     .groupby(
                         [
                             "Ward Name",
@@ -1616,19 +1406,19 @@ def render_ward(df):
                     height=500,
                 )
 
-                facility_table = (
+                facility_ward_table = (
                     pd.crosstab(
-                        chart_source[
+                        facility_chart_source[
                             "Ward Name"
                         ],
-                        chart_source[
+                        facility_chart_source[
                             "Facility Name"
                         ],
                     )
                 )
 
-                facility_table = (
-                    facility_table
+                facility_ward_table = (
+                    facility_ward_table
                     .reindex(
                         index=all_wards,
                         columns=selected_facilities,
@@ -1636,8 +1426,14 @@ def render_ward(df):
                     )
                 )
 
+                st.caption(
+                    "Selected facilities are displayed across all "
+                    "available wards. Wards are arranged "
+                    "alphabetically from A to Z."
+                )
+
                 st.dataframe(
-                    facility_table
+                    facility_ward_table
                     .reset_index(),
                     use_container_width=True,
                     hide_index=True,
@@ -1656,13 +1452,13 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 7. WARD-WISE GENDER DISTRIBUTION
+    # 8. WARD × GENDER
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 7. 👥 Ward-wise Gender Distribution"
+        "### 8. 👥 Ward-wise Gender Distribution"
     )
 
     if "Gender" in df.columns:
@@ -1817,7 +1613,8 @@ def render_ward(df):
             )
 
             st.caption(
-                "All wards are displayed alphabetically "
+                "All wards available within the selected Global "
+                "Dashboard Filters are displayed alphabetically "
                 "from A to Z."
             )
 
@@ -1841,13 +1638,13 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 8. WARD-WISE AGE GROUP DISTRIBUTION
+    # 9. WARD × AGE GROUP
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 8. 🎂 Ward-wise Age Group Distribution"
+        "### 9. 🎂 Ward-wise Age Group Distribution"
     )
 
     if "Age Group" in df.columns:
@@ -1928,8 +1725,8 @@ def render_ward(df):
             )
 
             selected_age_groups = (
-                _checkbox_selector(
-                    title=(
+                _checkbox_multiselect(
+                    label=(
                         "Select Age Group(s)"
                     ),
                     options=age_group_order,
@@ -2039,11 +1836,42 @@ def render_ward(df):
                     )
                 )
 
-                st.caption(
-                    "All wards are displayed alphabetically "
-                    "from A to Z. Use the checkboxes above to "
-                    "display one or multiple age groups."
-                )
+                if (
+                    len(selected_age_groups)
+                    == len(age_group_order)
+                ):
+
+                    st.caption(
+                        "All available age groups are selected. "
+                        "All wards are displayed alphabetically "
+                        "from A to Z."
+                    )
+
+                elif (
+                    len(selected_age_groups)
+                    == 1
+                ):
+
+                    st.caption(
+                        f"Selected Age Group: "
+                        f"{selected_age_groups[0]}. "
+                        "All wards are displayed alphabetically "
+                        "from A to Z, including wards with zero "
+                        "records for the selected age group."
+                    )
+
+                else:
+
+                    selected_text = ", ".join(
+                        selected_age_groups
+                    )
+
+                    st.caption(
+                        f"Selected Age Groups: {selected_text}. "
+                        "All wards are displayed alphabetically "
+                        "from A to Z, including wards with zero "
+                        "records for the selected age groups."
+                    )
 
                 st.dataframe(
                     age_table
@@ -2065,33 +1893,44 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 9. WARD – FACILITY DETAIL
+    # 10. WARD – FACILITY DETAIL
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 9. 🏥 Ward – Facility Detail"
+        "### 10. 🏥 Ward – Facility Detail"
     )
 
     if "Facility Name" in df.columns:
 
         available_detail_wards = (
             _alphabetical_order(
-                ward.unique().tolist()
+                df[
+                    "Ward Name"
+                ]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .loc[
+                    lambda values:
+                    values.ne("")
+                    & values.ne("nan")
+                    & values.ne("NaT")
+                ]
+                .unique()
+                .tolist()
             )
         )
 
         if available_detail_wards:
 
-            # ------------------------------------------------
-            # If Global Ward filter has produced one ward,
-            # that ward is automatically locked here.
-            # ------------------------------------------------
-
-            if len(
-                available_detail_wards
-            ) == 1:
+            if (
+                len(
+                    available_detail_wards
+                )
+                == 1
+            ):
 
                 selected_ward = (
                     available_detail_wards[0]
@@ -2104,7 +1943,7 @@ def render_ward(df):
                     ],
                     index=0,
                     key=(
-                        "phase5_detail_"
+                        "phase5_facility_"
                         "ward_single"
                     ),
                     disabled=True,
@@ -2137,7 +1976,7 @@ def render_ward(df):
                         ),
                         index=default_index,
                         key=(
-                            "phase5_detail_"
+                            "phase5_facility_"
                             "ward_selector"
                         ),
                     )
@@ -2177,9 +2016,6 @@ def render_ward(df):
                         )
                         & facility_values.ne(
                             "NaT"
-                        )
-                        & facility_values.ne(
-                            "None"
                         )
                     ]
                 )
@@ -2271,13 +2107,42 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 10. WARD DATA QUALITY
+    # 11. WARD DATA QUALITY
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 10. ℹ️ Ward Data Quality"
+        "### 11. ℹ️ Ward Data Quality"
+    )
+
+    total_records = len(
+        df
+    )
+
+    raw_ward_values = (
+        df[
+            "Ward Name"
+        ]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    valid_ward_mask = (
+        raw_ward_values.ne("")
+        & raw_ward_values.ne("nan")
+        & raw_ward_values.ne("NaT")
+        & raw_ward_values.ne("None")
+    )
+
+    valid_ward_count = int(
+        valid_ward_mask.sum()
+    )
+
+    missing_ward = (
+        total_records
+        - valid_ward_count
     )
 
     ward_quality = pd.DataFrame(
