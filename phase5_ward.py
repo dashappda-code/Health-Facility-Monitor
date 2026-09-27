@@ -49,67 +49,11 @@ DEFAULT_CATEGORY_COLORS = [
     "#17BECF",
 ]
 
-DATA_LABEL_FONT_SIZE = 13
-GROUPED_DATA_LABEL_FONT_SIZE = 11
+DATA_LABEL_FONT_SIZE = 12
 
 
 # ============================================================
-# COMMON CHART CONFIGURATION
-# ============================================================
-
-def _bottom_legend(title=None):
-
-    return alt.Legend(
-        title=title,
-        orient="bottom",
-        direction="horizontal",
-        columns=10,
-        labelFontSize=9,
-        titleFontSize=10,
-        symbolSize=70,
-        symbolStrokeWidth=2,
-        labelLimit=180,
-        offset=8,
-    )
-
-
-def _x_axis(title=None):
-
-    return alt.Axis(
-        title=title,
-        labelAngle=-45,
-        labelAlign="right",
-        labelBaseline="middle",
-        labelFontSize=10,
-        titleFontSize=12,
-        labelLimit=220,
-    )
-
-
-def _vertical_x_axis(title=None):
-
-    return alt.Axis(
-        title=title,
-        labelAngle=-90,
-        labelAlign="right",
-        labelBaseline="middle",
-        labelFontSize=10,
-        titleFontSize=12,
-        labelLimit=260,
-    )
-
-
-def _y_axis(title=None):
-
-    return alt.Axis(
-        title=title,
-        labelFontSize=10,
-        titleFontSize=12,
-    )
-
-
-# ============================================================
-# TEXT HELPERS
+# COMMON HELPERS
 # ============================================================
 
 def _clean_text(df, column):
@@ -131,26 +75,38 @@ def _clean_text(df, column):
 
 def _valid_text(series):
 
-    return series[
-        series.ne("")
-        & series.ne("nan")
-        & series.ne("NaT")
-        & series.ne("None")
+    values = (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    return values[
+        values.ne("")
+        & values.ne("nan")
+        & values.ne("NaT")
+        & values.ne("None")
     ]
 
 
 def _alphabetical_order(values):
 
-    clean_values = [
-        str(value).strip()
-        for value in values
-        if str(value).strip()
-        and str(value).strip() not in {
-            "nan",
-            "NaT",
-            "None",
-        }
-    ]
+    clean_values = []
+
+    for value in values:
+
+        text = str(value).strip()
+
+        if (
+            text
+            and text not in {
+                "nan",
+                "NaT",
+                "None",
+            }
+        ):
+            clean_values.append(text)
 
     return sorted(
         list(dict.fromkeys(clean_values)),
@@ -233,57 +189,68 @@ def _standardize_age_group(series):
 
 
 # ============================================================
-# COLOR HELPERS
+# LEGEND
 # ============================================================
 
-def _build_color_scale(categories):
+def _bottom_legend(title=None):
 
-    categories = list(categories)
-
-    colors = [
-        DEFAULT_CATEGORY_COLORS[
-            index % len(DEFAULT_CATEGORY_COLORS)
-        ]
-        for index in range(len(categories))
-    ]
-
-    return alt.Scale(
-        domain=categories,
-        range=colors,
-    )
-
-
-def _build_group_color_scale(groups):
-
-    groups = list(groups)
-
-    colors = []
-
-    for index, group in enumerate(groups):
-
-        if group in GENDER_COLORS:
-
-            colors.append(
-                GENDER_COLORS[group]
-            )
-
-        else:
-
-            colors.append(
-                DEFAULT_CATEGORY_COLORS[
-                    index
-                    % len(DEFAULT_CATEGORY_COLORS)
-                ]
-            )
-
-    return alt.Scale(
-        domain=groups,
-        range=colors,
+    return alt.Legend(
+        title=title,
+        orient="bottom",
+        direction="horizontal",
+        columns=10,
+        labelFontSize=10,
+        titleFontSize=10,
+        symbolSize=80,
+        symbolStrokeWidth=2,
+        labelLimit=160,
+        offset=8,
     )
 
 
 # ============================================================
-# SINGLE CATEGORY BAR CHART
+# AXIS
+# ============================================================
+
+def _x_axis(
+    title=None,
+    vertical=False,
+):
+
+    if vertical:
+
+        return alt.Axis(
+            title=title,
+            labelAngle=-90,
+            labelAlign="right",
+            labelBaseline="middle",
+            labelFontSize=10,
+            titleFontSize=12,
+            labelLimit=220,
+        )
+
+    return alt.Axis(
+        title=title,
+        labelAngle=-45,
+        labelAlign="right",
+        labelBaseline="middle",
+        labelFontSize=10,
+        titleFontSize=12,
+        labelLimit=180,
+    )
+
+
+def _y_axis(title=None):
+
+    return alt.Axis(
+        title=title,
+        labelFontSize=11,
+        titleFontSize=12,
+    )
+
+
+# ============================================================
+# CATEGORY BAR CHART
 # ============================================================
 
 def _render_category_bar_chart(
@@ -292,7 +259,7 @@ def _render_category_bar_chart(
     value_column="Records",
     category_order=None,
     height=430,
-    vertical_x_labels=False,
+    vertical_labels=False,
 ):
 
     if dataframe is None or dataframe.empty:
@@ -313,39 +280,19 @@ def _render_category_bar_chart(
             .tolist()
         )
 
-    else:
-
-        present = (
-            chart_df[category_column]
-            .drop_duplicates()
-            .tolist()
-        )
-
-        category_order = [
-            value
-            for value in category_order
-            if value in present
-        ] + [
-            value
-            for value in present
-            if value not in category_order
+    colors = [
+        DEFAULT_CATEGORY_COLORS[
+            index % len(DEFAULT_CATEGORY_COLORS)
         ]
+        for index in range(
+            len(category_order)
+        )
+    ]
 
-    color_scale = _build_color_scale(
-        category_order
+    color_scale = alt.Scale(
+        domain=category_order,
+        range=colors,
     )
-
-    if vertical_x_labels:
-
-        x_axis = _vertical_x_axis(
-            category_column
-        )
-
-    else:
-
-        x_axis = _x_axis(
-            category_column
-        )
 
     bars = (
         alt.Chart(chart_df)
@@ -354,7 +301,10 @@ def _render_category_bar_chart(
             x=alt.X(
                 f"{category_column}:N",
                 sort=category_order,
-                axis=x_axis,
+                axis=_x_axis(
+                    category_column,
+                    vertical=vertical_labels,
+                ),
             ),
             y=alt.Y(
                 f"{value_column}:Q",
@@ -393,9 +343,9 @@ def _render_category_bar_chart(
         labels = (
             alt.Chart(chart_df)
             .mark_text(
-                dy=-9,
-                fontWeight="bold",
+                dy=-8,
                 fontSize=DATA_LABEL_FONT_SIZE,
+                fontWeight="bold",
             )
             .encode(
                 x=alt.X(
@@ -439,7 +389,7 @@ def _render_grouped_bar_chart(
     value_column="Records",
     x_order=None,
     group_order=None,
-    height=480,
+    height=470,
 ):
 
     if dataframe is None or dataframe.empty:
@@ -457,52 +407,48 @@ def _render_grouped_bar_chart(
         .astype(str)
     )
 
-    present_x = (
-        chart_df[x_column]
-        .drop_duplicates()
-        .tolist()
-    )
-
     if x_order is None:
 
-        x_order = present_x
-
-    else:
-
-        x_order = [
-            value
-            for value in x_order
-            if value in present_x
-        ] + [
-            value
-            for value in present_x
-            if value not in x_order
-        ]
-
-    present_groups = (
-        chart_df[group_column]
-        .drop_duplicates()
-        .tolist()
-    )
+        x_order = (
+            chart_df[x_column]
+            .drop_duplicates()
+            .tolist()
+        )
 
     if group_order is None:
 
-        groups = present_groups
+        group_order = (
+            chart_df[group_column]
+            .drop_duplicates()
+            .tolist()
+        )
 
-    else:
+    colors = []
 
-        groups = [
-            value
-            for value in group_order
-            if value in present_groups
-        ] + [
-            value
-            for value in present_groups
-            if value not in group_order
-        ]
+    for index, group in enumerate(
+        group_order
+    ):
 
-    color_scale = _build_group_color_scale(
-        groups
+        if group in GENDER_COLORS:
+
+            colors.append(
+                GENDER_COLORS[group]
+            )
+
+        else:
+
+            colors.append(
+                DEFAULT_CATEGORY_COLORS[
+                    index
+                    % len(
+                        DEFAULT_CATEGORY_COLORS
+                    )
+                ]
+            )
+
+    color_scale = alt.Scale(
+        domain=group_order,
+        range=colors,
     )
 
     bars = (
@@ -518,7 +464,7 @@ def _render_grouped_bar_chart(
             ),
             xOffset=alt.XOffset(
                 f"{group_column}:N",
-                sort=groups,
+                sort=group_order,
             ),
             y=alt.Y(
                 f"{value_column}:Q",
@@ -528,8 +474,8 @@ def _render_grouped_bar_chart(
             ),
             color=alt.Color(
                 f"{group_column}:N",
+                sort=group_order,
                 scale=color_scale,
-                sort=groups,
                 legend=_bottom_legend(
                     group_column
                 ),
@@ -562,9 +508,9 @@ def _render_grouped_bar_chart(
         labels = (
             alt.Chart(chart_df)
             .mark_text(
-                dy=-8,
+                dy=-7,
+                fontSize=11,
                 fontWeight="bold",
-                fontSize=GROUPED_DATA_LABEL_FONT_SIZE,
             )
             .encode(
                 x=alt.X(
@@ -573,7 +519,7 @@ def _render_grouped_bar_chart(
                 ),
                 xOffset=alt.XOffset(
                     f"{group_column}:N",
-                    sort=groups,
+                    sort=group_order,
                 ),
                 y=alt.Y(
                     f"{value_column}:Q"
@@ -625,12 +571,8 @@ def render_ward(df):
     )
 
     # ========================================================
-    # 1. WARD SUMMARY
+    # VALIDATE WARD COLUMN
     # ========================================================
-
-    st.markdown(
-        "### 1. 📊 Ward Summary"
-    )
 
     if "Ward Name" not in df.columns:
 
@@ -640,13 +582,8 @@ def render_ward(df):
 
         return
 
-    ward = _clean_text(
-        df,
-        "Ward Name",
-    )
-
     ward = _valid_text(
-        ward
+        df["Ward Name"]
     )
 
     if ward.empty:
@@ -657,12 +594,18 @@ def render_ward(df):
 
         return
 
+    # ========================================================
+    # COMMON WARD ORDER
+    # ========================================================
+
+    all_wards = _alphabetical_order(
+        ward.unique().tolist()
+    )
+
     ward_counts = (
         ward
         .value_counts()
-        .rename_axis(
-            "Ward"
-        )
+        .rename_axis("Ward")
         .reset_index(
             name="Records"
         )
@@ -674,7 +617,10 @@ def render_ward(df):
 
     ward_counts["Percentage"] = (
         ward_counts["Records"]
-        / total_valid_ward_records
+        / max(
+            total_valid_ward_records,
+            1,
+        )
         * 100
     ).round(2)
 
@@ -687,51 +633,12 @@ def render_ward(df):
         ),
     )
 
-    all_wards_alphabetical = (
-        _alphabetical_order(
-            ward_counts["Ward"].tolist()
-        )
-    )
-
-    summary1, summary2, summary3 = (
-        st.columns(3)
-    )
-
-    with summary1:
-
-        st.metric(
-            "Valid Ward Records",
-            f"{total_valid_ward_records:,}",
-        )
-
-    with summary2:
-
-        st.metric(
-            "Unique Wards",
-            f"{len(ward_counts):,}",
-        )
-
-    with summary3:
-
-        st.metric(
-            "Ward Coverage",
-            (
-                f"{(
-                    total_valid_ward_records
-                    / max(len(df), 1)
-                    * 100
-                ):.2f}%"
-            ),
-        )
-
     # ========================================================
-    # 2. TOP BURDEN WARD
+    # 1. WARD SUMMARY
     # ========================================================
-
-    st.divider()
 
     st.markdown(
-        "### 2. 🏆 Top Burden Ward"
+        "### 1. 📊 Ward Summary"
     )
 
     top_ward = (
@@ -773,7 +680,51 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 3. WARD-WISE RANKING
+    # 2. TOP BURDEN WARD
+    # ========================================================
+
+    st.divider()
+
+    st.markdown(
+        "### 2. 🏆 Top Burden Ward"
+    )
+
+    c1, c2, c3, c4 = (
+        st.columns(4)
+    )
+
+    with c1:
+
+        st.metric(
+            "Top Ward",
+            str(
+                top_ward["Ward"]
+            ),
+        )
+
+    with c2:
+
+        st.metric(
+            "Records",
+            f"{int(top_ward['Records']):,}",
+        )
+
+    with c3:
+
+        st.metric(
+            "Share",
+            f"{float(top_ward['Percentage']):.2f}%",
+        )
+
+    with c4:
+
+        st.metric(
+            "Total Wards",
+            f"{len(ward_counts):,}",
+        )
+
+    # ========================================================
+    # 3. WARD-WISE BURDEN RANKING
     # ========================================================
 
     st.divider()
@@ -786,10 +737,16 @@ def render_ward(df):
         ward_counts.copy()
     )
 
-    display_wards["Percentage"] = (
-        display_wards["Percentage"]
+    display_wards[
+        "Percentage"
+    ] = (
+        display_wards[
+            "Percentage"
+        ]
         .map(
-            lambda x: f"{x:.2f}%"
+            lambda value: (
+                f"{value:.2f}%"
+            )
         )
     )
 
@@ -800,7 +757,7 @@ def render_ward(df):
     )
 
     # ========================================================
-    # 4. WARD-WISE BAR CHART
+    # 4. WARD-WISE RECORD DISTRIBUTION
     # ========================================================
 
     st.divider()
@@ -810,35 +767,40 @@ def render_ward(df):
     )
 
     chart_wards = (
-        ward_counts
-        .head(25)
+        ward_counts[
+            [
+                "Ward",
+                "Records",
+            ]
+        ]
         .copy()
     )
 
-    chart_ward_order = (
-        _alphabetical_order(
-            chart_wards["Ward"].tolist()
+    chart_wards = (
+        chart_wards
+        .set_index("Ward")
+        .reindex(
+            all_wards
         )
+        .fillna(0)
+        .reset_index()
     )
 
     _render_category_bar_chart(
         dataframe=chart_wards,
         category_column="Ward",
         value_column="Records",
-        category_order=chart_ward_order,
+        category_order=all_wards,
         height=450,
     )
 
-    if len(ward_counts) > 25:
-
-        st.caption(
-            "Chart displays the top 25 wards by record volume, "
-            "arranged alphabetically from A to Z. "
-            "The Ward-wise Burden Ranking table contains all available wards."
-        )
+    st.caption(
+        "All wards available within the selected Global Dashboard "
+        "Filters are displayed alphabetically from A to Z."
+    )
 
     # ========================================================
-    # 5. TOP 10 WARDS
+    # 5. TOP 10 BURDEN WARDS
     # ========================================================
 
     st.divider()
@@ -865,10 +827,16 @@ def render_ward(df):
         .copy()
     )
 
-    top10_display["Percentage"] = (
-        top10_display["Percentage"]
+    top10_display[
+        "Percentage"
+    ] = (
+        top10_display[
+            "Percentage"
+        ]
         .map(
-            lambda x: f"{x:.2f}%"
+            lambda value: (
+                f"{value:.2f}%"
+            )
         )
     )
 
@@ -897,64 +865,70 @@ def render_ward(df):
             ]
         ].copy()
 
-        disease_ward["Ward Name"] = (
-            disease_ward["Ward Name"]
+        disease_ward[
+            "Ward Name"
+        ] = (
+            disease_ward[
+                "Ward Name"
+            ]
             .fillna("")
             .astype(str)
             .str.strip()
         )
 
-        disease_ward["Disease"] = (
-            disease_ward["Disease"]
+        disease_ward[
+            "Disease"
+        ] = (
+            disease_ward[
+                "Disease"
+            ]
             .fillna("")
             .astype(str)
             .str.strip()
         )
 
-        disease_ward = disease_ward[
-            disease_ward["Ward Name"].ne("")
-            & disease_ward["Disease"].ne("")
-            & disease_ward["Ward Name"].ne("nan")
-            & disease_ward["Disease"].ne("nan")
-            & disease_ward["Ward Name"].ne("NaT")
-            & disease_ward["Disease"].ne("NaT")
-        ]
+        disease_ward = (
+            disease_ward[
+                disease_ward[
+                    "Ward Name"
+                ].ne("")
+                & disease_ward[
+                    "Disease"
+                ].ne("")
+                & disease_ward[
+                    "Ward Name"
+                ].ne("nan")
+                & disease_ward[
+                    "Disease"
+                ].ne("nan")
+            ]
+        )
 
         if not disease_ward.empty:
 
             top_diseases = (
-                disease_ward["Disease"]
+                disease_ward[
+                    "Disease"
+                ]
                 .value_counts()
                 .head(10)
                 .index
                 .tolist()
             )
 
-            top_wards_by_volume = (
-                disease_ward["Ward Name"]
-                .value_counts()
-                .head(25)
-                .index
-                .tolist()
-            )
-
-            top_ward_order = (
-                _alphabetical_order(
-                    top_wards_by_volume
-                )
-            )
-
-            chart_source = (
+            disease_chart_source = (
                 disease_ward[
-                    disease_ward["Disease"]
-                    .isin(top_diseases)
-                    & disease_ward["Ward Name"]
-                    .isin(top_wards_by_volume)
+                    disease_ward[
+                        "Disease"
+                    ].isin(
+                        top_diseases
+                    )
                 ]
+                .copy()
             )
 
             chart_long = (
-                chart_source
+                disease_chart_source
                 .groupby(
                     [
                         "Ward Name",
@@ -968,32 +942,69 @@ def render_ward(df):
                 )
             )
 
+            complete_index = (
+                pd.MultiIndex
+                .from_product(
+                    [
+                        all_wards,
+                        top_diseases,
+                    ],
+                    names=[
+                        "Ward Name",
+                        "Disease",
+                    ],
+                )
+            )
+
+            chart_long = (
+                chart_long
+                .set_index(
+                    [
+                        "Ward Name",
+                        "Disease",
+                    ]
+                )
+                .reindex(
+                    complete_index,
+                    fill_value=0,
+                )
+                .reset_index()
+            )
+
             _render_grouped_bar_chart(
                 dataframe=chart_long,
                 x_column="Ward Name",
                 group_column="Disease",
                 value_column="Records",
-                x_order=top_ward_order,
+                x_order=all_wards,
                 group_order=top_diseases,
                 height=500,
             )
 
             disease_ward_table = (
                 pd.crosstab(
-                    chart_source["Ward Name"],
-                    chart_source["Disease"],
+                    disease_ward[
+                        "Ward Name"
+                    ],
+                    disease_ward[
+                        "Disease"
+                    ],
                 )
+            )
+
+            disease_ward_table = (
+                disease_ward_table
                 .reindex(
-                    index=top_ward_order,
+                    index=all_wards,
                     columns=top_diseases,
                     fill_value=0,
                 )
             )
 
             st.caption(
-                "Chart displays the top 10 diseases across "
-                "the top 25 wards by record volume. "
-                "Wards are arranged alphabetically from A to Z."
+                "Chart displays the top 10 diseases across all "
+                "available wards. Wards are arranged alphabetically "
+                "from A to Z."
             )
 
             st.dataframe(
@@ -1034,64 +1045,70 @@ def render_ward(df):
             ]
         ].copy()
 
-        facility_ward["Ward Name"] = (
-            facility_ward["Ward Name"]
+        facility_ward[
+            "Ward Name"
+        ] = (
+            facility_ward[
+                "Ward Name"
+            ]
             .fillna("")
             .astype(str)
             .str.strip()
         )
 
-        facility_ward["Facility Name"] = (
-            facility_ward["Facility Name"]
+        facility_ward[
+            "Facility Name"
+        ] = (
+            facility_ward[
+                "Facility Name"
+            ]
             .fillna("")
             .astype(str)
             .str.strip()
         )
 
-        facility_ward = facility_ward[
-            facility_ward["Ward Name"].ne("")
-            & facility_ward["Facility Name"].ne("")
-            & facility_ward["Ward Name"].ne("nan")
-            & facility_ward["Facility Name"].ne("nan")
-            & facility_ward["Ward Name"].ne("NaT")
-            & facility_ward["Facility Name"].ne("NaT")
-        ]
+        facility_ward = (
+            facility_ward[
+                facility_ward[
+                    "Ward Name"
+                ].ne("")
+                & facility_ward[
+                    "Facility Name"
+                ].ne("")
+                & facility_ward[
+                    "Ward Name"
+                ].ne("nan")
+                & facility_ward[
+                    "Facility Name"
+                ].ne("nan")
+            ]
+        )
 
         if not facility_ward.empty:
 
             top_facilities = (
-                facility_ward["Facility Name"]
+                facility_ward[
+                    "Facility Name"
+                ]
                 .value_counts()
                 .head(10)
                 .index
                 .tolist()
             )
 
-            top_wards_by_volume = (
-                facility_ward["Ward Name"]
-                .value_counts()
-                .head(25)
-                .index
-                .tolist()
-            )
-
-            top_ward_order = (
-                _alphabetical_order(
-                    top_wards_by_volume
-                )
-            )
-
-            chart_source = (
+            facility_chart_source = (
                 facility_ward[
-                    facility_ward["Facility Name"]
-                    .isin(top_facilities)
-                    & facility_ward["Ward Name"]
-                    .isin(top_wards_by_volume)
+                    facility_ward[
+                        "Facility Name"
+                    ].isin(
+                        top_facilities
+                    )
                 ]
+                .copy()
             )
 
             chart_long = (
-                chart_source
+                facility_chart_source
                 .groupby(
                     [
                         "Ward Name",
@@ -1105,32 +1122,69 @@ def render_ward(df):
                 )
             )
 
+            complete_index = (
+                pd.MultiIndex
+                .from_product(
+                    [
+                        all_wards,
+                        top_facilities,
+                    ],
+                    names=[
+                        "Ward Name",
+                        "Facility Name",
+                    ],
+                )
+            )
+
+            chart_long = (
+                chart_long
+                .set_index(
+                    [
+                        "Ward Name",
+                        "Facility Name",
+                    ]
+                )
+                .reindex(
+                    complete_index,
+                    fill_value=0,
+                )
+                .reset_index()
+            )
+
             _render_grouped_bar_chart(
                 dataframe=chart_long,
                 x_column="Ward Name",
                 group_column="Facility Name",
                 value_column="Records",
-                x_order=top_ward_order,
+                x_order=all_wards,
                 group_order=top_facilities,
-                height=520,
+                height=500,
             )
 
             facility_ward_table = (
                 pd.crosstab(
-                    chart_source["Ward Name"],
-                    chart_source["Facility Name"],
+                    facility_ward[
+                        "Ward Name"
+                    ],
+                    facility_ward[
+                        "Facility Name"
+                    ],
                 )
+            )
+
+            facility_ward_table = (
+                facility_ward_table
                 .reindex(
-                    index=top_ward_order,
+                    index=all_wards,
                     columns=top_facilities,
                     fill_value=0,
                 )
             )
 
             st.caption(
-                "Chart displays the top 10 facilities across "
-                "the top 25 wards by record volume. "
-                "Wards are arranged alphabetically from A to Z."
+                "Chart displays the top 10 facilities across all "
+                "available wards. Wards are arranged alphabetically "
+                "from A to Z."
             )
 
             st.dataframe(
@@ -1171,53 +1225,79 @@ def render_ward(df):
             ]
         ].copy()
 
-        ward_gender["Ward Name"] = (
-            ward_gender["Ward Name"]
+        ward_gender[
+            "Ward Name"
+        ] = (
+            ward_gender[
+                "Ward Name"
+            ]
             .fillna("")
             .astype(str)
             .str.strip()
         )
 
-        ward_gender["Gender"] = (
+        ward_gender[
+            "Gender"
+        ] = (
             _standardize_gender(
-                ward_gender["Gender"]
+                ward_gender[
+                    "Gender"
+                ]
             )
         )
 
-        ward_gender = ward_gender[
-            ward_gender["Ward Name"].ne("")
-            & ward_gender["Gender"].ne("")
-            & ward_gender["Ward Name"].ne("nan")
-            & ward_gender["Gender"].ne("nan")
-            & ward_gender["Ward Name"].ne("NaT")
-            & ward_gender["Gender"].ne("NaT")
-        ]
+        ward_gender = (
+            ward_gender[
+                ward_gender[
+                    "Ward Name"
+                ].ne("")
+                & ward_gender[
+                    "Gender"
+                ].ne("")
+                & ward_gender[
+                    "Ward Name"
+                ].ne("nan")
+                & ward_gender[
+                    "Gender"
+                ].ne("nan")
+                & ward_gender[
+                    "Ward Name"
+                ].ne("NaT")
+                & ward_gender[
+                    "Gender"
+                ].ne("NaT")
+            ]
+        )
 
         if not ward_gender.empty:
 
-            top_wards_by_volume = (
-                ward_gender["Ward Name"]
-                .value_counts()
-                .head(20)
-                .index
+            present_genders = (
+                ward_gender[
+                    "Gender"
+                ]
+                .drop_duplicates()
                 .tolist()
             )
 
-            top_ward_order = (
-                _alphabetical_order(
-                    top_wards_by_volume
-                )
-            )
+            gender_order = [
+                value
+                for value in GENDER_ORDER
+                if value
+                in present_genders
+            ]
 
-            chart_source = (
-                ward_gender[
-                    ward_gender["Ward Name"]
-                    .isin(top_wards_by_volume)
+            gender_order += sorted(
+                [
+                    value
+                    for value
+                    in present_genders
+                    if value
+                    not in GENDER_ORDER
                 ]
             )
 
             chart_long = (
-                chart_source
+                ward_gender
                 .groupby(
                     [
                         "Ward Name",
@@ -1231,43 +1311,69 @@ def render_ward(df):
                 )
             )
 
+            complete_index = (
+                pd.MultiIndex
+                .from_product(
+                    [
+                        all_wards,
+                        gender_order,
+                    ],
+                    names=[
+                        "Ward Name",
+                        "Gender",
+                    ],
+                )
+            )
+
+            chart_long = (
+                chart_long
+                .set_index(
+                    [
+                        "Ward Name",
+                        "Gender",
+                    ]
+                )
+                .reindex(
+                    complete_index,
+                    fill_value=0,
+                )
+                .reset_index()
+            )
+
             _render_grouped_bar_chart(
                 dataframe=chart_long,
                 x_column="Ward Name",
                 group_column="Gender",
                 value_column="Records",
-                x_order=top_ward_order,
-                group_order=GENDER_ORDER,
-                height=480,
+                x_order=all_wards,
+                group_order=gender_order,
+                height=500,
             )
 
             gender_table = (
                 pd.crosstab(
-                    chart_source["Ward Name"],
-                    chart_source["Gender"],
+                    ward_gender[
+                        "Ward Name"
+                    ],
+                    ward_gender[
+                        "Gender"
+                    ],
                 )
+            )
+
+            gender_table = (
+                gender_table
                 .reindex(
-                    index=top_ward_order,
+                    index=all_wards,
+                    columns=gender_order,
                     fill_value=0,
                 )
             )
 
-            gender_columns = [
-                value
-                for value in GENDER_ORDER
-                if value in gender_table.columns
-            ]
-
-            gender_columns += [
-                value
-                for value in gender_table.columns
-                if value not in GENDER_ORDER
-            ]
-
-            gender_table = (
-                gender_table[
-                    gender_columns
-                ]
+            st.caption(
+                "All wards available within the selected Global "
+                "Dashboard Filters are displayed alphabetically "
+                "from A to Z."
             )
 
             st.dataframe(
@@ -1308,50 +1414,122 @@ def render_ward(df):
             ]
         ].copy()
 
-        ward_age["Ward Name"] = (
-            ward_age["Ward Name"]
+        ward_age[
+            "Ward Name"
+        ] = (
+            ward_age[
+                "Ward Name"
+            ]
             .fillna("")
             .astype(str)
             .str.strip()
         )
 
-        ward_age["Age Group"] = (
+        ward_age[
+            "Age Group"
+        ] = (
             _standardize_age_group(
-                ward_age["Age Group"]
+                ward_age[
+                    "Age Group"
+                ]
             )
         )
 
-        ward_age = ward_age[
-            ward_age["Ward Name"].ne("")
-            & ward_age["Age Group"].ne("")
-            & ward_age["Ward Name"].ne("nan")
-            & ward_age["Age Group"].ne("nan")
-            & ward_age["Ward Name"].ne("NaT")
-            & ward_age["Age Group"].ne("NaT")
-        ]
+        ward_age = (
+            ward_age[
+                ward_age[
+                    "Ward Name"
+                ].ne("")
+                & ward_age[
+                    "Age Group"
+                ].ne("")
+                & ward_age[
+                    "Ward Name"
+                ].ne("nan")
+                & ward_age[
+                    "Age Group"
+                ].ne("nan")
+                & ward_age[
+                    "Ward Name"
+                ].ne("NaT")
+                & ward_age[
+                    "Age Group"
+                ].ne("NaT")
+            ]
+        )
 
         if not ward_age.empty:
 
-            top_wards_by_volume = (
-                ward_age["Ward Name"]
-                .value_counts()
-                .head(20)
-                .index
+            present_age_groups = (
+                ward_age[
+                    "Age Group"
+                ]
+                .drop_duplicates()
                 .tolist()
             )
 
-            top_ward_order = (
-                _alphabetical_order(
-                    top_wards_by_volume
+            age_group_order = [
+                value
+                for value
+                in AGE_GROUP_ORDER
+                if value
+                in present_age_groups
+            ]
+
+            age_group_order += sorted(
+                [
+                    value
+                    for value
+                    in present_age_groups
+                    if value
+                    not in AGE_GROUP_ORDER
+                ]
+            )
+
+            selected_age_group = (
+                st.selectbox(
+                    "Select Age Group",
+                    options=(
+                        ["All Age Groups"]
+                        + age_group_order
+                    ),
+                    index=0,
+                    key=(
+                        "phase5_ward_"
+                        "age_group_selector"
+                    ),
                 )
             )
 
-            chart_source = (
-                ward_age[
-                    ward_age["Ward Name"]
-                    .isin(top_wards_by_volume)
+            if (
+                selected_age_group
+                == "All Age Groups"
+            ):
+
+                chart_source = (
+                    ward_age.copy()
+                )
+
+                chart_group_order = (
+                    age_group_order
+                )
+
+            else:
+
+                chart_source = (
+                    ward_age[
+                        ward_age[
+                            "Age Group"
+                        ].eq(
+                            selected_age_group
+                        )
+                    ]
+                    .copy()
+                )
+
+                chart_group_order = [
+                    selected_age_group
                 ]
-            )
 
             chart_long = (
                 chart_source
@@ -1368,24 +1546,33 @@ def render_ward(df):
                 )
             )
 
-            present_age_groups = (
-                chart_long["Age Group"]
-                .drop_duplicates()
-                .tolist()
+            complete_index = (
+                pd.MultiIndex
+                .from_product(
+                    [
+                        all_wards,
+                        chart_group_order,
+                    ],
+                    names=[
+                        "Ward Name",
+                        "Age Group",
+                    ],
+                )
             )
 
-            age_group_order = [
-                value
-                for value in AGE_GROUP_ORDER
-                if value in present_age_groups
-            ]
-
-            age_group_order += sorted(
-                [
-                    value
-                    for value in present_age_groups
-                    if value not in AGE_GROUP_ORDER
-                ]
+            chart_long = (
+                chart_long
+                .set_index(
+                    [
+                        "Ward Name",
+                        "Age Group",
+                    ]
+                )
+                .reindex(
+                    complete_index,
+                    fill_value=0,
+                )
+                .reset_index()
             )
 
             _render_grouped_bar_chart(
@@ -1393,42 +1580,51 @@ def render_ward(df):
                 x_column="Ward Name",
                 group_column="Age Group",
                 value_column="Records",
-                x_order=top_ward_order,
-                group_order=age_group_order,
-                height=500,
+                x_order=all_wards,
+                group_order=chart_group_order,
+                height=520,
             )
 
             age_table = (
                 pd.crosstab(
-                    chart_source["Ward Name"],
-                    chart_source["Age Group"],
+                    chart_source[
+                        "Ward Name"
+                    ],
+                    chart_source[
+                        "Age Group"
+                    ],
                 )
+            )
+
+            age_table = (
+                age_table
                 .reindex(
-                    index=top_ward_order,
+                    index=all_wards,
+                    columns=chart_group_order,
                     fill_value=0,
                 )
             )
 
-            available_age_columns = [
-                value
-                for value in AGE_GROUP_ORDER
-                if value in age_table.columns
-            ]
+            if (
+                selected_age_group
+                == "All Age Groups"
+            ):
 
-            remaining_age_columns = [
-                value
-                for value in age_table.columns
-                if value not in AGE_GROUP_ORDER
-            ]
+                st.caption(
+                    "All age groups and all wards available within "
+                    "the selected Global Dashboard Filters are "
+                    "displayed. Wards are arranged alphabetically "
+                    "from A to Z."
+                )
 
-            age_table = (
-                age_table[
-                    available_age_columns
-                    + sorted(
-                        remaining_age_columns
-                    )
-                ]
-            )
+            else:
+
+                st.caption(
+                    f"Age Group: {selected_age_group}. "
+                    "All available wards are displayed "
+                    "alphabetically from A to Z. Wards with zero "
+                    "records for the selected age group are retained."
+                )
 
             st.dataframe(
                 age_table
@@ -1450,7 +1646,7 @@ def render_ward(df):
         )
 
     # ========================================================
-    # 10. SELECTED WARD × FACILITY DETAIL
+    # 10. WARD – FACILITY DETAIL
     # ========================================================
 
     st.divider()
@@ -1461,43 +1657,54 @@ def render_ward(df):
 
     if "Facility Name" in df.columns:
 
-        available_wards = (
+        # ----------------------------------------------------
+        # Ward selector
+        #
+        # If the Global Dashboard Ward filter has already
+        # reduced the data to one ward, only that ward appears.
+        # Otherwise all currently available wards can be chosen.
+        # ----------------------------------------------------
+
+        available_detail_wards = (
             _alphabetical_order(
-                ward.tolist()
+                df[
+                    "Ward Name"
+                ]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .loc[
+                    lambda values:
+                    values.ne("")
+                    & values.ne("nan")
+                    & values.ne("NaT")
+                ]
+                .unique()
+                .tolist()
             )
         )
 
-        if available_wards:
+        if available_detail_wards:
 
-            # ------------------------------------------------
-            # IMPORTANT:
-            # df already contains the Global Dashboard Filter.
-            #
-            # Therefore, when a ward has been selected globally,
-            # only that ward will normally remain in df and it
-            # becomes the automatic selection here.
-            #
-            # When multiple wards remain, the user can choose
-            # the ward specifically for this section.
-            # ------------------------------------------------
-
-            if len(available_wards) == 1:
+            if len(
+                available_detail_wards
+            ) == 1:
 
                 selected_ward = (
-                    available_wards[0]
+                    available_detail_wards[0]
                 )
 
                 st.selectbox(
                     "Select Ward",
-                    options=available_wards,
+                    options=[
+                        selected_ward
+                    ],
                     index=0,
-                    key="phase5_facility_ward_selector",
+                    key=(
+                        "phase5_facility_"
+                        "ward_single"
+                    ),
                     disabled=True,
-                )
-
-                st.caption(
-                    "Ward selection is currently determined by "
-                    "the Global Dashboard Filters."
                 )
 
             else:
@@ -1506,38 +1713,44 @@ def render_ward(df):
                     top_ward["Ward"]
                 )
 
-                if default_ward in available_wards:
+                try:
 
                     default_index = (
-                        available_wards.index(
+                        available_detail_wards
+                        .index(
                             default_ward
                         )
                     )
 
-                else:
+                except ValueError:
 
                     default_index = 0
 
                 selected_ward = (
                     st.selectbox(
                         "Select Ward",
-                        options=available_wards,
+                        options=(
+                            available_detail_wards
+                        ),
                         index=default_index,
-                        key="phase5_facility_ward_selector",
+                        key=(
+                            "phase5_facility_"
+                            "ward_selector"
+                        ),
                     )
                 )
 
-            ward_name_series = (
-                df["Ward Name"]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-            )
-
             ward_facility_df = (
                 df[
-                    ward_name_series
-                    .eq(selected_ward)
+                    df[
+                        "Ward Name"
+                    ]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                    .eq(
+                        selected_ward
+                    )
                 ]
                 .copy()
             )
@@ -1554,14 +1767,20 @@ def render_ward(df):
                 )
 
                 facility_values = (
-                    _valid_text(
-                        facility_values
-                    )
+                    facility_values[
+                        facility_values.ne("")
+                        & facility_values.ne(
+                            "nan"
+                        )
+                        & facility_values.ne(
+                            "NaT"
+                        )
+                    ]
                 )
 
                 if not facility_values.empty:
 
-                    selected_ward_facilities = (
+                    facility_counts = (
                         facility_values
                         .value_counts()
                         .rename_axis(
@@ -1572,90 +1791,57 @@ def render_ward(df):
                         )
                     )
 
-                    selected_ward_facilities.insert(
+                    facility_counts.insert(
                         0,
                         "Rank",
                         range(
                             1,
                             len(
-                                selected_ward_facilities
+                                facility_counts
                             ) + 1,
                         ),
                     )
 
-                    selected_ward_facilities[
-                        "Percentage"
-                    ] = (
-                        selected_ward_facilities[
-                            "Records"
-                        ]
-                        / selected_ward_facilities[
-                            "Records"
-                        ].sum()
-                        * 100
-                    ).round(2)
-
-                    chart_facilities = (
-                        selected_ward_facilities
-                        .head(15)
-                        .copy()
+                    st.caption(
+                        f"Facility distribution for Ward "
+                        f"{selected_ward}."
                     )
 
+                    # ----------------------------------------
+                    # Facility chart
+                    # X-axis labels intentionally vertical.
+                    # ----------------------------------------
+
                     _render_category_bar_chart(
-                        dataframe=chart_facilities,
-                        category_column="Facility",
-                        value_column="Records",
+                        dataframe=(
+                            facility_counts[
+                                [
+                                    "Facility",
+                                    "Records",
+                                ]
+                            ]
+                        ),
+                        category_column=(
+                            "Facility"
+                        ),
+                        value_column=(
+                            "Records"
+                        ),
                         category_order=(
-                            chart_facilities[
+                            facility_counts[
                                 "Facility"
                             ]
                             .tolist()
                         ),
                         height=500,
-                        vertical_x_labels=True,
-                    )
-
-                    display_facilities = (
-                        selected_ward_facilities
-                        .copy()
-                    )
-
-                    display_facilities[
-                        "Percentage"
-                    ] = (
-                        display_facilities[
-                            "Percentage"
-                        ]
-                        .map(
-                            lambda x: (
-                                f"{x:.2f}%"
-                            )
-                        )
+                        vertical_labels=True,
                     )
 
                     st.dataframe(
-                        display_facilities,
+                        facility_counts,
                         use_container_width=True,
                         hide_index=True,
                     )
-
-                    if len(
-                        selected_ward_facilities
-                    ) > 15:
-
-                        st.caption(
-                            "Chart displays the top 15 facilities "
-                            f"within Ward {selected_ward}. "
-                            "The table contains all facilities "
-                            "for the selected ward."
-                        )
-
-                    else:
-
-                        st.caption(
-                            f"Facility distribution for Ward "
-                            f"{selected_ward}."
-                        )
 
                 else:
 
@@ -1673,7 +1859,8 @@ def render_ward(df):
         else:
 
             st.info(
-                "No valid ward information is available."
+                "No valid wards are available for "
+                "facility analysis."
             )
 
     else:
@@ -1692,15 +1879,33 @@ def render_ward(df):
         "### 11. ℹ️ Ward Data Quality"
     )
 
-    total_records = len(df)
+    total_records = len(
+        df
+    )
 
-    valid_ward_records = len(
-        ward
+    raw_ward_values = (
+        df[
+            "Ward Name"
+        ]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    valid_ward_mask = (
+        raw_ward_values.ne("")
+        & raw_ward_values.ne("nan")
+        & raw_ward_values.ne("NaT")
+        & raw_ward_values.ne("None")
+    )
+
+    valid_ward_count = int(
+        valid_ward_mask.sum()
     )
 
     missing_ward = (
         total_records
-        - valid_ward_records
+        - valid_ward_count
     )
 
     ward_quality = pd.DataFrame(
@@ -1713,49 +1918,45 @@ def render_ward(df):
             ],
             "Count": [
                 total_records,
-                valid_ward_records,
+                valid_ward_count,
                 missing_ward,
-                len(ward_counts),
+                len(all_wards),
             ],
         }
     )
 
-    ward_quality["Percentage"] = [
-        100.0,
-        (
-            valid_ward_records
-            / max(total_records, 1)
-            * 100
-        ),
-        (
-            missing_ward
-            / max(total_records, 1)
-            * 100
-        ),
-        None,
-    ]
+    ward_quality[
+        "Percentage"
+    ] = (
+        ward_quality[
+            "Count"
+        ]
+        / max(
+            total_records,
+            1,
+        )
+        * 100
+    ).round(2)
 
-    ward_quality_display = (
+    quality_display = (
         ward_quality.copy()
     )
 
-    ward_quality_display[
+    quality_display[
         "Percentage"
     ] = (
-        ward_quality_display[
+        quality_display[
             "Percentage"
         ]
-        .apply(
+        .map(
             lambda value: (
                 f"{value:.2f}%"
-                if pd.notna(value)
-                else ""
             )
         )
     )
 
     st.dataframe(
-        ward_quality_display,
+        quality_display,
         use_container_width=True,
         hide_index=True,
     )
