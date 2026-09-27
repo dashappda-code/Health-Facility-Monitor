@@ -5,6 +5,7 @@ import altair as alt
 
 from chart_helpers import data_labels_enabled
 
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -27,6 +28,31 @@ MONTH_NAMES = {
 MIN_YEAR = 2000
 MAX_YEAR = 2100
 
+DATA_LABEL_FONT_SIZE = 11
+
+SERIES_COLORS = [
+    "#1F77B4",
+    "#FF7F0E",
+    "#2CA02C",
+    "#D62728",
+    "#9467BD",
+    "#8C564B",
+    "#E377C2",
+    "#7F7F7F",
+    "#BCBD22",
+    "#17BECF",
+    "#393B79",
+    "#637939",
+    "#8C6D31",
+    "#843C39",
+    "#7B4173",
+    "#3182BD",
+    "#31A354",
+    "#756BB1",
+    "#636363",
+    "#E6550D",
+]
+
 
 # ============================================================
 # COMMON HELPERS
@@ -40,6 +66,18 @@ def _clean_series(series):
         .astype(str)
         .str.strip()
     )
+
+
+def _valid_text_values(series):
+
+    values = _clean_series(series)
+
+    return values[
+        values.ne("")
+        & values.ne("nan")
+        & values.ne("NaT")
+        & values.ne("None")
+    ]
 
 
 def _month_number(value):
@@ -145,6 +183,136 @@ def _safe_percent_change(current, previous):
         / previous
         * 100
     )
+
+
+def _series_color_map(series_names):
+
+    return {
+        name: SERIES_COLORS[
+            index % len(SERIES_COLORS)
+        ]
+        for index, name in enumerate(series_names)
+    }
+
+
+# ============================================================
+# CHECKBOX MULTISELECT
+# ============================================================
+
+def _checkbox_multiselect(
+    label,
+    options,
+    key_prefix,
+    default_count=None,
+):
+
+    options = list(options)
+
+    if not options:
+        return []
+
+    init_key = f"{key_prefix}_initialized"
+    select_all_key = f"{key_prefix}_select_all"
+
+    option_keys = [
+        f"{key_prefix}_option_{index}"
+        for index in range(len(options))
+    ]
+
+    if init_key not in st.session_state:
+
+        st.session_state[init_key] = True
+
+        if (
+            default_count is None
+            or default_count >= len(options)
+        ):
+
+            st.session_state[
+                select_all_key
+            ] = True
+
+            for option_key in option_keys:
+                st.session_state[
+                    option_key
+                ] = True
+
+        else:
+
+            st.session_state[
+                select_all_key
+            ] = False
+
+            for index, option_key in enumerate(
+                option_keys
+            ):
+
+                st.session_state[
+                    option_key
+                ] = (
+                    index < default_count
+                )
+
+    def select_all_changed():
+
+        selected = bool(
+            st.session_state.get(
+                select_all_key,
+                False,
+            )
+        )
+
+        for option_key in option_keys:
+
+            st.session_state[
+                option_key
+            ] = selected
+
+    def individual_changed():
+
+        all_selected = all(
+            bool(
+                st.session_state.get(
+                    option_key,
+                    False,
+                )
+            )
+            for option_key in option_keys
+        )
+
+        st.session_state[
+            select_all_key
+        ] = all_selected
+
+    selected_options = []
+
+    with st.popover(
+        label,
+        use_container_width=True,
+    ):
+
+        st.checkbox(
+            "Select All",
+            key=select_all_key,
+            on_change=select_all_changed,
+        )
+
+        st.divider()
+
+        for index, option in enumerate(options):
+
+            checked = st.checkbox(
+                str(option),
+                key=option_keys[index],
+                on_change=individual_changed,
+            )
+
+            if checked:
+                selected_options.append(
+                    option
+                )
+
+    return selected_options
 
 
 # ============================================================
@@ -259,7 +427,7 @@ def _prepare_time_data(df):
 
 
 # ============================================================
-# COMPLETE MONTHLY SERIES
+# MONTHLY COUNTS
 # ============================================================
 
 def _monthly_counts(
@@ -289,43 +457,45 @@ def _monthly_counts(
     if monthly.empty:
         return pd.DataFrame()
 
-    first_year = int(
-        monthly["Year_Number"].min()
-    )
-
-    first_month = int(
-        monthly.loc[
-            monthly["Year_Number"].idxmin(),
+    monthly = monthly.sort_values(
+        [
+            "Year_Number",
             "Month_Number",
         ]
     )
 
-    last_year = int(
-        monthly["Year_Number"].max()
-    )
-
-    latest_rows = monthly[
-        monthly["Year_Number"]
-        == last_year
-    ]
-
-    last_month = int(
-        latest_rows["Month_Number"].max()
-    )
+    first_row = monthly.iloc[0]
+    last_row = monthly.iloc[-1]
 
     if start_date is None:
 
         start_date = pd.Timestamp(
-            year=first_year,
-            month=first_month,
+            year=int(
+                first_row[
+                    "Year_Number"
+                ]
+            ),
+            month=int(
+                first_row[
+                    "Month_Number"
+                ]
+            ),
             day=1,
         )
 
     if end_date is None:
 
         end_date = pd.Timestamp(
-            year=last_year,
-            month=last_month,
+            year=int(
+                last_row[
+                    "Year_Number"
+                ]
+            ),
+            month=int(
+                last_row[
+                    "Month_Number"
+                ]
+            ),
             day=1,
         )
 
@@ -342,11 +512,15 @@ def _monthly_counts(
     )
 
     complete["Year_Number"] = (
-        complete["Period_Date"].dt.year
+        complete[
+            "Period_Date"
+        ].dt.year
     )
 
     complete["Month_Number"] = (
-        complete["Period_Date"].dt.month
+        complete[
+            "Period_Date"
+        ].dt.month
     )
 
     complete = complete.merge(
@@ -373,7 +547,7 @@ def _monthly_counts(
 
 
 # ============================================================
-# YEARLY SERIES
+# YEARLY COUNTS
 # ============================================================
 
 def _yearly_counts(source):
@@ -397,12 +571,16 @@ def _yearly_counts(source):
     )
 
     yearly["Year"] = (
-        yearly["Year_Number"]
+        yearly[
+            "Year_Number"
+        ]
         .astype(int)
         .astype(str)
     )
 
-    return yearly.reset_index(drop=True)
+    return yearly.reset_index(
+        drop=True
+    )
 
 
 # ============================================================
@@ -424,17 +602,19 @@ def _calculate_projection(values):
         return None
 
     if len(numeric) == 1:
+
         return max(
             0.0,
-            float(numeric.iloc[-1]),
+            float(
+                numeric.iloc[-1]
+            ),
         )
 
-    # --------------------------------------------------------
-    # RECENT WEIGHTED BASELINE
-    # --------------------------------------------------------
-
     recent = numeric.tail(
-        min(3, len(numeric))
+        min(
+            3,
+            len(numeric),
+        )
     )
 
     weights = np.arange(
@@ -445,14 +625,12 @@ def _calculate_projection(values):
 
     recent_weighted = float(
         np.average(
-            recent.to_numpy(dtype=float),
+            recent.to_numpy(
+                dtype=float
+            ),
             weights=weights,
         )
     )
-
-    # --------------------------------------------------------
-    # LINEAR TREND
-    # --------------------------------------------------------
 
     x = np.arange(
         len(numeric),
@@ -463,7 +641,9 @@ def _calculate_projection(values):
 
         slope, intercept = np.polyfit(
             x,
-            numeric.to_numpy(dtype=float),
+            numeric.to_numpy(
+                dtype=float
+            ),
             1,
         )
 
@@ -478,10 +658,6 @@ def _calculate_projection(values):
             recent_weighted
         )
 
-    # --------------------------------------------------------
-    # COMBINED ESTIMATE
-    # --------------------------------------------------------
-
     projection = (
         recent_weighted * 0.70
         + trend_projection * 0.30
@@ -494,7 +670,7 @@ def _calculate_projection(values):
 
 
 # ============================================================
-# MULTI-STEP PROJECTION
+# MULTI-PERIOD PROJECTION
 # ============================================================
 
 def _project_multiple_periods(
@@ -538,7 +714,7 @@ def _project_multiple_periods(
 
 
 # ============================================================
-# CHART HELPERS
+# STANDARD LINE CHART
 # ============================================================
 
 def _render_line_chart(
@@ -554,10 +730,6 @@ def _render_line_chart(
 
     chart_df = dataframe.copy()
 
-    # --------------------------------------------------------
-    # Validate required columns
-    # --------------------------------------------------------
-
     if x_column not in chart_df.columns:
         return
 
@@ -569,14 +741,6 @@ def _render_line_chart(
 
     if not valid_y_columns:
         return
-
-    # --------------------------------------------------------
-    # Convert wide data to long format
-    #
-    # IMPORTANT:
-    # Do NOT use value_name="Records" because the source
-    # dataframe may already contain a column named "Records".
-    # --------------------------------------------------------
 
     long_df = chart_df.melt(
         id_vars=[x_column],
@@ -597,12 +761,34 @@ def _render_line_chart(
     if long_df.empty:
         return
 
-    # --------------------------------------------------------
-    # LINE CHART
-    # --------------------------------------------------------
+    series_order = (
+        long_df["Series"]
+        .drop_duplicates()
+        .tolist()
+    )
 
-    chart = (
-        alt.Chart(long_df)
+    color_map = (
+        _series_color_map(
+            series_order
+        )
+    )
+
+    color_scale = alt.Scale(
+        domain=series_order,
+        range=[
+            color_map[
+                series
+            ]
+            for series in series_order
+        ],
+    )
+
+    base = alt.Chart(
+        long_df
+    )
+
+    lines = (
+        base
         .mark_line(
             point=True,
             strokeWidth=3,
@@ -614,7 +800,7 @@ def _render_line_chart(
                 axis=alt.Axis(
                     title=x_column,
                     labelAngle=-45,
-                    labelLimit=140,
+                    labelLimit=150,
                 ),
             ),
             y=alt.Y(
@@ -625,10 +811,13 @@ def _render_line_chart(
             ),
             color=alt.Color(
                 "Series:N",
+                scale=color_scale,
                 legend=alt.Legend(
                     orient="bottom",
                     direction="horizontal",
                     title=None,
+                    columns=5,
+                    labelLimit=300,
                 ),
             ),
             tooltip=[
@@ -647,16 +836,729 @@ def _render_line_chart(
                 ),
             ],
         )
-        .properties(
-            height=height,
-            title=title,
+    )
+
+    chart = lines
+
+    if data_labels_enabled():
+
+        labels = (
+            base
+            .mark_text(
+                dy=-10,
+                fontSize=DATA_LABEL_FONT_SIZE,
+                fontWeight="bold",
+            )
+            .encode(
+                x=alt.X(
+                    f"{x_column}:N",
+                    sort=None,
+                ),
+                y=alt.Y(
+                    "Value:Q"
+                ),
+                text=alt.Text(
+                    "Value:Q",
+                    format=",.0f",
+                ),
+                color=alt.Color(
+                    "Series:N",
+                    scale=color_scale,
+                    legend=None,
+                ),
+            )
         )
+
+        chart = (
+            lines
+            + labels
+        )
+
+    chart = chart.properties(
+        height=height,
+        title=title,
     )
 
     st.altair_chart(
         chart,
         use_container_width=True,
     )
+
+
+# ============================================================
+# HISTORICAL + PROJECTED MULTI-SERIES CHART
+# ============================================================
+
+def _render_projection_chart(
+    dataframe,
+    title=None,
+    height=500,
+):
+
+    if dataframe is None or dataframe.empty:
+        return
+
+    required_columns = {
+        "Period",
+        "Series",
+        "Value",
+        "Type",
+        "Period_Order",
+    }
+
+    if not required_columns.issubset(
+        dataframe.columns
+    ):
+        return
+
+    chart_df = dataframe.copy()
+
+    chart_df["Value"] = pd.to_numeric(
+        chart_df["Value"],
+        errors="coerce",
+    )
+
+    chart_df = chart_df.dropna(
+        subset=["Value"]
+    )
+
+    if chart_df.empty:
+        return
+
+    chart_df = chart_df.sort_values(
+        [
+            "Period_Order",
+            "Series",
+            "Type",
+        ]
+    )
+
+    series_order = (
+        chart_df["Series"]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    color_map = (
+        _series_color_map(
+            series_order
+        )
+    )
+
+    color_scale = alt.Scale(
+        domain=series_order,
+        range=[
+            color_map[
+                series
+            ]
+            for series in series_order
+        ],
+    )
+
+    historical_df = chart_df[
+        chart_df["Type"]
+        == "Historical"
+    ].copy()
+
+    projected_df = chart_df[
+        chart_df["Type"]
+        == "Projected"
+    ].copy()
+
+    layers = []
+
+    if not historical_df.empty:
+
+        historical_line = (
+            alt.Chart(
+                historical_df
+            )
+            .mark_line(
+                point=True,
+                strokeWidth=3,
+            )
+            .encode(
+                x=alt.X(
+                    "Period:N",
+                    sort=alt.SortField(
+                        field="Period_Order",
+                        order="ascending",
+                    ),
+                    axis=alt.Axis(
+                        title="Period",
+                        labelAngle=-45,
+                        labelLimit=150,
+                    ),
+                ),
+                y=alt.Y(
+                    "Value:Q",
+                    axis=alt.Axis(
+                        title="Records"
+                    ),
+                ),
+                color=alt.Color(
+                    "Series:N",
+                    scale=color_scale,
+                    legend=alt.Legend(
+                        title=None,
+                        orient="bottom",
+                        direction="horizontal",
+                        columns=5,
+                        labelLimit=300,
+                    ),
+                ),
+                detail="Series:N",
+                tooltip=[
+                    alt.Tooltip(
+                        "Period:N",
+                        title="Period",
+                    ),
+                    alt.Tooltip(
+                        "Series:N",
+                        title="Series",
+                    ),
+                    alt.Tooltip(
+                        "Type:N",
+                        title="Type",
+                    ),
+                    alt.Tooltip(
+                        "Value:Q",
+                        title="Records",
+                        format=",.1f",
+                    ),
+                ],
+            )
+        )
+
+        layers.append(
+            historical_line
+        )
+
+        if data_labels_enabled():
+
+            historical_labels = (
+                alt.Chart(
+                    historical_df
+                )
+                .mark_text(
+                    dy=-10,
+                    fontSize=DATA_LABEL_FONT_SIZE,
+                    fontWeight="bold",
+                )
+                .encode(
+                    x=alt.X(
+                        "Period:N",
+                        sort=alt.SortField(
+                            field="Period_Order",
+                            order="ascending",
+                        ),
+                    ),
+                    y=alt.Y(
+                        "Value:Q"
+                    ),
+                    text=alt.Text(
+                        "Value:Q",
+                        format=",.0f",
+                    ),
+                    color=alt.Color(
+                        "Series:N",
+                        scale=color_scale,
+                        legend=None,
+                    ),
+                    detail="Series:N",
+                )
+            )
+
+            layers.append(
+                historical_labels
+            )
+
+    if not projected_df.empty:
+
+        projected_line = (
+            alt.Chart(
+                projected_df
+            )
+            .mark_line(
+                point=True,
+                strokeWidth=3,
+                strokeDash=[7, 5],
+            )
+            .encode(
+                x=alt.X(
+                    "Period:N",
+                    sort=alt.SortField(
+                        field="Period_Order",
+                        order="ascending",
+                    ),
+                    axis=alt.Axis(
+                        title="Period",
+                        labelAngle=-45,
+                        labelLimit=150,
+                    ),
+                ),
+                y=alt.Y(
+                    "Value:Q",
+                    axis=alt.Axis(
+                        title="Records"
+                    ),
+                ),
+                color=alt.Color(
+                    "Series:N",
+                    scale=color_scale,
+                    legend=alt.Legend(
+                        title=None,
+                        orient="bottom",
+                        direction="horizontal",
+                        columns=5,
+                        labelLimit=300,
+                    ),
+                ),
+                detail="Series:N",
+                tooltip=[
+                    alt.Tooltip(
+                        "Period:N",
+                        title="Period",
+                    ),
+                    alt.Tooltip(
+                        "Series:N",
+                        title="Series",
+                    ),
+                    alt.Tooltip(
+                        "Type:N",
+                        title="Type",
+                    ),
+                    alt.Tooltip(
+                        "Value:Q",
+                        title="Projected Records",
+                        format=",.1f",
+                    ),
+                ],
+            )
+        )
+
+        layers.append(
+            projected_line
+        )
+
+        if data_labels_enabled():
+
+            projected_labels = (
+                alt.Chart(
+                    projected_df
+                )
+                .mark_text(
+                    dy=-11,
+                    fontSize=DATA_LABEL_FONT_SIZE,
+                    fontWeight="bold",
+                )
+                .encode(
+                    x=alt.X(
+                        "Period:N",
+                        sort=alt.SortField(
+                            field="Period_Order",
+                            order="ascending",
+                        ),
+                    ),
+                    y=alt.Y(
+                        "Value:Q"
+                    ),
+                    text=alt.Text(
+                        "Value:Q",
+                        format=",.0f",
+                    ),
+                    color=alt.Color(
+                        "Series:N",
+                        scale=color_scale,
+                        legend=None,
+                    ),
+                    detail="Series:N",
+                )
+            )
+
+            layers.append(
+                projected_labels
+            )
+
+    if not layers:
+        return
+
+    chart = alt.layer(
+        *layers
+    ).properties(
+        height=height,
+        title=title,
+    )
+
+    st.altair_chart(
+        chart,
+        use_container_width=True,
+    )
+
+    st.caption(
+        "Solid line = historical records • "
+        "Dotted line = projected records"
+    )
+
+
+# ============================================================
+# BUILD MONTHLY PROJECTION SERIES
+# ============================================================
+
+def _build_monthly_projection_series(
+    source,
+    series_name,
+    projection_months=1,
+):
+
+    monthly = _monthly_counts(
+        source
+    )
+
+    if monthly.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    for index, row in monthly.iterrows():
+
+        rows.append(
+            {
+                "Period": row["Period"],
+                "Period_Order": (
+                    row["Period_Date"]
+                ),
+                "Series": series_name,
+                "Value": float(
+                    row["Records"]
+                ),
+                "Type": "Historical",
+            }
+        )
+
+    projected_values = (
+        _project_multiple_periods(
+            monthly["Records"],
+            projection_months,
+        )
+    )
+
+    if not projected_values:
+        return pd.DataFrame(rows)
+
+    last_row = monthly.iloc[-1]
+
+    year = int(
+        last_row["Year_Number"]
+    )
+
+    month = int(
+        last_row["Month_Number"]
+    )
+
+    # --------------------------------------------------------
+    # Add historical endpoint to projected line so dotted line
+    # visibly starts from the latest actual observation.
+    # --------------------------------------------------------
+
+    rows.append(
+        {
+            "Period": last_row[
+                "Period"
+            ],
+            "Period_Order": last_row[
+                "Period_Date"
+            ],
+            "Series": series_name,
+            "Value": float(
+                last_row["Records"]
+            ),
+            "Type": "Projected",
+        }
+    )
+
+    for value in projected_values:
+
+        year, month = _next_month(
+            year,
+            month,
+        )
+
+        period_date = pd.Timestamp(
+            year=year,
+            month=month,
+            day=1,
+        )
+
+        rows.append(
+            {
+                "Period": (
+                    period_date
+                    .strftime("%b-%Y")
+                ),
+                "Period_Order": (
+                    period_date
+                ),
+                "Series": series_name,
+                "Value": float(value),
+                "Type": "Projected",
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+# ============================================================
+# BUILD YEARLY PROJECTION SERIES
+# ============================================================
+
+def _build_yearly_projection_series(
+    source,
+    series_name,
+    projection_years=1,
+):
+
+    yearly = _yearly_counts(
+        source
+    )
+
+    if yearly.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    for _, row in yearly.iterrows():
+
+        year = int(
+            row["Year_Number"]
+        )
+
+        rows.append(
+            {
+                "Period": str(year),
+                "Period_Order": (
+                    pd.Timestamp(
+                        year=year,
+                        month=1,
+                        day=1,
+                    )
+                ),
+                "Series": series_name,
+                "Value": float(
+                    row["Records"]
+                ),
+                "Type": "Historical",
+            }
+        )
+
+    projected_values = (
+        _project_multiple_periods(
+            yearly["Records"],
+            projection_years,
+        )
+    )
+
+    if not projected_values:
+        return pd.DataFrame(rows)
+
+    last_row = yearly.iloc[-1]
+
+    last_year = int(
+        last_row["Year_Number"]
+    )
+
+    rows.append(
+        {
+            "Period": str(
+                last_year
+            ),
+            "Period_Order": (
+                pd.Timestamp(
+                    year=last_year,
+                    month=1,
+                    day=1,
+                )
+            ),
+            "Series": series_name,
+            "Value": float(
+                last_row["Records"]
+            ),
+            "Type": "Projected",
+        }
+    )
+
+    for index, value in enumerate(
+        projected_values,
+        start=1,
+    ):
+
+        year = (
+            last_year
+            + index
+        )
+
+        rows.append(
+            {
+                "Period": str(year),
+                "Period_Order": (
+                    pd.Timestamp(
+                        year=year,
+                        month=1,
+                        day=1,
+                    )
+                ),
+                "Series": series_name,
+                "Value": float(value),
+                "Type": "Projected",
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+# ============================================================
+# BUILD PROJECTION SERIES
+# ============================================================
+
+def _build_projection_series(
+    source,
+    series_name,
+    projection_mode,
+):
+
+    if projection_mode == "Next Month":
+
+        return (
+            _build_monthly_projection_series(
+                source=source,
+                series_name=series_name,
+                projection_months=1,
+            )
+        )
+
+    if projection_mode == "Next 12 Months":
+
+        return (
+            _build_monthly_projection_series(
+                source=source,
+                series_name=series_name,
+                projection_months=12,
+            )
+        )
+
+    return (
+        _build_yearly_projection_series(
+            source=source,
+            series_name=series_name,
+            projection_years=1,
+        )
+    )
+
+
+# ============================================================
+# PROJECTION SUMMARY TABLE FROM CHART DATA
+# ============================================================
+
+def _projection_summary_from_chart(
+    chart_df,
+    category_title,
+):
+
+    if chart_df is None or chart_df.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    for series_name in (
+        chart_df["Series"]
+        .drop_duplicates()
+        .tolist()
+    ):
+
+        series_df = chart_df[
+            chart_df["Series"]
+            == series_name
+        ].copy()
+
+        historical = series_df[
+            series_df["Type"]
+            == "Historical"
+        ].sort_values(
+            "Period_Order"
+        )
+
+        projected = series_df[
+            series_df["Type"]
+            == "Projected"
+        ].sort_values(
+            "Period_Order"
+        )
+
+        if historical.empty:
+            continue
+
+        latest_actual = float(
+            historical[
+                "Value"
+            ].iloc[-1]
+        )
+
+        # First projected row may be the historical connection
+        # point, therefore use rows after latest historical date.
+
+        latest_historical_date = (
+            historical[
+                "Period_Order"
+            ].max()
+        )
+
+        future_rows = projected[
+            projected[
+                "Period_Order"
+            ]
+            > latest_historical_date
+        ]
+
+        if future_rows.empty:
+            projected_value = None
+            projected_period = ""
+        else:
+            projected_value = float(
+                future_rows[
+                    "Value"
+                ].iloc[-1]
+            )
+
+            projected_period = str(
+                future_rows[
+                    "Period"
+                ].iloc[-1]
+            )
+
+        rows.append(
+            {
+                category_title: series_name,
+                "Latest Actual": round(
+                    latest_actual,
+                    0,
+                ),
+                "Projected Period": (
+                    projected_period
+                ),
+                "Projected Records": (
+                    round(
+                        projected_value,
+                        0,
+                    )
+                    if projected_value
+                    is not None
+                    else np.nan
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
 
 # ============================================================
 # BASELINE FILTER
@@ -671,7 +1573,9 @@ def _baseline_source(
         return source
 
     years = sorted(
-        source["Year_Number"]
+        source[
+            "Year_Number"
+        ]
         .dropna()
         .astype(int)
         .unique()
@@ -681,7 +1585,10 @@ def _baseline_source(
     if not years:
         return source
 
-    if baseline_option == "All Available Years":
+    if (
+        baseline_option
+        == "All Available Years"
+    ):
         return source.copy()
 
     baseline_map = {
@@ -690,8 +1597,10 @@ def _baseline_source(
         "Last 5 Years": 5,
     }
 
-    number_of_years = baseline_map.get(
-        baseline_option
+    number_of_years = (
+        baseline_map.get(
+            baseline_option
+        )
     )
 
     if number_of_years is None:
@@ -702,8 +1611,11 @@ def _baseline_source(
     ]
 
     return source[
-        source["Year_Number"]
-        .isin(selected_years)
+        source[
+            "Year_Number"
+        ].isin(
+            selected_years
+        )
     ].copy()
 
 
@@ -719,7 +1631,8 @@ def _category_projection_table(
     if (
         source is None
         or source.empty
-        or category_column not in source.columns
+        or category_column
+        not in source.columns
     ):
         return pd.DataFrame()
 
@@ -727,15 +1640,25 @@ def _category_projection_table(
 
     temp[category_column] = (
         _clean_series(
-            temp[category_column]
+            temp[
+                category_column
+            ]
         )
     )
 
     temp = temp[
-        temp[category_column].ne("")
-        & temp[category_column].ne("nan")
-        & temp[category_column].ne("NaT")
-        & temp[category_column].ne("None")
+        temp[
+            category_column
+        ].ne("")
+        & temp[
+            category_column
+        ].ne("nan")
+        & temp[
+            category_column
+        ].ne("NaT")
+        & temp[
+            category_column
+        ].ne("None")
     ]
 
     if temp.empty:
@@ -743,21 +1666,28 @@ def _category_projection_table(
 
     rows = []
 
-    for category in sorted(
-        temp[category_column]
-        .unique()
-        .tolist(),
-        key=lambda value:
-        str(value).upper(),
-    ):
+    categories = (
+        temp[
+            category_column
+        ]
+        .value_counts()
+        .index
+        .tolist()
+    )
+
+    for category in categories:
 
         category_df = temp[
-            temp[category_column]
+            temp[
+                category_column
+            ]
             == category
         ]
 
-        monthly = _monthly_counts(
-            category_df
+        monthly = (
+            _monthly_counts(
+                category_df
+            )
         )
 
         if monthly.empty:
@@ -773,11 +1703,15 @@ def _category_projection_table(
             continue
 
         latest = float(
-            monthly["Records"].iloc[-1]
+            monthly[
+                "Records"
+            ].iloc[-1]
         )
 
         recent_average = float(
-            monthly["Records"]
+            monthly[
+                "Records"
+            ]
             .tail(
                 min(
                     3,
@@ -789,13 +1723,23 @@ def _category_projection_table(
 
         rows.append(
             {
-                category_column: category,
-                "Latest Period": int(latest),
-                "Recent 3-Period Average": round(
+                category_column: (
+                    category
+                ),
+                "Latest Period": int(
+                    latest
+                ),
+                (
+                    "Recent 3-Period "
+                    "Average"
+                ): round(
                     recent_average,
                     1,
                 ),
-                "Next-Period Projection": round(
+                (
+                    "Next-Period "
+                    "Projection"
+                ): round(
                     projection,
                     0,
                 ),
@@ -805,12 +1749,16 @@ def _category_projection_table(
     if not rows:
         return pd.DataFrame()
 
-    result = pd.DataFrame(rows)
+    result = pd.DataFrame(
+        rows
+    )
 
     result = result.sort_values(
         "Next-Period Projection",
         ascending=False,
-    ).reset_index(drop=True)
+    ).reset_index(
+        drop=True
+    )
 
     result.insert(
         0,
@@ -822,6 +1770,37 @@ def _category_projection_table(
     )
 
     return result
+
+
+# ============================================================
+# DISEASE OPTIONS
+# ============================================================
+
+def _get_disease_options(source):
+
+    if (
+        source is None
+        or source.empty
+        or "Disease"
+        not in source.columns
+    ):
+        return []
+
+    diseases = (
+        _valid_text_values(
+            source["Disease"]
+        )
+    )
+
+    if diseases.empty:
+        return []
+
+    return (
+        diseases
+        .value_counts()
+        .index
+        .tolist()
+    )
 
 
 # ============================================================
@@ -858,7 +1837,9 @@ def render_prediction(df):
     # PREPARE DATA
     # ========================================================
 
-    time_df = _prepare_time_data(df)
+    time_df = _prepare_time_data(
+        df
+    )
 
     if time_df.empty:
 
@@ -870,7 +1851,9 @@ def render_prediction(df):
         return
 
     available_years = sorted(
-        time_df["Year_Number"]
+        time_df[
+            "Year_Number"
+        ]
         .unique()
         .tolist()
     )
@@ -883,23 +1866,33 @@ def render_prediction(df):
         "### 1. 📊 Prediction Summary"
     )
 
-    monthly_all = _monthly_counts(
-        time_df
+    monthly_all = (
+        _monthly_counts(
+            time_df
+        )
     )
 
-    yearly_all = _yearly_counts(
-        time_df
+    yearly_all = (
+        _yearly_counts(
+            time_df
+        )
     )
 
     first_period = (
-        monthly_all["Period"].iloc[0]
+        monthly_all[
+            "Period"
+        ].iloc[0]
     )
 
     latest_period = (
-        monthly_all["Period"].iloc[-1]
+        monthly_all[
+            "Period"
+        ].iloc[-1]
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = (
+        st.columns(4)
+    )
 
     with c1:
 
@@ -930,7 +1923,7 @@ def render_prediction(df):
         )
 
     # ========================================================
-    # 2. ANALYSIS CONTROLS
+    # 2. PROJECTION CONTROLS
     # ========================================================
 
     st.divider()
@@ -943,16 +1936,20 @@ def render_prediction(df):
 
     with c1:
 
-        baseline_option = st.selectbox(
-            "Historical Baseline",
-            options=[
-                "All Available Years",
-                "Last 2 Years",
-                "Last 3 Years",
-                "Last 5 Years",
-            ],
-            index=0,
-            key="prediction_baseline",
+        baseline_option = (
+            st.selectbox(
+                "Historical Baseline",
+                options=[
+                    "All Available Years",
+                    "Last 2 Years",
+                    "Last 3 Years",
+                    "Last 5 Years",
+                ],
+                index=0,
+                key=(
+                    "prediction_baseline"
+                ),
+            )
         )
 
     with c2:
@@ -964,16 +1961,22 @@ def render_prediction(df):
                 "Yearly",
             ],
             horizontal=True,
-            key="prediction_trend_view",
+            key=(
+                "prediction_trend_view"
+            ),
         )
 
-    baseline_df = _baseline_source(
-        time_df,
-        baseline_option,
+    baseline_df = (
+        _baseline_source(
+            time_df,
+            baseline_option,
+        )
     )
 
     baseline_years = sorted(
-        baseline_df["Year_Number"]
+        baseline_df[
+            "Year_Number"
+        ]
         .unique()
         .tolist()
     )
@@ -984,7 +1987,8 @@ def render_prediction(df):
             "Projection baseline currently uses: "
             + ", ".join(
                 str(year)
-                for year in baseline_years
+                for year
+                in baseline_years
             )
         )
 
@@ -1007,16 +2011,21 @@ def render_prediction(df):
         )
 
         _render_line_chart(
-            dataframe=baseline_monthly[
-                [
-                    "Period",
-                    "Records",
+            dataframe=(
+                baseline_monthly[
+                    [
+                        "Period",
+                        "Records",
+                    ]
                 ]
-            ],
+            ),
             x_column="Period",
-            y_columns=["Records"],
+            y_columns=[
+                "Records"
+            ],
             title=(
-                "Historical Monthly Record Trend"
+                "Historical Monthly "
+                "Record Trend"
             ),
             height=450,
         )
@@ -1030,16 +2039,21 @@ def render_prediction(df):
         )
 
         _render_line_chart(
-            dataframe=baseline_yearly[
-                [
-                    "Year",
-                    "Records",
+            dataframe=(
+                baseline_yearly[
+                    [
+                        "Year",
+                        "Records",
+                    ]
                 ]
-            ],
+            ),
             x_column="Year",
-            y_columns=["Records"],
+            y_columns=[
+                "Records"
+            ],
             title=(
-                "Historical Yearly Record Trend"
+                "Historical Yearly "
+                "Record Trend"
             ),
             height=430,
         )
@@ -1054,21 +2068,28 @@ def render_prediction(df):
         "### 4. 📊 Monthly Moving Average"
     )
 
-    baseline_monthly = _monthly_counts(
-        baseline_df
+    baseline_monthly = (
+        _monthly_counts(
+            baseline_df
+        )
     )
 
-    moving_df = baseline_monthly[
-        [
-            "Period",
-            "Records",
+    moving_df = (
+        baseline_monthly[
+            [
+                "Period",
+                "Records",
+            ]
         ]
-    ].copy()
+        .copy()
+    )
 
     moving_df[
         "3-Month Moving Average"
     ] = (
-        moving_df["Records"]
+        moving_df[
+            "Records"
+        ]
         .rolling(
             window=3,
             min_periods=1,
@@ -1085,7 +2106,8 @@ def render_prediction(df):
             "3-Month Moving Average",
         ],
         title=(
-            "Actual Records vs 3-Month Moving Average"
+            "Actual Records vs "
+            "3-Month Moving Average"
         ),
         height=450,
     )
@@ -1102,7 +2124,9 @@ def render_prediction(df):
 
     next_month_projection = (
         _calculate_projection(
-            baseline_monthly["Records"]
+            baseline_monthly[
+                "Records"
+            ]
         )
     )
 
@@ -1115,23 +2139,28 @@ def render_prediction(df):
     )
 
     latest_year = int(
-        latest_row["Year_Number"]
+        latest_row[
+            "Year_Number"
+        ]
     )
 
     latest_month = int(
-        latest_row["Month_Number"]
+        latest_row[
+            "Month_Number"
+        ]
     )
 
-    next_year_value, next_month_value = (
-        _next_month(
-            latest_year,
-            latest_month,
-        )
+    (
+        next_year_value,
+        next_month_value,
+    ) = _next_month(
+        latest_year,
+        latest_month,
     )
 
     next_period_label = (
-        f"{MONTH_NAMES[next_month_value]}-"
-        f"{next_year_value}"
+        f"{MONTH_NAMES[next_month_value]}"
+        f"-{next_year_value}"
     )
 
     recent_average = float(
@@ -1141,13 +2170,17 @@ def render_prediction(df):
         .tail(
             min(
                 3,
-                len(baseline_monthly),
+                len(
+                    baseline_monthly
+                ),
             )
         )
         .mean()
     )
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = (
+        st.columns(3)
+    )
 
     with c1:
 
@@ -1165,25 +2198,39 @@ def render_prediction(df):
 
     with c3:
 
-        if next_month_projection is not None:
+        if (
+            next_month_projection
+            is not None
+        ):
 
             st.metric(
-                f"Projected {next_period_label}",
-                f"{next_month_projection:,.0f}",
+                (
+                    f"Projected "
+                    f"{next_period_label}"
+                ),
+                (
+                    f"{next_month_projection:,.0f}"
+                ),
             )
 
-    if next_month_projection is not None:
+    if (
+        next_month_projection
+        is not None
+    ):
 
-        next_change = _safe_percent_change(
-            next_month_projection,
-            latest_value,
+        next_change = (
+            _safe_percent_change(
+                next_month_projection,
+                latest_value,
+            )
         )
 
         if next_change is not None:
 
             st.caption(
-                f"Projected change from the latest observed "
-                f"period: {next_change:+.2f}%."
+                "Projected change from "
+                "the latest observed period: "
+                f"{next_change:+.2f}%."
             )
 
     # ========================================================
@@ -1207,16 +2254,24 @@ def render_prediction(df):
 
     projection_rows = []
 
-    projection_year = latest_year
-    projection_month = latest_month
+    projection_year = (
+        latest_year
+    )
 
-    for projected_value in projected_values:
+    projection_month = (
+        latest_month
+    )
 
-        projection_year, projection_month = (
-            _next_month(
-                projection_year,
-                projection_month,
-            )
+    for projected_value in (
+        projected_values
+    ):
+
+        (
+            projection_year,
+            projection_month,
+        ) = _next_month(
+            projection_year,
+            projection_month,
         )
 
         projection_rows.append(
@@ -1225,15 +2280,19 @@ def render_prediction(df):
                     f"{MONTH_NAMES[projection_month]}"
                     f"-{projection_year}"
                 ),
-                "Projected Records": round(
-                    projected_value,
-                    0,
+                "Projected Records": (
+                    round(
+                        projected_value,
+                        0,
+                    )
                 ),
             }
         )
 
-    projection_12_df = pd.DataFrame(
-        projection_rows
+    projection_12_df = (
+        pd.DataFrame(
+            projection_rows
+        )
     )
 
     if not projection_12_df.empty:
@@ -1245,7 +2304,8 @@ def render_prediction(df):
                 "Projected Records"
             ],
             title=(
-                "Indicative Next 12-Month Projection"
+                "Indicative Next "
+                "12-Month Projection"
             ),
             height=430,
         )
@@ -1280,15 +2340,19 @@ def render_prediction(df):
 
     latest_year_records = len(
         time_df[
-            time_df["Year_Number"]
+            time_df[
+                "Year_Number"
+            ]
             == current_latest_year
         ]
     )
 
     previous_years = [
         year
-        for year in available_years
-        if year < current_latest_year
+        for year
+        in available_years
+        if year
+        < current_latest_year
     ]
 
     previous_year_records = None
@@ -1301,27 +2365,41 @@ def render_prediction(df):
 
         previous_year_records = len(
             time_df[
-                time_df["Year_Number"]
+                time_df[
+                    "Year_Number"
+                ]
                 == previous_year
             ]
         )
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = (
+        st.columns(3)
+    )
 
     with c1:
 
         st.metric(
-            f"{current_latest_year} Records",
-            f"{latest_year_records:,}",
+            (
+                f"{current_latest_year} "
+                "Records"
+            ),
+            (
+                f"{latest_year_records:,}"
+            ),
         )
 
     with c2:
 
-        if previous_year_records is not None:
+        if (
+            previous_year_records
+            is not None
+        ):
 
             st.metric(
                 "Previous Year Records",
-                f"{previous_year_records:,}",
+                (
+                    f"{previous_year_records:,}"
+                ),
             )
 
         else:
@@ -1333,11 +2411,16 @@ def render_prediction(df):
 
     with c3:
 
-        if next_year_projection is not None:
+        if (
+            next_year_projection
+            is not None
+        ):
 
             st.metric(
-                f"Projected Next 12 Months",
-                f"{next_year_projection:,.0f}",
+                "Projected Next 12 Months",
+                (
+                    f"{next_year_projection:,.0f}"
+                ),
             )
 
     st.caption(
@@ -1357,113 +2440,185 @@ def render_prediction(df):
         "### 8. 🦠 Disease-wise Projection"
     )
 
-    if "Disease" in baseline_df.columns:
+    st.caption(
+        "Select one or multiple diseases to compare historical "
+        "trends and future projections within the same chart."
+    )
 
-        diseases = (
-            _clean_series(
-                baseline_df["Disease"]
+    disease_options = (
+        _get_disease_options(
+            baseline_df
+        )
+    )
+
+    if disease_options:
+
+        control1, control2 = (
+            st.columns(
+                [2, 1]
             )
         )
 
-        diseases = diseases[
-            diseases.ne("")
-            & diseases.ne("nan")
-            & diseases.ne("NaT")
-            & diseases.ne("None")
-        ]
+        with control1:
 
-        disease_options = (
-            diseases
-            .value_counts()
-            .index
-            .tolist()
-        )
-
-        if disease_options:
-
-            selected_disease = (
-                st.selectbox(
-                    "Select Disease",
-                    options=disease_options,
-                    key=(
-                        "prediction_disease_selector"
+            selected_diseases = (
+                _checkbox_multiselect(
+                    label=(
+                        "Select Disease(s)"
                     ),
-                )
-            )
-
-            disease_source = baseline_df[
-                _clean_series(
-                    baseline_df["Disease"]
-                )
-                == selected_disease
-            ].copy()
-
-            disease_monthly = (
-                _monthly_counts(
-                    disease_source
-                )
-            )
-
-            if not disease_monthly.empty:
-
-                _render_line_chart(
-                    dataframe=disease_monthly[
-                        [
-                            "Period",
-                            "Records",
-                        ]
-                    ],
-                    x_column="Period",
-                    y_columns=["Records"],
-                    title=(
-                        f"{selected_disease} "
-                        "Historical Monthly Trend"
+                    options=(
+                        disease_options
                     ),
-                    height=430,
-                )
-
-                disease_projection = (
-                    _calculate_projection(
-                        disease_monthly[
-                            "Records"
-                        ]
-                    )
-                )
-
-                if disease_projection is not None:
-
-                    st.metric(
-                        (
-                            "Indicative Next-Month "
-                            f"Projection — "
-                            f"{selected_disease}"
+                    key_prefix=(
+                        "prediction_disease_multi"
+                    ),
+                    default_count=min(
+                        5,
+                        len(
+                            disease_options
                         ),
-                        f"{disease_projection:,.0f}",
+                    ),
+                )
+            )
+
+        with control2:
+
+            disease_projection_mode = (
+                st.radio(
+                    "Projection Period",
+                    options=[
+                        "Next Month",
+                        "Next 12 Months",
+                        "Next Year",
+                    ],
+                    horizontal=False,
+                    key=(
+                        "prediction_disease_mode"
+                    ),
+                )
+            )
+
+        if not selected_diseases:
+
+            st.info(
+                "Please select at least "
+                "one disease."
+            )
+
+        else:
+
+            disease_chart_frames = []
+
+            for disease in (
+                selected_diseases
+            ):
+
+                disease_source = (
+                    baseline_df[
+                        _clean_series(
+                            baseline_df[
+                                "Disease"
+                            ]
+                        )
+                        == disease
+                    ]
+                    .copy()
+                )
+
+                disease_series = (
+                    _build_projection_series(
+                        source=(
+                            disease_source
+                        ),
+                        series_name=(
+                            disease
+                        ),
+                        projection_mode=(
+                            disease_projection_mode
+                        ),
+                    )
+                )
+
+                if not disease_series.empty:
+
+                    disease_chart_frames.append(
+                        disease_series
                     )
 
-        disease_projection_table = (
-            _category_projection_table(
-                baseline_df,
-                "Disease",
-            )
-        )
+            if disease_chart_frames:
 
-        if not disease_projection_table.empty:
+                disease_chart_df = (
+                    pd.concat(
+                        disease_chart_frames,
+                        ignore_index=True,
+                    )
+                )
 
-            st.markdown(
-                "#### Disease Projection Comparison"
+                _render_projection_chart(
+                    dataframe=(
+                        disease_chart_df
+                    ),
+                    title=(
+                        "Disease-wise Historical "
+                        "and Projected Trend"
+                    ),
+                    height=520,
+                )
+
+                st.caption(
+                    f"{len(selected_diseases)} disease(s) selected: "
+                    + ", ".join(
+                        selected_diseases
+                    )
+                )
+
+                disease_summary = (
+                    _projection_summary_from_chart(
+                        disease_chart_df,
+                        "Disease",
+                    )
+                )
+
+                if not disease_summary.empty:
+
+                    st.markdown(
+                        "#### Selected Disease "
+                        "Projection Summary"
+                    )
+
+                    st.dataframe(
+                        disease_summary,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            disease_projection_table = (
+                _category_projection_table(
+                    baseline_df,
+                    "Disease",
+                )
             )
 
-            st.dataframe(
-                disease_projection_table,
-                use_container_width=True,
-                hide_index=True,
-            )
+            if (
+                not disease_projection_table.empty
+            ):
+
+                st.markdown(
+                    "#### All Disease "
+                    "Next-Period Comparison"
+                )
+
+                st.dataframe(
+                    disease_projection_table,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     else:
 
         st.info(
-            "Disease column is not available."
+            "Disease information is "
+            "not available."
         )
 
     # ========================================================
@@ -1476,101 +2631,253 @@ def render_prediction(df):
         "### 9. 📍 Ward-wise Projection"
     )
 
-    if "Ward Name" in baseline_df.columns:
+    st.caption(
+        "Select a ward and one or multiple diseases to compare "
+        "disease-specific historical and projected trends within "
+        "the selected ward."
+    )
 
-        ward_projection_table = (
-            _category_projection_table(
-                baseline_df,
-                "Ward Name",
+    if (
+        "Ward Name"
+        in baseline_df.columns
+    ):
+
+        ward_values = (
+            _valid_text_values(
+                baseline_df[
+                    "Ward Name"
+                ]
             )
         )
 
-        if not ward_projection_table.empty:
+        ward_options = sorted(
+            ward_values
+            .unique()
+            .tolist(),
+            key=lambda value:
+            str(value).upper(),
+        )
 
-            ward_options = (
-                ward_projection_table[
-                    "Ward Name"
+        if ward_options:
+
+            ward_control1, ward_control2 = (
+                st.columns(
+                    [1, 1]
+                )
+            )
+
+            with ward_control1:
+
+                selected_ward = (
+                    st.selectbox(
+                        "Select Ward",
+                        options=(
+                            ward_options
+                        ),
+                        key=(
+                            "prediction_ward_selector"
+                        ),
+                    )
+                )
+
+            with ward_control2:
+
+                ward_projection_mode = (
+                    st.radio(
+                        "Ward Projection Period",
+                        options=[
+                            "Next Month",
+                            "Next 12 Months",
+                            "Next Year",
+                        ],
+                        horizontal=False,
+                        key=(
+                            "prediction_ward_mode"
+                        ),
+                    )
+                )
+
+            ward_source = (
+                baseline_df[
+                    _clean_series(
+                        baseline_df[
+                            "Ward Name"
+                        ]
+                    )
+                    == selected_ward
                 ]
-                .tolist()
+                .copy()
             )
 
-            selected_ward = (
-                st.selectbox(
-                    "Select Ward",
-                    options=ward_options,
-                    key=(
-                        "prediction_ward_selector"
-                    ),
-                )
-            )
-
-            ward_source = baseline_df[
-                _clean_series(
-                    baseline_df[
-                        "Ward Name"
-                    ]
-                )
-                == selected_ward
-            ].copy()
-
-            ward_monthly = (
-                _monthly_counts(
+            ward_disease_options = (
+                _get_disease_options(
                     ward_source
                 )
             )
 
-            _render_line_chart(
-                dataframe=ward_monthly[
-                    [
-                        "Period",
-                        "Records",
-                    ]
-                ],
-                x_column="Period",
-                y_columns=["Records"],
-                title=(
-                    f"Ward {selected_ward} "
-                    "Historical Monthly Trend"
-                ),
-                height=430,
-            )
+            if ward_disease_options:
 
-            selected_ward_projection = (
-                _calculate_projection(
-                    ward_monthly["Records"]
+                selected_ward_diseases = (
+                    _checkbox_multiselect(
+                        label=(
+                            "Select Disease(s) "
+                            "for Ward Comparison"
+                        ),
+                        options=(
+                            ward_disease_options
+                        ),
+                        key_prefix=(
+                            "prediction_ward_disease_multi"
+                        ),
+                        default_count=min(
+                            5,
+                            len(
+                                ward_disease_options
+                            ),
+                        ),
+                    )
+                )
+
+                if (
+                    not selected_ward_diseases
+                ):
+
+                    st.info(
+                        "Please select at least "
+                        "one disease."
+                    )
+
+                else:
+
+                    ward_chart_frames = []
+
+                    for disease in (
+                        selected_ward_diseases
+                    ):
+
+                        disease_source = (
+                            ward_source[
+                                _clean_series(
+                                    ward_source[
+                                        "Disease"
+                                    ]
+                                )
+                                == disease
+                            ]
+                            .copy()
+                        )
+
+                        series_df = (
+                            _build_projection_series(
+                                source=(
+                                    disease_source
+                                ),
+                                series_name=(
+                                    disease
+                                ),
+                                projection_mode=(
+                                    ward_projection_mode
+                                ),
+                            )
+                        )
+
+                        if not series_df.empty:
+
+                            ward_chart_frames.append(
+                                series_df
+                            )
+
+                    if ward_chart_frames:
+
+                        ward_chart_df = (
+                            pd.concat(
+                                ward_chart_frames,
+                                ignore_index=True,
+                            )
+                        )
+
+                        _render_projection_chart(
+                            dataframe=(
+                                ward_chart_df
+                            ),
+                            title=(
+                                f"Ward {selected_ward} — "
+                                "Disease-wise Historical "
+                                "and Projected Trend"
+                            ),
+                            height=520,
+                        )
+
+                        st.caption(
+                            (
+                                f"Ward {selected_ward} • "
+                                f"{len(selected_ward_diseases)} "
+                                "disease(s) selected: "
+                            )
+                            + ", ".join(
+                                selected_ward_diseases
+                            )
+                        )
+
+                        ward_summary = (
+                            _projection_summary_from_chart(
+                                ward_chart_df,
+                                "Disease",
+                            )
+                        )
+
+                        if not ward_summary.empty:
+
+                            st.markdown(
+                                "#### Selected Ward "
+                                "Disease Projection Summary"
+                            )
+
+                            st.dataframe(
+                                ward_summary,
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+            else:
+
+                st.info(
+                    "Disease information is not "
+                    "available for the selected ward."
+                )
+
+            ward_projection_table = (
+                _category_projection_table(
+                    baseline_df,
+                    "Ward Name",
                 )
             )
 
             if (
-                selected_ward_projection
-                is not None
+                not ward_projection_table.empty
             ):
 
-                st.metric(
-                    (
-                        "Indicative Next-Month "
-                        f"Projection — Ward "
-                        f"{selected_ward}"
-                    ),
-                    (
-                        f"{selected_ward_projection:,.0f}"
-                    ),
+                st.markdown(
+                    "#### Ward Projection Comparison"
                 )
 
-            st.markdown(
-                "#### Ward Projection Comparison"
-            )
+                st.dataframe(
+                    ward_projection_table,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-            st.dataframe(
-                ward_projection_table,
-                use_container_width=True,
-                hide_index=True,
+        else:
+
+            st.info(
+                "No valid wards are available."
             )
 
     else:
 
         st.info(
-            "Ward Name column is not available."
+            "Ward Name column is "
+            "not available."
         )
 
     # ========================================================
@@ -1583,102 +2890,254 @@ def render_prediction(df):
         "### 10. 🏥 Facility-wise Projection"
     )
 
-    if "Facility Name" in baseline_df.columns:
+    st.caption(
+        "Select a facility and one or multiple diseases to compare "
+        "disease-specific historical and projected trends within "
+        "the selected facility."
+    )
 
-        facility_projection_table = (
-            _category_projection_table(
-                baseline_df,
-                "Facility Name",
+    if (
+        "Facility Name"
+        in baseline_df.columns
+    ):
+
+        facility_values = (
+            _valid_text_values(
+                baseline_df[
+                    "Facility Name"
+                ]
             )
         )
 
-        if not facility_projection_table.empty:
+        facility_options = (
+            facility_values
+            .value_counts()
+            .index
+            .tolist()
+        )
 
-            facility_options = (
-                facility_projection_table[
-                    "Facility Name"
+        if facility_options:
+
+            facility_control1, facility_control2 = (
+                st.columns(
+                    [2, 1]
+                )
+            )
+
+            with facility_control1:
+
+                selected_facility = (
+                    st.selectbox(
+                        "Select Facility",
+                        options=(
+                            facility_options
+                        ),
+                        key=(
+                            "prediction_facility_selector"
+                        ),
+                    )
+                )
+
+            with facility_control2:
+
+                facility_projection_mode = (
+                    st.radio(
+                        "Facility Projection Period",
+                        options=[
+                            "Next Month",
+                            "Next 12 Months",
+                            "Next Year",
+                        ],
+                        horizontal=False,
+                        key=(
+                            "prediction_facility_mode"
+                        ),
+                    )
+                )
+
+            facility_source = (
+                baseline_df[
+                    _clean_series(
+                        baseline_df[
+                            "Facility Name"
+                        ]
+                    )
+                    == selected_facility
                 ]
-                .tolist()
+                .copy()
             )
 
-            selected_facility = (
-                st.selectbox(
-                    "Select Facility",
-                    options=facility_options,
-                    key=(
-                        "prediction_facility_selector"
-                    ),
-                )
-            )
-
-            facility_source = baseline_df[
-                _clean_series(
-                    baseline_df[
-                        "Facility Name"
-                    ]
-                )
-                == selected_facility
-            ].copy()
-
-            facility_monthly = (
-                _monthly_counts(
+            facility_disease_options = (
+                _get_disease_options(
                     facility_source
                 )
             )
 
-            _render_line_chart(
-                dataframe=facility_monthly[
-                    [
-                        "Period",
-                        "Records",
-                    ]
-                ],
-                x_column="Period",
-                y_columns=["Records"],
-                title=(
-                    f"{selected_facility} "
-                    "Historical Monthly Trend"
-                ),
-                height=430,
-            )
+            if facility_disease_options:
 
-            selected_facility_projection = (
-                _calculate_projection(
-                    facility_monthly[
-                        "Records"
-                    ]
+                selected_facility_diseases = (
+                    _checkbox_multiselect(
+                        label=(
+                            "Select Disease(s) "
+                            "for Facility Comparison"
+                        ),
+                        options=(
+                            facility_disease_options
+                        ),
+                        key_prefix=(
+                            "prediction_facility_disease_multi"
+                        ),
+                        default_count=min(
+                            5,
+                            len(
+                                facility_disease_options
+                            ),
+                        ),
+                    )
+                )
+
+                if (
+                    not selected_facility_diseases
+                ):
+
+                    st.info(
+                        "Please select at least "
+                        "one disease."
+                    )
+
+                else:
+
+                    facility_chart_frames = []
+
+                    for disease in (
+                        selected_facility_diseases
+                    ):
+
+                        disease_source = (
+                            facility_source[
+                                _clean_series(
+                                    facility_source[
+                                        "Disease"
+                                    ]
+                                )
+                                == disease
+                            ]
+                            .copy()
+                        )
+
+                        series_df = (
+                            _build_projection_series(
+                                source=(
+                                    disease_source
+                                ),
+                                series_name=(
+                                    disease
+                                ),
+                                projection_mode=(
+                                    facility_projection_mode
+                                ),
+                            )
+                        )
+
+                        if not series_df.empty:
+
+                            facility_chart_frames.append(
+                                series_df
+                            )
+
+                    if facility_chart_frames:
+
+                        facility_chart_df = (
+                            pd.concat(
+                                facility_chart_frames,
+                                ignore_index=True,
+                            )
+                        )
+
+                        _render_projection_chart(
+                            dataframe=(
+                                facility_chart_df
+                            ),
+                            title=(
+                                f"{selected_facility} — "
+                                "Disease-wise Historical "
+                                "and Projected Trend"
+                            ),
+                            height=520,
+                        )
+
+                        st.caption(
+                            (
+                                f"{selected_facility} • "
+                                f"{len(selected_facility_diseases)} "
+                                "disease(s) selected: "
+                            )
+                            + ", ".join(
+                                selected_facility_diseases
+                            )
+                        )
+
+                        facility_summary = (
+                            _projection_summary_from_chart(
+                                facility_chart_df,
+                                "Disease",
+                            )
+                        )
+
+                        if (
+                            not facility_summary.empty
+                        ):
+
+                            st.markdown(
+                                "#### Selected Facility "
+                                "Disease Projection Summary"
+                            )
+
+                            st.dataframe(
+                                facility_summary,
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+            else:
+
+                st.info(
+                    "Disease information is not available "
+                    "for the selected facility."
+                )
+
+            facility_projection_table = (
+                _category_projection_table(
+                    baseline_df,
+                    "Facility Name",
                 )
             )
 
             if (
-                selected_facility_projection
-                is not None
+                not facility_projection_table.empty
             ):
 
-                st.metric(
-                    (
-                        "Indicative Next-Month "
-                        "Projection"
-                    ),
-                    (
-                        f"{selected_facility_projection:,.0f}"
-                    ),
+                st.markdown(
+                    "#### Facility Projection Comparison"
                 )
 
-            st.markdown(
-                "#### Facility Projection Comparison"
-            )
+                st.dataframe(
+                    facility_projection_table,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-            st.dataframe(
-                facility_projection_table,
-                use_container_width=True,
-                hide_index=True,
+        else:
+
+            st.info(
+                "No valid facilities are available."
             )
 
     else:
 
         st.info(
-            "Facility Name column is not available."
+            "Facility Name column is "
+            "not available."
         )
 
     # ========================================================
@@ -1696,7 +3155,9 @@ def render_prediction(df):
         .tail(
             min(
                 12,
-                len(monthly_all),
+                len(
+                    monthly_all
+                ),
             )
         )
         .copy()
@@ -1705,7 +3166,9 @@ def render_prediction(df):
     recent[
         "3-Month Moving Average"
     ] = (
-        recent["Records"]
+        recent[
+            "Records"
+        ]
         .rolling(
             window=3,
             min_periods=1,
@@ -1770,14 +3233,17 @@ def render_prediction(df):
             "Component": [
                 "Historical Input",
                 "Time Ordering",
+                "Historical Baseline",
                 "Recent Baseline",
                 "Trend Component",
                 "Combined Projection",
                 "Next-Month Projection",
+                "Next 12-Month Projection",
                 "Next-Year Projection",
-                "Disease Analysis",
-                "Ward Analysis",
-                "Facility Analysis",
+                "Disease Comparison",
+                "Ward-Disease Analysis",
+                "Facility-Disease Analysis",
+                "Chart Interpretation",
                 "Interpretation",
             ],
             "Description": [
@@ -1790,36 +3256,48 @@ def render_prediction(df):
                     "sorted chronologically before analysis"
                 ),
                 (
+                    "All available years or the selected "
+                    "recent 2, 3 or 5-year period"
+                ),
+                (
                     "Weighted average of the most recent "
-                    "three monthly observations"
+                    "three observations"
                 ),
                 (
                     "Simple linear trend fitted to the "
-                    "selected historical monthly series"
+                    "selected historical series"
                 ),
                 (
                     "70% recent weighted level and "
                     "30% historical linear trend"
                 ),
                 (
-                    "One-step statistical projection from "
-                    "the selected baseline"
+                    "One sequential monthly projection "
+                    "after the latest observed month"
                 ),
                 (
-                    "Sum of 12 sequential monthly "
-                    "statistical projections"
+                    "Twelve sequential monthly projections "
+                    "after the latest observed month"
                 ),
                 (
-                    "Separate monthly historical series "
-                    "for each disease"
+                    "One-step projection based on the "
+                    "historical annual record series"
                 ),
                 (
-                    "Separate monthly historical series "
-                    "for each ward"
+                    "Multiple selected diseases can be "
+                    "compared within the same chart"
                 ),
                 (
-                    "Separate monthly historical series "
-                    "for each facility"
+                    "Multiple diseases can be compared "
+                    "within a selected ward"
+                ),
+                (
+                    "Multiple diseases can be compared "
+                    "within a selected facility"
+                ),
+                (
+                    "Solid lines represent historical records; "
+                    "dotted lines represent projected records"
                 ),
                 (
                     "Programme planning support only; "
