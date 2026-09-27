@@ -1,4 +1,5 @@
 import io
+import math
 
 import streamlit as st
 import pandas as pd
@@ -32,33 +33,21 @@ EXPLORER_FILTER_COLUMNS = [
     "OPD/IPD",
 ]
 
-DEFAULT_ROWS_PER_PAGE = 100
-
 ROWS_PER_PAGE_OPTIONS = [
     50,
     100,
     250,
     500,
-    1000,
 ]
+
+DEFAULT_ROWS_PER_PAGE = 100
 
 
 # ============================================================
 # COMMON HELPERS
 # ============================================================
 
-def _clean_text(value):
-    if pd.isna(value):
-        return ""
-
-    return str(value).strip()
-
-
 def _is_missing_series(series):
-    """
-    Treat actual null values and common blank/text-null values
-    as missing.
-    """
 
     actual_missing = series.isna()
 
@@ -85,9 +74,6 @@ def _is_missing_series(series):
 
 
 def _valid_values(series):
-    """
-    Return valid unique text values from a Series.
-    """
 
     if series is None:
         return []
@@ -110,39 +96,25 @@ def _valid_values(series):
     }
 
     values = values[
-        ~values.isin(invalid_values)
+        ~values.isin(
+            invalid_values
+        )
     ]
 
     return sorted(
-        values.drop_duplicates().tolist(),
-        key=lambda value: str(value).upper(),
+        values
+        .drop_duplicates()
+        .tolist(),
+        key=lambda value:
+        str(value).upper(),
     )
-
-
-def _prepare_display_data(df):
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    display_df = df.copy()
-
-    for column in display_df.columns:
-
-        if pd.api.types.is_datetime64_any_dtype(
-            display_df[column]
-        ):
-
-            display_df[column] = (
-                display_df[column]
-                .dt.strftime("%d-%m-%Y")
-            )
-
-    return display_df
 
 
 def _safe_unique_count(
     df,
     column,
 ):
+
     if (
         df is None
         or df.empty
@@ -150,29 +122,80 @@ def _safe_unique_count(
     ):
         return 0
 
-    values = _valid_values(
-        df[column]
+    series = df[column]
+
+    missing_mask = (
+        _is_missing_series(
+            series
+        )
     )
 
-    return len(values)
+    try:
+
+        return int(
+            series[
+                ~missing_mask
+            ]
+            .nunique(
+                dropna=True
+            )
+        )
+
+    except Exception:
+
+        return len(
+            set(
+                series[
+                    ~missing_mask
+                ]
+                .astype(str)
+                .tolist()
+            )
+        )
+
+
+def _prepare_display_data(df):
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    display_df = (
+        df.copy()
+    )
+
+    for column in (
+        display_df.columns
+    ):
+
+        if (
+            pd.api.types
+            .is_datetime64_any_dtype(
+                display_df[column]
+            )
+        ):
+
+            display_df[column] = (
+                display_df[column]
+                .dt.strftime(
+                    "%d-%m-%Y"
+                )
+            )
+
+    return display_df
 
 
 # ============================================================
-# COLUMN MULTI-SELECTION
+# COLUMN SELECTOR
 # ============================================================
 
 def _column_selector(
     all_columns,
     default_columns,
 ):
-    """
-    Column selector with:
-    - Select All
-    - individual column selection
-    - default important columns
-    """
 
-    all_columns = list(all_columns)
+    all_columns = list(
+        all_columns
+    )
 
     if not all_columns:
         return []
@@ -186,15 +209,18 @@ def _column_selector(
     )
 
     option_keys = {
-        column: (
-            f"explorer_column_{index}"
-        )
-        for index, column in enumerate(
+        column:
+        f"explorer_column_{index}"
+        for index, column
+        in enumerate(
             all_columns
         )
     }
 
-    if initialized_key not in st.session_state:
+    if (
+        initialized_key
+        not in st.session_state
+    ):
 
         st.session_state[
             initialized_key
@@ -204,26 +230,25 @@ def _column_selector(
             default_columns
         )
 
-        all_default = (
+        st.session_state[
+            select_all_key
+        ] = (
             len(default_set)
             == len(all_columns)
         )
-
-        st.session_state[
-            select_all_key
-        ] = all_default
 
         for column in all_columns:
 
             st.session_state[
                 option_keys[column]
             ] = (
-                column in default_set
+                column
+                in default_set
             )
 
     def select_all_changed():
 
-        selected = bool(
+        new_value = bool(
             st.session_state.get(
                 select_all_key,
                 False,
@@ -234,7 +259,7 @@ def _column_selector(
 
             st.session_state[
                 option_keys[column]
-            ] = selected
+            ] = new_value
 
     def individual_changed():
 
@@ -245,7 +270,8 @@ def _column_selector(
                     False,
                 )
             )
-            for column in all_columns
+            for column
+            in all_columns
         )
 
         st.session_state[
@@ -262,7 +288,9 @@ def _column_selector(
         st.checkbox(
             "Select All",
             key=select_all_key,
-            on_change=select_all_changed,
+            on_change=(
+                select_all_changed
+            ),
         )
 
         st.divider()
@@ -271,11 +299,18 @@ def _column_selector(
 
             checked = st.checkbox(
                 column,
-                key=option_keys[column],
-                on_change=individual_changed,
+                key=(
+                    option_keys[
+                        column
+                    ]
+                ),
+                on_change=(
+                    individual_changed
+                ),
             )
 
             if checked:
+
                 selected_columns.append(
                     column
                 )
@@ -287,18 +322,23 @@ def _column_selector(
 # DATA QUALITY
 # ============================================================
 
-def _create_quality_dataframe(df):
+def _create_quality_dataframe(
+    df,
+):
 
     quality_rows = []
 
     if df is None:
+
         return pd.DataFrame()
+
+    total_records = len(
+        df
+    )
 
     for column in df.columns:
 
         series = df[column]
-
-        total = len(series)
 
         missing_mask = (
             _is_missing_series(
@@ -311,15 +351,15 @@ def _create_quality_dataframe(df):
         )
 
         valid = (
-            total
+            total_records
             - missing
         )
 
-        if total > 0:
+        if total_records > 0:
 
             missing_percent = (
                 missing
-                / total
+                / total_records
                 * 100
             )
 
@@ -357,7 +397,9 @@ def _create_quality_dataframe(df):
                 "Data Type": str(
                     series.dtype
                 ),
-                "Records": total,
+                "Records": (
+                    total_records
+                ),
                 "Valid": valid,
                 "Missing": missing,
                 "Missing %": round(
@@ -379,6 +421,10 @@ def _create_quality_dataframe(df):
 # EXCEL EXPORT
 # ============================================================
 
+@st.cache_data(
+    show_spinner=False,
+    max_entries=5,
+)
 def _create_excel_bytes(
     data_df,
     quality_df,
@@ -392,41 +438,33 @@ def _create_excel_bytes(
         engine="openpyxl",
     ) as writer:
 
-        # ----------------------------------------------------
-        # SHEET 1 - FILTERED DATA
-        # ----------------------------------------------------
-
         data_df.to_excel(
             writer,
             index=False,
-            sheet_name="Filtered Data",
+            sheet_name=(
+                "Filtered Data"
+            ),
         )
-
-        # ----------------------------------------------------
-        # SHEET 2 - DATA QUALITY
-        # ----------------------------------------------------
 
         quality_df.to_excel(
             writer,
             index=False,
-            sheet_name="Data Quality",
+            sheet_name=(
+                "Data Quality"
+            ),
         )
-
-        # ----------------------------------------------------
-        # SHEET 3 - EXPORT SUMMARY
-        # ----------------------------------------------------
 
         summary_df.to_excel(
             writer,
             index=False,
-            sheet_name="Export Summary",
+            sheet_name=(
+                "Export Summary"
+            ),
         )
 
-        # ----------------------------------------------------
-        # BASIC COLUMN WIDTH FORMATTING
-        # ----------------------------------------------------
-
-        workbook = writer.book
+        workbook = (
+            writer.book
+        )
 
         for sheet_name in [
             "Filtered Data",
@@ -434,63 +472,80 @@ def _create_excel_bytes(
             "Export Summary",
         ]:
 
-            worksheet = workbook[
-                sheet_name
-            ]
-
-            for column_cells in (
-                worksheet.columns
-            ):
-
-                max_length = 0
-
-                column_letter = (
-                    column_cells[0]
-                    .column_letter
-                )
-
-                for cell in column_cells:
-
-                    try:
-
-                        cell_length = len(
-                            str(
-                                cell.value
-                                if cell.value
-                                is not None
-                                else ""
-                            )
-                        )
-
-                        max_length = max(
-                            max_length,
-                            cell_length,
-                        )
-
-                    except Exception:
-                        pass
-
-                adjusted_width = min(
-                    max(
-                        max_length + 2,
-                        10,
-                    ),
-                    45,
-                )
-
-                worksheet.column_dimensions[
-                    column_letter
-                ].width = (
-                    adjusted_width
-                )
+            worksheet = (
+                workbook[
+                    sheet_name
+                ]
+            )
 
             worksheet.freeze_panes = (
                 "A2"
             )
 
-            worksheet.auto_filter.ref = (
-                worksheet.dimensions
+            if (
+                worksheet.max_row > 1
+                and
+                worksheet.max_column > 0
+            ):
+
+                worksheet.auto_filter.ref = (
+                    worksheet.dimensions
+                )
+
+            # --------------------------------------------
+            # Width calculation limited for performance.
+            # Only inspect first 250 rows.
+            # --------------------------------------------
+
+            max_scan_row = min(
+                worksheet.max_row,
+                250,
             )
+
+            for column_cells in (
+                worksheet.iter_cols(
+                    min_row=1,
+                    max_row=max_scan_row,
+                )
+            ):
+
+                max_length = 0
+
+                first_cell = (
+                    column_cells[0]
+                )
+
+                column_letter = (
+                    first_cell.column_letter
+                )
+
+                for cell in (
+                    column_cells
+                ):
+
+                    value = (
+                        ""
+                        if cell.value
+                        is None
+                        else str(
+                            cell.value
+                        )
+                    )
+
+                    max_length = max(
+                        max_length,
+                        len(value),
+                    )
+
+                worksheet.column_dimensions[
+                    column_letter
+                ].width = min(
+                    max(
+                        max_length + 2,
+                        10,
+                    ),
+                    40,
+                )
 
     output.seek(0)
 
@@ -510,9 +565,11 @@ def _apply_explorer_filter(
     if (
         dataframe is None
         or dataframe.empty
-        or column not in dataframe.columns
+        or column
+        not in dataframe.columns
         or not selected_values
     ):
+
         return dataframe
 
     values = (
@@ -522,11 +579,66 @@ def _apply_explorer_filter(
         .str.strip()
     )
 
-    return dataframe[
-        values.isin(
-            selected_values
+    return (
+        dataframe[
+            values.isin(
+                selected_values
+            )
+        ]
+        .copy()
+    )
+
+
+# ============================================================
+# PAGINATION HELPERS
+# ============================================================
+
+def _reset_explorer_page():
+
+    st.session_state[
+        "explorer_current_page"
+    ] = 1
+
+
+def _previous_page():
+
+    current_page = int(
+        st.session_state.get(
+            "explorer_current_page",
+            1,
         )
-    ].copy()
+    )
+
+    st.session_state[
+        "explorer_current_page"
+    ] = max(
+        1,
+        current_page - 1,
+    )
+
+
+def _next_page():
+
+    current_page = int(
+        st.session_state.get(
+            "explorer_current_page",
+            1,
+        )
+    )
+
+    total_pages = int(
+        st.session_state.get(
+            "explorer_total_pages",
+            1,
+        )
+    )
+
+    st.session_state[
+        "explorer_current_page"
+    ] = min(
+        total_pages,
+        current_page + 1,
+    )
 
 
 # ============================================================
@@ -552,7 +664,6 @@ def render_explorer(df):
         "data after applying the Global Dashboard Filters."
     )
 
-    # Keep original globally filtered dataset.
     base_df = df.copy()
 
 
@@ -571,33 +682,6 @@ def render_explorer(df):
     total_columns = len(
         base_df.columns
     )
-
-    missing_cells = 0
-
-    for column in base_df.columns:
-
-        missing_cells += int(
-            _is_missing_series(
-                base_df[column]
-            ).sum()
-        )
-
-    total_cells = (
-        total_records
-        * total_columns
-    )
-
-    if total_cells > 0:
-
-        missing_percentage = (
-            missing_cells
-            / total_cells
-            * 100
-        )
-
-    else:
-
-        missing_percentage = 0
 
     c1, c2, c3, c4 = (
         st.columns(4)
@@ -631,30 +715,10 @@ def render_explorer(df):
             f"{_safe_unique_count(base_df, 'Ward Name'):,}",
         )
 
-    c1, c2, c3 = (
-        st.columns(3)
+    st.caption(
+        f"{total_columns:,} data columns are available "
+        "within the current Global Dashboard Filter selection."
     )
-
-    with c1:
-
-        st.metric(
-            "Columns",
-            f"{total_columns:,}",
-        )
-
-    with c2:
-
-        st.metric(
-            "Missing Cells",
-            f"{missing_cells:,}",
-        )
-
-    with c3:
-
-        st.metric(
-            "Missing %",
-            f"{missing_percentage:.2f}%",
-        )
 
 
     # ========================================================
@@ -668,8 +732,8 @@ def render_explorer(df):
     )
 
     st.caption(
-        "These filters apply only to the Data Explorer and do "
-        "not change the Global Dashboard Filters."
+        "These filters apply only to the Data Explorer. "
+        "They do not change the Global Dashboard Filters."
     )
 
     explorer_df = (
@@ -678,8 +742,10 @@ def render_explorer(df):
 
     available_filter_columns = [
         column
-        for column in EXPLORER_FILTER_COLUMNS
-        if column in base_df.columns
+        for column
+        in EXPLORER_FILTER_COLUMNS
+        if column
+        in base_df.columns
     ]
 
     explorer_filter_values = {}
@@ -694,8 +760,12 @@ def render_explorer(df):
             available_filter_columns
         ):
 
-            options = _valid_values(
-                base_df[column]
+            options = (
+                _valid_values(
+                    base_df[
+                        column
+                    ]
+                )
             )
 
             with filter_columns[
@@ -714,6 +784,9 @@ def render_explorer(df):
                             f"explorer_filter_"
                             f"{column}"
                         ),
+                        on_change=(
+                            _reset_explorer_page
+                        ),
                     )
                 )
 
@@ -721,8 +794,12 @@ def render_explorer(df):
                 column
             ] = selected_values
 
-        for column, selected_values in (
-            explorer_filter_values.items()
+        for (
+            column,
+            selected_values,
+        ) in (
+            explorer_filter_values
+            .items()
         ):
 
             if selected_values:
@@ -738,15 +815,14 @@ def render_explorer(df):
     else:
 
         st.info(
-            "No standard Explorer filter columns are available "
-            "in the current dataset."
+            "No standard Explorer filter columns "
+            "are available in the current dataset."
         )
 
     active_filter_count = sum(
         1
-        for values in (
-            explorer_filter_values.values()
-        )
+        for values
+        in explorer_filter_values.values()
         if values
     )
 
@@ -754,7 +830,7 @@ def render_explorer(df):
 
         st.markdown(
             f"**Explorer filters active:** "
-            f"{active_filter_count} | "
+            f"{active_filter_count}  |  "
             f"**Matching records:** "
             f"{len(explorer_df):,}"
         )
@@ -784,6 +860,9 @@ def render_explorer(df):
                 "patient address, diagnosis, etc."
             ),
             key="explorer_search",
+            on_change=(
+                _reset_explorer_page
+            ),
         )
     )
 
@@ -795,28 +874,44 @@ def render_explorer(df):
             .lower()
         )
 
-        text_df = (
-            explorer_df
-            .fillna("")
-            .astype(str)
+        # ----------------------------------------------------
+        # Search one column at a time instead of building
+        # another complete string DataFrame.
+        # ----------------------------------------------------
+
+        row_mask = pd.Series(
+            False,
+            index=explorer_df.index,
         )
 
-        row_mask = (
-            text_df
-            .apply(
-                lambda column:
-                column
-                .str.lower()
-                .str.contains(
-                    search_value,
-                    regex=False,
-                    na=False,
+        for column in (
+            explorer_df.columns
+        ):
+
+            try:
+
+                column_mask = (
+                    explorer_df[
+                        column
+                    ]
+                    .fillna("")
+                    .astype(str)
+                    .str.lower()
+                    .str.contains(
+                        search_value,
+                        regex=False,
+                        na=False,
+                    )
                 )
-            )
-            .any(
-                axis=1
-            )
-        )
+
+                row_mask = (
+                    row_mask
+                    | column_mask
+                )
+
+            except Exception:
+
+                continue
 
         explorer_df = (
             explorer_df[
@@ -833,7 +928,8 @@ def render_explorer(df):
     else:
 
         st.caption(
-            "Enter text above to search across all available columns."
+            "Enter text above to search across all "
+            "available columns."
         )
 
 
@@ -891,13 +987,16 @@ def render_explorer(df):
     )
 
     all_columns = (
-        base_df.columns.tolist()
+        base_df.columns
+        .tolist()
     )
 
     default_columns = [
         column
-        for column in DEFAULT_DISPLAY_COLUMNS
-        if column in all_columns
+        for column
+        in DEFAULT_DISPLAY_COLUMNS
+        if column
+        in all_columns
     ]
 
     if not default_columns:
@@ -909,7 +1008,9 @@ def render_explorer(df):
     selected_columns = (
         _column_selector(
             all_columns=all_columns,
-            default_columns=default_columns,
+            default_columns=(
+                default_columns
+            ),
         )
     )
 
@@ -949,9 +1050,14 @@ def render_explorer(df):
         sort_column = (
             st.selectbox(
                 "Sort by",
-                options=selected_columns,
+                options=(
+                    selected_columns
+                ),
                 key=(
                     "explorer_sort_column"
+                ),
+                on_change=(
+                    _reset_explorer_page
                 ),
             )
         )
@@ -966,12 +1072,17 @@ def render_explorer(df):
                     "explorer_sort_"
                     "descending"
                 ),
+                on_change=(
+                    _reset_explorer_page
+                ),
             )
         )
 
     if (
         sort_column
         in explorer_df.columns
+        and
+        not explorer_df.empty
     ):
 
         try:
@@ -993,23 +1104,38 @@ def render_explorer(df):
 
 
     # ========================================================
-    # 7. DISPLAY OPTIONS / PAGINATION
+    # 7. RECORD-LEVEL DATA + PAGE NAVIGATION
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 7. 📄 Display Options"
+        "### 7. 📋 Record-level Data"
     )
 
-    display_columns = (
+    st.caption(
+        "Use the page controls directly below to move through "
+        "the record table. Previous and Next change the records "
+        "shown in this table only."
+    )
+
+    if (
+        "explorer_current_page"
+        not in st.session_state
+    ):
+
+        st.session_state[
+            "explorer_current_page"
+        ] = 1
+
+    navigation_columns = (
         st.columns(
-            [2, 2, 2, 2],
-            gap="medium",
+            [2, 1, 2, 1, 1],
+            gap="small",
         )
     )
 
-    with display_columns[0]:
+    with navigation_columns[0]:
 
         rows_per_page = (
             st.selectbox(
@@ -1024,8 +1150,10 @@ def render_explorer(df):
                     )
                 ),
                 key=(
-                    "explorer_rows_"
-                    "per_page"
+                    "explorer_rows_per_page"
+                ),
+                on_change=(
+                    _reset_explorer_page
                 ),
             )
         )
@@ -1034,43 +1162,97 @@ def render_explorer(df):
         explorer_df
     )
 
-    if total_result_rows == 0:
-
-        total_pages = 1
-
-    else:
-
-        total_pages = (
+    total_pages = max(
+        1,
+        math.ceil(
             total_result_rows
-            + rows_per_page
-            - 1
-        ) // rows_per_page
+            / rows_per_page
+        ),
+    )
 
-    with display_columns[1]:
+    st.session_state[
+        "explorer_total_pages"
+    ] = total_pages
 
-        page_number = (
-            st.number_input(
-                "Page",
-                min_value=1,
-                max_value=max(
-                    total_pages,
-                    1,
-                ),
-                value=1,
-                step=1,
-                key="explorer_page",
-            )
-        )
-
-    page_number = int(
-        min(
-            page_number,
-            total_pages,
+    current_page = int(
+        st.session_state.get(
+            "explorer_current_page",
+            1,
         )
     )
 
+    current_page = max(
+        1,
+        min(
+            current_page,
+            total_pages,
+        ),
+    )
+
+    st.session_state[
+        "explorer_current_page"
+    ] = current_page
+
+    with navigation_columns[1]:
+
+        st.write("")
+
+        st.button(
+            "⬅️ Previous",
+            use_container_width=True,
+            disabled=(
+                current_page <= 1
+            ),
+            on_click=(
+                _previous_page
+            ),
+            key=(
+                "explorer_previous_page"
+            ),
+        )
+
+    with navigation_columns[2]:
+
+        st.metric(
+            "Current Page",
+            (
+                f"{current_page:,} "
+                f"of {total_pages:,}"
+            ),
+        )
+
+    with navigation_columns[3]:
+
+        st.write("")
+
+        st.button(
+            "Next ➡️",
+            use_container_width=True,
+            disabled=(
+                current_page
+                >= total_pages
+            ),
+            on_click=(
+                _next_page
+            ),
+            key=(
+                "explorer_next_page"
+            ),
+        )
+
+    with navigation_columns[4]:
+
+        st.metric(
+            "Total Records",
+            f"{total_result_rows:,}",
+        )
+
+    # --------------------------------------------------------
+    # CURRENT PAGE RANGE
+    # --------------------------------------------------------
+
     start_row = (
-        (page_number - 1)
+        (current_page - 1)
         * rows_per_page
     )
 
@@ -1080,48 +1262,7 @@ def render_explorer(df):
         total_result_rows,
     )
 
-    with display_columns[2]:
-
-        st.metric(
-            "Search Results",
-            f"{total_result_rows:,}",
-        )
-
-    with display_columns[3]:
-
-        if total_result_rows > 0:
-
-            displayed_count = (
-                end_row
-                - start_row
-            )
-
-        else:
-
-            displayed_count = 0
-
-        st.metric(
-            "Rows Displayed",
-            f"{displayed_count:,}",
-        )
-
-    st.caption(
-        f"Page {page_number:,} of "
-        f"{total_pages:,}"
-    )
-
-
-    # ========================================================
-    # 8. RECORD-LEVEL DATA
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 8. 📋 Record-level Data"
-    )
-
-    if explorer_df.empty:
+    if total_result_rows == 0:
 
         st.info(
             "No records match the current Explorer filters "
@@ -1130,45 +1271,57 @@ def render_explorer(df):
 
     else:
 
-        table_df = (
-            explorer_df[
-                selected_columns
-            ]
+        st.markdown(
+            f"**Showing records "
+            f"{start_row + 1:,}–{end_row:,} "
+            f"of {total_result_rows:,}**"
+        )
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # Slice first, then prepare display data.
+        # Only the current page is converted/formatted.
+        # ----------------------------------------------------
+
+        page_df = (
+            explorer_df
             .iloc[
                 start_row:end_row
+            ][
+                selected_columns
             ]
             .copy()
         )
 
-        table_df = (
+        page_df = (
             _prepare_display_data(
-                table_df
+                page_df
             )
         )
 
         st.dataframe(
-            table_df,
+            page_df,
             use_container_width=True,
             hide_index=True,
             height=550,
         )
 
-        st.caption(
-            f"Displaying records "
-            f"{start_row + 1:,} to "
-            f"{end_row:,} of "
-            f"{total_result_rows:,}."
-        )
+        if total_pages > 1:
+
+            st.caption(
+                "Use Previous / Next above the table "
+                "to view additional records."
+            )
 
 
     # ========================================================
-    # 9. EXPORT DATA
+    # 8. EXPORT DATA
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 9. 📦 Export Data"
+        "### 8. 📦 Export Data"
     )
 
     st.markdown(
@@ -1186,10 +1339,6 @@ def render_explorer(df):
         ]
         .copy()
     )
-
-    # --------------------------------------------------------
-    # EXPORT SUMMARY
-    # --------------------------------------------------------
 
     summary_items = []
 
@@ -1283,7 +1432,10 @@ def render_explorer(df):
         ]
     )
 
-    for column, selected_values in (
+    for (
+        column,
+        selected_values,
+    ) in (
         explorer_filter_values.items()
     ):
 
@@ -1310,14 +1462,8 @@ def render_explorer(df):
         )
     )
 
-    export_quality_df = (
-        _create_quality_dataframe(
-            complete_export_df
-        )
-    )
-
     # --------------------------------------------------------
-    # CSV
+    # CSV files are relatively inexpensive.
     # --------------------------------------------------------
 
     csv_data = (
@@ -1330,28 +1476,6 @@ def render_explorer(df):
         )
     )
 
-    # --------------------------------------------------------
-    # EXCEL
-    # --------------------------------------------------------
-
-    excel_data = (
-        _create_excel_bytes(
-            data_df=(
-                complete_export_df
-            ),
-            quality_df=(
-                export_quality_df
-            ),
-            summary_df=(
-                export_summary_df
-            ),
-        )
-    )
-
-    # --------------------------------------------------------
-    # SELECTED COLUMN CSV
-    # --------------------------------------------------------
-
     selected_csv = (
         selected_export_df
         .to_csv(
@@ -1363,8 +1487,14 @@ def render_explorer(df):
     )
 
     # --------------------------------------------------------
-    # SELECTED COLUMN EXCEL
+    # Data quality calculations.
     # --------------------------------------------------------
+
+    export_quality_df = (
+        _create_quality_dataframe(
+            complete_export_df
+        )
+    )
 
     selected_quality_df = (
         _create_quality_dataframe(
@@ -1372,17 +1502,25 @@ def render_explorer(df):
         )
     )
 
+    # --------------------------------------------------------
+    # Excel generation is cached.
+    # Once created for the same data, page navigation does
+    # not need to rebuild the workbook.
+    # --------------------------------------------------------
+
+    excel_data = (
+        _create_excel_bytes(
+            complete_export_df,
+            export_quality_df,
+            export_summary_df,
+        )
+    )
+
     selected_excel = (
         _create_excel_bytes(
-            data_df=(
-                selected_export_df
-            ),
-            quality_df=(
-                selected_quality_df
-            ),
-            summary_df=(
-                export_summary_df
-            ),
+            selected_export_df,
+            selected_quality_df,
+            export_summary_df,
         )
     )
 
@@ -1438,8 +1576,7 @@ def render_explorer(df):
             mime="text/csv",
             use_container_width=True,
             key=(
-                "explorer_download_"
-                "selected_csv"
+                "explorer_download_selected_csv"
             ),
         )
 
@@ -1459,8 +1596,7 @@ def render_explorer(df):
             ),
             use_container_width=True,
             key=(
-                "explorer_download_"
-                "selected_excel"
+                "explorer_download_selected_excel"
             ),
         )
 
@@ -1471,30 +1607,30 @@ def render_explorer(df):
 
 
     # ========================================================
-    # 10. COLUMN-WISE DATA QUALITY
+    # 9. COLUMN-WISE DATA QUALITY
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 10. 🧪 Column-wise Data Quality"
+        "### 9. 🧪 Column-wise Data Quality"
     )
 
     st.caption(
         "Missing values include actual null values, blank cells "
-        "and common text-null values such as nan, NaT, None and null."
+        "and common text-null values such as nan, NaT, None, "
+        "null and <NA>."
     )
 
     quality_df = (
-        _create_quality_dataframe(
-            explorer_df
-        )
+        export_quality_df.copy()
     )
 
     if quality_df.empty:
 
         st.info(
-            "No records are available for data quality analysis."
+            "No records are available for "
+            "data quality analysis."
         )
 
     else:
@@ -1523,13 +1659,13 @@ def render_explorer(df):
 
 
     # ========================================================
-    # 11. CURRENT DATA SCOPE
+    # 10. CURRENT DATA SCOPE
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 11. ℹ️ Current Data Scope"
+        "### 10. ℹ️ Current Data Scope"
     )
 
     scope_items = []
@@ -1636,18 +1772,28 @@ def render_explorer(df):
             },
             {
                 "Indicator": (
+                    "Rows per Page"
+                ),
+                "Value": (
+                    f"{rows_per_page:,}"
+                ),
+            },
+            {
+                "Indicator": (
                     "Current Page"
                 ),
                 "Value": (
-                    f"{page_number:,} of "
-                    f"{total_pages:,}"
+                    f"{current_page:,} "
+                    f"of {total_pages:,}"
                 ),
             },
         ]
     )
 
-    scope_df = pd.DataFrame(
-        scope_items
+    scope_df = (
+        pd.DataFrame(
+            scope_items
+        )
     )
 
     st.dataframe(
