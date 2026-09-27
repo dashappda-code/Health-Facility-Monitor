@@ -1491,6 +1491,8 @@ def render_ward(df):
                 ]
             )
 
+            
+
             # ------------------------------------------------
             # MULTIPLE AGE GROUP SELECTION
             # Default = all available age groups
@@ -1506,7 +1508,10 @@ def render_ward(df):
                         "age_group_multiselect"
                     ),
                 )
-            )
+            )           
+
+
+            
 
             # ------------------------------------------------
             # NO AGE GROUP SELECTED
