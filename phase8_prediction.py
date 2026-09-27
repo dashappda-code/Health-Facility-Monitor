@@ -553,14 +553,54 @@ def _render_line_chart(
 
     chart_df = dataframe.copy()
 
+    # --------------------------------------------------------
+    # Validate required columns
+    # --------------------------------------------------------
+
+    if x_column not in chart_df.columns:
+        return
+
+    valid_y_columns = [
+        column
+        for column in y_columns
+        if column in chart_df.columns
+    ]
+
+    if not valid_y_columns:
+        return
+
+    # --------------------------------------------------------
+    # Convert wide data to long format
+    #
+    # IMPORTANT:
+    # Do NOT use value_name="Records" because the source
+    # dataframe may already contain a column named "Records".
+    # --------------------------------------------------------
+
     long_df = chart_df.melt(
         id_vars=[x_column],
-        value_vars=y_columns,
+        value_vars=valid_y_columns,
         var_name="Series",
-        value_name="Records",
+        value_name="Value",
     )
 
-    base = (
+    long_df["Value"] = pd.to_numeric(
+        long_df["Value"],
+        errors="coerce",
+    )
+
+    long_df = long_df.dropna(
+        subset=["Value"]
+    )
+
+    if long_df.empty:
+        return
+
+    # --------------------------------------------------------
+    # LINE CHART
+    # --------------------------------------------------------
+
+    chart = (
         alt.Chart(long_df)
         .mark_line(
             point=True,
@@ -577,7 +617,7 @@ def _render_line_chart(
                 ),
             ),
             y=alt.Y(
-                "Records:Q",
+                "Value:Q",
                 axis=alt.Axis(
                     title="Records"
                 ),
@@ -587,6 +627,7 @@ def _render_line_chart(
                 legend=alt.Legend(
                     orient="bottom",
                     direction="horizontal",
+                    title=None,
                 ),
             ),
             tooltip=[
@@ -599,7 +640,7 @@ def _render_line_chart(
                     title="Series",
                 ),
                 alt.Tooltip(
-                    "Records:Q",
+                    "Value:Q",
                     title="Records",
                     format=",.1f",
                 ),
@@ -612,10 +653,9 @@ def _render_line_chart(
     )
 
     st.altair_chart(
-        base,
+        chart,
         use_container_width=True,
     )
-
 
 # ============================================================
 # BASELINE FILTER
