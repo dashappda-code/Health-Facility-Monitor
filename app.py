@@ -26,10 +26,10 @@ from phase7_explorer import render_explorer
 from phase8_prediction import render_prediction
 
 # ============================================================
-# PHASE 8B - INCIDENCE & STATISTICAL TRENDS
+# INCIDENCE & STATISTICAL SURVEILLANCE
 # ============================================================
 
-from phase8b_incidence import render_incidence_analysis
+from phase8b_incidence import render_incidence
 
 from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
@@ -178,7 +178,7 @@ PAGE_OPTIONS = [
     "Geographic Map",
     "Data Explorer",
     "Prediction",
-    "Incidence & Statistical Trends",
+    "Incidence & Statistical Surveillance",
     "User Manual",
     "Validation & KPI",
     "Drill-down & Export",
@@ -1802,15 +1802,19 @@ def build_management_tables(
             )
         )
 
+    # --------------------------------------------------------
+    # INCIDENCE PAGE MANAGEMENT SUMMARY
+    # --------------------------------------------------------
+
     elif (
         page_name
-        == "Incidence & Statistical Trends"
+        == "Incidence & Statistical Surveillance"
     ):
 
         tables.append(
             (
-                "Incidence & Statistical Trends – "
-                "Surveillance Data Summary",
+                "Incidence & Statistical Surveillance – "
+                "Filtered Dataset Summary",
                 pd.DataFrame(
                     [
                         {
@@ -1818,15 +1822,31 @@ def build_management_tables(
                             "Value": len(data),
                         },
                         {
-                            "Indicator": "Analysis Type",
+                            "Indicator": "Years Available",
                             "Value": (
-                                "Population-based incidence "
-                                "and statistical trend analysis"
+                                data["Year"]
+                                .nunique()
+                                if "Year" in data.columns
+                                else 0
                             ),
                         },
                         {
-                            "Indicator": "Default Incidence Base",
-                            "Value": "Per 100,000 population",
+                            "Indicator": "Diseases Available",
+                            "Value": (
+                                data["Disease"]
+                                .nunique()
+                                if "Disease" in data.columns
+                                else 0
+                            ),
+                        },
+                        {
+                            "Indicator": "Wards Available",
+                            "Value": (
+                                data["Ward Name"]
+                                .nunique()
+                                if "Ward Name" in data.columns
+                                else 0
+                            ),
                         },
                     ]
                 ),
@@ -2227,24 +2247,30 @@ def build_complete_dashboard_pages():
                 }
             )
 
+        # ----------------------------------------------------
+        # INCIDENCE PAGE NOTE
+        # ----------------------------------------------------
+
         if (
             page_name
-            == "Incidence & Statistical Trends"
+            == "Incidence & Statistical Surveillance"
         ):
 
             notes.append(
                 {
                     "text": (
-                        "Incidence analysis uses ward population "
-                        "denominators from the separate Population "
-                        "worksheet. Where an exact population year "
-                        "is unavailable, the population fallback "
-                        "method defined in the incidence module "
-                        "is applied."
+                        "Incidence rates are population-based "
+                        "surveillance indicators. Population "
+                        "year fallback may be used where an "
+                        "exact Ward × Year population is not "
+                        "available. Mean and standard-deviation "
+                        "thresholds are descriptive statistical "
+                        "surveillance indicators and do not, by "
+                        "themselves, confirm an outbreak."
                     ),
                     "note_type": "info",
                     "section_name": (
-                        "Incidence & Statistical Trends"
+                        "Incidence & Statistical Surveillance"
                     ),
                     "source": "system",
                 }
@@ -2891,19 +2917,22 @@ try:
         )
 
     # ========================================================
-    # PHASE 8B - INCIDENCE & STATISTICAL TRENDS
+    # INCIDENCE & STATISTICAL SURVEILLANCE
     # ========================================================
 
-    elif page == "Incidence & Statistical Trends":
+    elif (
+        page
+        == "Incidence & Statistical Surveillance"
+    ):
 
         capture_and_store_page(
-            "Incidence & Statistical Trends",
-            render_incidence_analysis,
+            "Incidence & Statistical Surveillance",
+            render_incidence,
             filtered_df,
         )
 
         render_page_download_buttons(
-            "Incidence & Statistical Trends",
+            "Incidence & Statistical Surveillance",
             filtered_df,
         )
 
@@ -3082,22 +3111,23 @@ if not (
             pass
 
         # ----------------------------------------------------
-        # ALSO CLEAR POPULATION CACHE
+        # ALSO REFRESH POPULATION DATA CACHE
         # ----------------------------------------------------
 
         try:
 
             from phase8b_incidence import (
-                load_population_data,
+                _load_population_raw,
             )
 
-            load_population_data.clear()
+            _load_population_raw.clear()
 
         except Exception:
             pass
 
         st.success(
-            "Google Sheet data refreshed successfully."
+            "Google Sheet data and population data "
+            "refreshed successfully."
         )
 
         st.rerun()
