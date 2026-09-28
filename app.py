@@ -24,9 +24,17 @@ from geographic_map import render_geographic_map
 
 from phase7_explorer import render_explorer
 from phase8_prediction import render_prediction
+
+# ============================================================
+# PHASE 8B - INCIDENCE & STATISTICAL TRENDS
+# ============================================================
+
+from phase8b_incidence import render_incidence_analysis
+
 from phase9_manual import render_manual
 from phase10_validation_kpi import render_validation_kpi
 from phase11_drilldown_export import render_drilldown_export
+
 
 # ============================================================
 # PAGE-WISE DYNAMIC PDF REPORT
@@ -35,6 +43,7 @@ from phase11_drilldown_export import render_drilldown_export
 from pdf_report import (
     render_page_pdf_download,
 )
+
 
 # ============================================================
 # COMPLETE DASHBOARD PDF
@@ -169,6 +178,7 @@ PAGE_OPTIONS = [
     "Geographic Map",
     "Data Explorer",
     "Prediction",
+    "Incidence & Statistical Trends",
     "User Manual",
     "Validation & KPI",
     "Drill-down & Export",
@@ -1792,6 +1802,37 @@ def build_management_tables(
             )
         )
 
+    elif (
+        page_name
+        == "Incidence & Statistical Trends"
+    ):
+
+        tables.append(
+            (
+                "Incidence & Statistical Trends – "
+                "Surveillance Data Summary",
+                pd.DataFrame(
+                    [
+                        {
+                            "Indicator": "Filtered Records",
+                            "Value": len(data),
+                        },
+                        {
+                            "Indicator": "Analysis Type",
+                            "Value": (
+                                "Population-based incidence "
+                                "and statistical trend analysis"
+                            ),
+                        },
+                        {
+                            "Indicator": "Default Incidence Base",
+                            "Value": "Per 100,000 population",
+                        },
+                    ]
+                ),
+            )
+        )
+
     elif page_name == "Validation & KPI":
 
         tables.append(
@@ -1855,10 +1896,6 @@ def render_page_download_buttons(
     filter_summary = (
         get_filter_summary()
     )
-
-    # --------------------------------------------------------
-    # ONE STANDARD DYNAMIC PDF SYSTEM FOR EVERY DASHBOARD PAGE
-    # --------------------------------------------------------
 
     render_page_pdf_download(
         page_name=page_name,
@@ -2185,6 +2222,29 @@ def build_complete_dashboard_pages():
                     "note_type": "info",
                     "section_name": (
                         "Prediction"
+                    ),
+                    "source": "system",
+                }
+            )
+
+        if (
+            page_name
+            == "Incidence & Statistical Trends"
+        ):
+
+            notes.append(
+                {
+                    "text": (
+                        "Incidence analysis uses ward population "
+                        "denominators from the separate Population "
+                        "worksheet. Where an exact population year "
+                        "is unavailable, the population fallback "
+                        "method defined in the incidence module "
+                        "is applied."
+                    ),
+                    "note_type": "info",
+                    "section_name": (
+                        "Incidence & Statistical Trends"
                     ),
                     "source": "system",
                 }
@@ -2830,6 +2890,23 @@ try:
             filtered_df,
         )
 
+    # ========================================================
+    # PHASE 8B - INCIDENCE & STATISTICAL TRENDS
+    # ========================================================
+
+    elif page == "Incidence & Statistical Trends":
+
+        capture_and_store_page(
+            "Incidence & Statistical Trends",
+            render_incidence_analysis,
+            filtered_df,
+        )
+
+        render_page_download_buttons(
+            "Incidence & Statistical Trends",
+            filtered_df,
+        )
+
     elif page == "User Manual":
 
         capture_and_store_page(
@@ -3000,6 +3077,21 @@ if not (
         try:
 
             get_data.clear()
+
+        except Exception:
+            pass
+
+        # ----------------------------------------------------
+        # ALSO CLEAR POPULATION CACHE
+        # ----------------------------------------------------
+
+        try:
+
+            from phase8b_incidence import (
+                load_population_data,
+            )
+
+            load_population_data.clear()
 
         except Exception:
             pass
