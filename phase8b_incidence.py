@@ -36,9 +36,9 @@ DENOMINATOR_OPTIONS = [
 MIN_VALID_YEAR = 2000
 MAX_VALID_YEAR = 2100
 
-DATA_LABEL_FONT_SIZE = 11
+DATA_LABEL_FONT_SIZE = 10
 
-DEFAULT_COLORS = [
+COLORS = [
     "#1F77B4",
     "#FF7F0E",
     "#2CA02C",
@@ -49,7 +49,24 @@ DEFAULT_COLORS = [
     "#7F7F7F",
     "#BCBD22",
     "#17BECF",
+    "#4C78A8",
+    "#F58518",
 ]
+
+MONTH_NAMES = {
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dec",
+}
 
 
 # ============================================================
@@ -57,6 +74,9 @@ DEFAULT_COLORS = [
 # ============================================================
 
 def _clean_series(series):
+
+    if series is None:
+        return pd.Series(dtype="object")
 
     return (
         series
@@ -66,7 +86,7 @@ def _clean_series(series):
     )
 
 
-def _valid_text_mask(series):
+def _valid_text(series):
 
     values = _clean_series(series)
 
@@ -111,25 +131,22 @@ def _safe_numeric(series):
 
 def _alphabetical(values):
 
-    clean = []
+    cleaned = []
 
     for value in values:
 
         text = str(value).strip()
 
-        if (
-            text
-            and text not in {
-                "nan",
-                "NaT",
-                "None",
-                "-",
-            }
-        ):
-            clean.append(text)
+        if text and text not in {
+            "nan",
+            "NaT",
+            "None",
+            "-",
+        }:
+            cleaned.append(text)
 
     return sorted(
-        list(dict.fromkeys(clean)),
+        list(dict.fromkeys(cleaned)),
         key=lambda x: x.upper(),
     )
 
@@ -146,55 +163,44 @@ def _month_number(value):
         "jan": 1,
         "1": 1,
         "01": 1,
-
         "february": 2,
         "feb": 2,
         "2": 2,
         "02": 2,
-
         "march": 3,
         "mar": 3,
         "3": 3,
         "03": 3,
-
         "april": 4,
         "apr": 4,
         "4": 4,
         "04": 4,
-
         "may": 5,
         "5": 5,
         "05": 5,
-
         "june": 6,
         "jun": 6,
         "6": 6,
         "06": 6,
-
         "july": 7,
         "jul": 7,
         "7": 7,
         "07": 7,
-
         "august": 8,
         "aug": 8,
         "8": 8,
         "08": 8,
-
         "september": 9,
         "sep": 9,
         "sept": 9,
         "9": 9,
         "09": 9,
-
         "october": 10,
         "oct": 10,
         "10": 10,
-
         "november": 11,
         "nov": 11,
         "11": 11,
-
         "december": 12,
         "dec": 12,
         "12": 12,
@@ -216,6 +222,26 @@ def _month_number(value):
     return np.nan
 
 
+def _format_number(value, decimals=0):
+
+    if pd.isna(value):
+        return "Unavailable"
+
+    try:
+
+        if decimals == 0:
+            return f"{float(value):,.0f}"
+
+        return f"{float(value):,.{decimals}f}"
+
+    except Exception:
+        return str(value)
+
+
+# ============================================================
+# CASE DATA PREPARATION
+# ============================================================
+
 def _prepare_case_data(df):
 
     if df is None or df.empty:
@@ -236,15 +262,13 @@ def _prepare_case_data(df):
 
     elif "Reporting Date" in temp.columns:
 
-        reporting_date = pd.to_datetime(
+        dates = pd.to_datetime(
             temp["Reporting Date"],
             errors="coerce",
             dayfirst=True,
         )
 
-        temp["Analysis_Year"] = (
-            reporting_date.dt.year
-        )
+        temp["Analysis_Year"] = dates.dt.year
 
     else:
 
@@ -263,15 +287,13 @@ def _prepare_case_data(df):
 
     elif "Reporting Date" in temp.columns:
 
-        reporting_date = pd.to_datetime(
+        dates = pd.to_datetime(
             temp["Reporting Date"],
             errors="coerce",
             dayfirst=True,
         )
 
-        temp["Analysis_Month"] = (
-            reporting_date.dt.month
-        )
+        temp["Analysis_Month"] = dates.dt.month
 
     else:
 
@@ -292,30 +314,35 @@ def _prepare_case_data(df):
         .astype(int)
     )
 
-    valid_month = (
-        temp["Analysis_Month"]
-        .between(1, 12)
-    )
+    if "Ward Name" in temp.columns:
 
-    temp.loc[
-        valid_month,
-        "Analysis_Month"
-    ] = (
-        temp.loc[
-            valid_month,
-            "Analysis_Month"
-        ]
-        .astype(int)
-    )
+        temp["Ward Name"] = _clean_series(
+            temp["Ward Name"]
+        )
+
+    if "Disease" in temp.columns:
+
+        temp["Disease"] = _clean_series(
+            temp["Disease"]
+        )
+
+    if "Facility Name" in temp.columns:
+
+        temp["Facility Name"] = _clean_series(
+            temp["Facility Name"]
+        )
 
     return temp
 
 
 # ============================================================
-# POPULATION LOADER
+# POPULATION DATA LOADER
 # ============================================================
 
-@st.cache_data(ttl=3600)
+@st.cache_data(
+    ttl=3600,
+    show_spinner=False,
+)
 def _load_population_raw():
 
     population_df = pd.read_csv(
@@ -330,12 +357,9 @@ def _load_population_raw():
     return population_df
 
 
-def _find_ward_column(population_df):
+def _find_ward_column(df):
 
-    if (
-        population_df is None
-        or population_df.empty
-    ):
+    if df is None or df.empty:
         return None
 
     candidates = [
@@ -348,10 +372,10 @@ def _find_ward_column(population_df):
 
     for candidate in candidates:
 
-        if candidate in population_df.columns:
+        if candidate in df.columns:
             return candidate
 
-    for column in population_df.columns:
+    for column in df.columns:
 
         normalized = (
             str(column)
@@ -371,11 +395,9 @@ def _find_ward_column(population_df):
 
 def _extract_population_year(column_name):
 
-    text = str(column_name).strip()
-
     match = re.search(
         r"(20\d{2})",
-        text,
+        str(column_name),
     )
 
     if not match:
@@ -385,24 +407,16 @@ def _extract_population_year(column_name):
         match.group(1)
     )
 
-    if (
-        MIN_VALID_YEAR
-        <= year
-        <= MAX_VALID_YEAR
-    ):
+    if MIN_VALID_YEAR <= year <= MAX_VALID_YEAR:
         return year
 
     return None
 
 
-def _prepare_population_data(
-    population_df,
-):
+def _prepare_population_data(population_df):
 
-    if (
-        population_df is None
-        or population_df.empty
-    ):
+    if population_df is None or population_df.empty:
+
         return (
             pd.DataFrame(),
             pd.DataFrame(),
@@ -434,12 +448,11 @@ def _prepare_population_data(
             column
         )
 
-        if year is not None:
-
-            # If duplicate year-like columns exist,
-            # use the first detected column.
-            if year not in year_columns:
-                year_columns[year] = column
+        if (
+            year is not None
+            and year not in year_columns
+        ):
+            year_columns[year] = column
 
     if not year_columns:
 
@@ -449,75 +462,50 @@ def _prepare_population_data(
             [],
         )
 
-    source["WARD"] = (
-        _clean_series(
-            source[ward_column]
-        )
+    source["WARD"] = _clean_series(
+        source[ward_column]
     )
 
     source = source[
-        source["WARD"].ne("")
-        & source["WARD"].ne("nan")
-        & source["WARD"].ne("NaT")
-        & source["WARD"].ne("None")
+        _valid_text(
+            source["WARD"]
+        )
     ].copy()
 
-    # --------------------------------------------------------
-    # REMOVE TOTAL / GRAND TOTAL ROWS
-    # --------------------------------------------------------
+    total_values = {
+        "TOTAL",
+        "GRAND TOTAL",
+        "MUMBAI TOTAL",
+        "ALL",
+    }
 
-    total_mask = (
-        source["WARD"]
+    source = source[
+        ~source["WARD"]
         .str.upper()
-        .isin(
-            {
-                "TOTAL",
-                "GRAND TOTAL",
-                "MUMBAI TOTAL",
-                "ALL",
-            }
-        )
-    )
-
-    source = source[
-        ~total_mask
+        .isin(total_values)
     ].copy()
-
-    if source.empty:
-
-        return (
-            pd.DataFrame(),
-            pd.DataFrame(),
-            [],
-        )
 
     available_years = sorted(
         year_columns.keys()
     )
 
-    wide_rows = {
+    wide_data = {
         "WARD": source["WARD"]
     }
 
     for year in available_years:
 
-        original_column = (
-            year_columns[year]
-        )
-
-        wide_rows[
-            str(year)
-        ] = _safe_numeric(
-            source[original_column]
+        wide_data[str(year)] = (
+            _safe_numeric(
+                source[
+                    year_columns[year]
+                ]
+            )
         )
 
     population_wide = pd.DataFrame(
-        wide_rows
+        wide_data
     )
-
-    # --------------------------------------------------------
-    # HANDLE DUPLICATE WARD ROWS
-    # --------------------------------------------------------
 
     numeric_columns = [
         str(year)
@@ -535,10 +523,6 @@ def _prepare_population_data(
         )
     )
 
-    # --------------------------------------------------------
-    # LONG FORMAT
-    # --------------------------------------------------------
-
     population_long = (
         population_wide
         .melt(
@@ -549,22 +533,22 @@ def _prepare_population_data(
         )
     )
 
-    population_long[
-        "Population_Year"
-    ] = pd.to_numeric(
-        population_long[
-            "Population_Year"
-        ],
-        errors="coerce",
+    population_long["Population_Year"] = (
+        pd.to_numeric(
+            population_long[
+                "Population_Year"
+            ],
+            errors="coerce",
+        )
     )
 
-    population_long[
-        "Population"
-    ] = pd.to_numeric(
-        population_long[
-            "Population"
-        ],
-        errors="coerce",
+    population_long["Population"] = (
+        pd.to_numeric(
+            population_long[
+                "Population"
+            ],
+            errors="coerce",
+        )
     )
 
     population_long = population_long[
@@ -573,21 +557,15 @@ def _prepare_population_data(
         ].notna()
     ].copy()
 
-    population_long[
-        "Population_Year"
-    ] = (
+    population_long["Population_Year"] = (
         population_long[
             "Population_Year"
-        ]
-        .astype(int)
+        ].astype(int)
     )
 
-    # Population must be > 0 for incidence.
     population_long.loc[
-        population_long[
-            "Population"
-        ] <= 0,
-        "Population"
+        population_long["Population"] <= 0,
+        "Population",
     ] = np.nan
 
     return (
@@ -607,10 +585,8 @@ def _population_for_ward_year(
     analysis_year,
 ):
 
-    if (
-        population_long is None
-        or population_long.empty
-    ):
+    if population_long is None or population_long.empty:
+
         return (
             np.nan,
             None,
@@ -622,7 +598,7 @@ def _population_for_ward_year(
     ).strip()
 
     try:
-        year_value = int(
+        analysis_year = int(
             analysis_year
         )
 
@@ -634,31 +610,19 @@ def _population_for_ward_year(
             "Invalid analysis year",
         )
 
-    ward_population = (
-        population_long[
-            population_long[
-                "WARD"
-            ].astype(str).str.strip()
-            == ward_text
-        ]
-        .copy()
-    )
+    data = population_long[
+        _clean_series(
+            population_long["WARD"]
+        )
+        == ward_text
+    ].copy()
 
-    ward_population = (
-        ward_population[
-            ward_population[
-                "Population"
-            ].notna()
-            & (
-                ward_population[
-                    "Population"
-                ]
-                > 0
-            )
-        ]
-    )
+    data = data[
+        data["Population"].notna()
+        & data["Population"].gt(0)
+    ]
 
-    if ward_population.empty:
+    if data.empty:
 
         return (
             np.nan,
@@ -666,11 +630,9 @@ def _population_for_ward_year(
             "Population unavailable",
         )
 
-    exact = ward_population[
-        ward_population[
-            "Population_Year"
-        ]
-        == year_value
+    exact = data[
+        data["Population_Year"]
+        == analysis_year
     ]
 
     if not exact.empty:
@@ -678,25 +640,14 @@ def _population_for_ward_year(
         row = exact.iloc[0]
 
         return (
-            float(
-                row["Population"]
-            ),
-            int(
-                row["Population_Year"]
-            ),
+            float(row["Population"]),
+            int(row["Population_Year"]),
             "Exact year",
         )
 
-    # --------------------------------------------------------
-    # FIRST FALLBACK:
-    # Closest previous available year
-    # --------------------------------------------------------
-
-    previous = ward_population[
-        ward_population[
-            "Population_Year"
-        ]
-        < year_value
+    previous = data[
+        data["Population_Year"]
+        < analysis_year
     ]
 
     if not previous.empty:
@@ -715,24 +666,14 @@ def _population_for_ward_year(
         ].iloc[0]
 
         return (
-            float(
-                row["Population"]
-            ),
+            float(row["Population"]),
             selected_year,
             "Previous-year fallback",
         )
 
-    # --------------------------------------------------------
-    # SECOND FALLBACK:
-    # No earlier population exists.
-    # Use nearest future available population.
-    # --------------------------------------------------------
-
-    future = ward_population[
-        ward_population[
-            "Population_Year"
-        ]
-        > year_value
+    future = data[
+        data["Population_Year"]
+        > analysis_year
     ]
 
     if not future.empty:
@@ -751,9 +692,7 @@ def _population_for_ward_year(
         ].iloc[0]
 
         return (
-            float(
-                row["Population"]
-            ),
+            float(row["Population"]),
             selected_year,
             "Future-year fallback",
         )
@@ -766,39 +705,32 @@ def _population_for_ward_year(
 
 
 # ============================================================
-# INCIDENCE CALCULATION
+# PREPARED INCIDENCE TABLES
 # ============================================================
 
-def _ward_year_case_counts(
-    source,
+def _build_ward_year_incidence(
+    case_df,
+    population_long,
+    denominator,
 ):
 
     if (
-        source is None
-        or source.empty
-        or "Ward Name" not in source.columns
+        case_df is None
+        or case_df.empty
+        or "Ward Name" not in case_df.columns
     ):
         return pd.DataFrame()
 
-    temp = source.copy()
-
-    temp["Ward Name"] = (
-        _clean_series(
-            temp["Ward Name"]
+    temp = case_df[
+        _valid_text(
+            case_df["Ward Name"]
         )
-    )
-
-    temp = temp[
-        temp["Ward Name"].ne("")
-        & temp["Ward Name"].ne("nan")
-        & temp["Ward Name"].ne("NaT")
-        & temp["Ward Name"].ne("None")
-    ]
+    ].copy()
 
     if temp.empty:
         return pd.DataFrame()
 
-    return (
+    grouped = (
         temp
         .groupby(
             [
@@ -813,26 +745,9 @@ def _ward_year_case_counts(
         )
     )
 
+    rows = []
 
-def _attach_population(
-    case_table,
-    population_long,
-    denominator,
-):
-
-    if (
-        case_table is None
-        or case_table.empty
-    ):
-        return pd.DataFrame()
-
-    result = case_table.copy()
-
-    populations = []
-    years_used = []
-    statuses = []
-
-    for _, row in result.iterrows():
+    for _, row in grouped.iterrows():
 
         population, year_used, status = (
             _population_for_ward_year(
@@ -842,80 +757,280 @@ def _attach_population(
             )
         )
 
-        populations.append(
-            population
+        rate = np.nan
+
+        if pd.notna(population) and population > 0:
+
+            rate = (
+                row["Cases"]
+                / population
+                * denominator
+            )
+
+        rows.append(
+            {
+                "Ward": row["Ward Name"],
+                "Year": int(
+                    row["Analysis_Year"]
+                ),
+                "Cases": int(
+                    row["Cases"]
+                ),
+                "Population": population,
+                "Population Year Used": year_used,
+                "Population Match Status": status,
+                "Incidence Rate": (
+                    round(rate, 2)
+                    if pd.notna(rate)
+                    else np.nan
+                ),
+            }
         )
 
-        years_used.append(
-            year_used
-        )
-
-        statuses.append(
-            status
-        )
-
-    result[
-        "Population"
-    ] = populations
-
-    result[
-        "Population Year Used"
-    ] = years_used
-
-    result[
-        "Population Match Status"
-    ] = statuses
-
-    result[
-        "Incidence Rate"
-    ] = np.where(
-        result["Population"].notna()
-        & result["Population"].gt(0),
-        (
-            result["Cases"]
-            / result["Population"]
-            * denominator
-        ),
-        np.nan,
-    )
-
-    result[
-        "Incidence Rate"
-    ] = (
-        result[
-            "Incidence Rate"
-        ]
-        .round(2)
-    )
-
-    return result
+    return pd.DataFrame(rows)
 
 
-def _aggregate_incidence_by_year(
-    source,
+def _build_disease_ward_year_incidence(
+    case_df,
     population_long,
     denominator,
 ):
 
-    ward_year = (
-        _ward_year_case_counts(
-            source
+    required = {
+        "Ward Name",
+        "Disease",
+        "Analysis_Year",
+    }
+
+    if (
+        case_df is None
+        or case_df.empty
+        or not required.issubset(
+            case_df.columns
+        )
+    ):
+        return pd.DataFrame()
+
+    temp = case_df[
+        _valid_text(
+            case_df["Ward Name"]
+        )
+        & _valid_text(
+            case_df["Disease"]
+        )
+    ].copy()
+
+    if temp.empty:
+        return pd.DataFrame()
+
+    grouped = (
+        temp
+        .groupby(
+            [
+                "Ward Name",
+                "Disease",
+                "Analysis_Year",
+            ],
+            observed=True,
+        )
+        .size()
+        .reset_index(
+            name="Cases"
         )
     )
 
-    incidence = _attach_population(
-        ward_year,
-        population_long,
-        denominator,
+    rows = []
+
+    for _, row in grouped.iterrows():
+
+        population, year_used, status = (
+            _population_for_ward_year(
+                population_long,
+                row["Ward Name"],
+                row["Analysis_Year"],
+            )
+        )
+
+        rate = np.nan
+
+        if pd.notna(population) and population > 0:
+
+            rate = (
+                row["Cases"]
+                / population
+                * denominator
+            )
+
+        rows.append(
+            {
+                "Ward": row["Ward Name"],
+                "Disease": row["Disease"],
+                "Year": int(
+                    row["Analysis_Year"]
+                ),
+                "Cases": int(
+                    row["Cases"]
+                ),
+                "Population": population,
+                "Population Year Used": year_used,
+                "Population Match Status": status,
+                "Incidence Rate": (
+                    round(rate, 2)
+                    if pd.notna(rate)
+                    else np.nan
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _build_monthly_ward_incidence(
+    case_df,
+    population_long,
+    denominator,
+):
+
+    required = {
+        "Ward Name",
+        "Analysis_Year",
+        "Analysis_Month",
+    }
+
+    if (
+        case_df is None
+        or case_df.empty
+        or not required.issubset(
+            case_df.columns
+        )
+    ):
+        return pd.DataFrame()
+
+    temp = case_df[
+        case_df[
+            "Analysis_Month"
+        ].between(1, 12)
+        & _valid_text(
+            case_df["Ward Name"]
+        )
+    ].copy()
+
+    if temp.empty:
+        return pd.DataFrame()
+
+    grouped = (
+        temp
+        .groupby(
+            [
+                "Ward Name",
+                "Analysis_Year",
+                "Analysis_Month",
+            ],
+            observed=True,
+        )
+        .size()
+        .reset_index(
+            name="Cases"
+        )
     )
 
-    if incidence.empty:
+    rows = []
+
+    for _, row in grouped.iterrows():
+
+        population, year_used, status = (
+            _population_for_ward_year(
+                population_long,
+                row["Ward Name"],
+                row["Analysis_Year"],
+            )
+        )
+
+        rate = np.nan
+
+        if pd.notna(population) and population > 0:
+
+            rate = (
+                row["Cases"]
+                / population
+                * denominator
+            )
+
+        year = int(
+            row["Analysis_Year"]
+        )
+
+        month = int(
+            row["Analysis_Month"]
+        )
+
+        date_value = pd.Timestamp(
+            year,
+            month,
+            1,
+        )
+
+        rows.append(
+            {
+                "Ward": row["Ward Name"],
+                "Year": year,
+                "Month": month,
+                "Date": date_value,
+                "Period": (
+                    date_value.strftime(
+                        "%b-%Y"
+                    )
+                ),
+                "Cases": int(
+                    row["Cases"]
+                ),
+                "Population": population,
+                "Population Year Used": year_used,
+                "Population Match Status": status,
+                "Incidence Rate": (
+                    round(rate, 2)
+                    if pd.notna(rate)
+                    else np.nan
+                ),
+            }
+        )
+
+    result = pd.DataFrame(rows)
+
+    if result.empty:
+        return result
+
+    return result.sort_values(
+        [
+            "Date",
+            "Ward",
+        ]
+    ).reset_index(
+        drop=True
+    )
+
+
+# ============================================================
+# AGGREGATION HELPERS
+# ============================================================
+
+def _aggregate_disease_incidence(
+    incidence_df,
+):
+
+    if incidence_df is None or incidence_df.empty:
         return pd.DataFrame()
 
     rows = []
 
-    for year, group in incidence.groupby(
-        "Analysis_Year",
+    for (
+        year,
+        disease,
+    ), group in incidence_df.groupby(
+        [
+            "Year",
+            "Disease",
+        ],
         observed=True,
     ):
 
@@ -925,61 +1040,128 @@ def _aggregate_incidence_by_year(
         ]
 
         if valid.empty:
+            continue
 
-            population = np.nan
-            cases = int(
-                group["Cases"].sum()
+        cases = int(
+            valid["Cases"].sum()
+        )
+
+        population = float(
+            valid["Population"].sum()
+        )
+
+        denominator = (
+            valid["Incidence Rate"]
+            * valid["Population"]
+            / valid["Cases"].replace(
+                0,
+                np.nan,
             )
+        )
 
-            rate = np.nan
-
-        else:
-
-            population = float(
-                valid["Population"].sum()
+        denominator = (
+            denominator
+            .replace(
+                [np.inf, -np.inf],
+                np.nan,
             )
+            .dropna()
+        )
 
-            cases = int(
-                valid["Cases"].sum()
-            )
+        if denominator.empty:
+            continue
 
-            rate = (
-                cases
-                / population
-                * denominator
-            )
+        multiplier = float(
+            denominator.iloc[0]
+        )
+
+        rate = (
+            cases
+            / population
+            * multiplier
+        )
+
+        rows.append(
+            {
+                "Year": int(year),
+                "Disease": disease,
+                "Cases": cases,
+                "Population": population,
+                "Incidence Rate": round(
+                    rate,
+                    2,
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _aggregate_year_incidence(
+    ward_incidence,
+    denominator,
+):
+
+    if ward_incidence is None or ward_incidence.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    for year, group in ward_incidence.groupby(
+        "Year",
+        observed=True,
+    ):
+
+        valid = group[
+            group["Population"].notna()
+            & group["Population"].gt(0)
+        ]
+
+        if valid.empty:
+            continue
+
+        cases = int(
+            valid["Cases"].sum()
+        )
+
+        population = float(
+            valid["Population"].sum()
+        )
+
+        rate = (
+            cases
+            / population
+            * denominator
+        )
 
         rows.append(
             {
                 "Year": int(year),
                 "Cases": cases,
                 "Population": population,
-                "Incidence Rate": (
-                    round(rate, 2)
-                    if pd.notna(rate)
-                    else np.nan
+                "Incidence Rate": round(
+                    rate,
+                    2,
                 ),
             }
         )
 
-    return pd.DataFrame(
-        rows
-    ).sort_values(
-        "Year"
-    ).reset_index(
-        drop=True
+    return (
+        pd.DataFrame(rows)
+        .sort_values("Year")
+        .reset_index(drop=True)
     )
 
 
 # ============================================================
-# MULTI SELECT
+# SELECTION HELPERS
 # ============================================================
 
-def _checkbox_multiselect(
+def _compact_multiselect(
     label,
     options,
-    key_prefix,
-    default_count=None,
+    default=None,
+    key=None,
 ):
 
     options = list(options)
@@ -987,142 +1169,53 @@ def _checkbox_multiselect(
     if not options:
         return []
 
-    if default_count is None:
-        default_count = len(
-            options
-        )
+    if default is None:
+        default = options[:min(
+            5,
+            len(options),
+        )]
 
-    default_count = min(
-        default_count,
-        len(options),
-    )
-
-    select_all_key = (
-        f"{key_prefix}_select_all"
-    )
-
-    init_key = (
-        f"{key_prefix}_initialized"
-    )
-
-    option_keys = [
-        f"{key_prefix}_option_{index}"
-        for index in range(
-            len(options)
-        )
-    ]
-
-    if init_key not in st.session_state:
-
-        st.session_state[
-            init_key
-        ] = True
-
-        select_all_default = (
-            default_count
-            == len(options)
-        )
-
-        st.session_state[
-            select_all_key
-        ] = select_all_default
-
-        for index, key in enumerate(
-            option_keys
-        ):
-
-            st.session_state[
-                key
-            ] = (
-                index
-                < default_count
-            )
-
-    def select_all_changed():
-
-        new_value = bool(
-            st.session_state.get(
-                select_all_key,
-                False,
-            )
-        )
-
-        for key in option_keys:
-
-            st.session_state[
-                key
-            ] = new_value
-
-    def individual_changed():
-
-        all_selected = all(
-            bool(
-                st.session_state.get(
-                    key,
-                    False,
-                )
-            )
-            for key in option_keys
-        )
-
-        st.session_state[
-            select_all_key
-        ] = all_selected
-
-    selected = []
-
-    with st.popover(
+    return st.multiselect(
         label,
-        use_container_width=True,
-    ):
-
-        st.checkbox(
-            "Select All",
-            key=select_all_key,
-            on_change=select_all_changed,
-        )
-
-        st.divider()
-
-        for index, option in enumerate(
-            options
-        ):
-
-            checked = st.checkbox(
-                str(option),
-                key=option_keys[
-                    index
-                ],
-                on_change=individual_changed,
-            )
-
-            if checked:
-                selected.append(
-                    option
-                )
-
-    return selected
+        options=options,
+        default=default,
+        key=key,
+    )
 
 
 # ============================================================
 # CHART HELPERS
 # ============================================================
 
-def _chart_legend(
-    title=None,
-):
+def _legend_columns(series_count):
+
+    if series_count <= 4:
+        return 4
+
+    if series_count <= 8:
+        return 4
+
+    if series_count <= 12:
+        return 6
+
+    return 6
+
+
+def _legend(series_count, title=None):
 
     return alt.Legend(
         title=title,
         orient="bottom",
         direction="horizontal",
-        columns=6,
+        columns=_legend_columns(
+            series_count
+        ),
         labelFontSize=9,
         titleFontSize=10,
-        symbolSize=70,
-        labelLimit=220,
+        symbolSize=65,
+        labelLimit=180,
         columnPadding=8,
-        rowPadding=4,
+        rowPadding=5,
     )
 
 
@@ -1131,7 +1224,7 @@ def _render_bar_chart(
     x_column,
     y_column,
     title,
-    y_title=None,
+    y_title,
     height=430,
 ):
 
@@ -1143,11 +1236,9 @@ def _render_bar_chart(
     ):
         return
 
-    chart_df = dataframe.copy()
-
-    chart_df = chart_df[
-        chart_df[y_column].notna()
-    ]
+    chart_df = dataframe[
+        dataframe[y_column].notna()
+    ].copy()
 
     if chart_df.empty:
         return
@@ -1162,11 +1253,8 @@ def _render_bar_chart(
         .tolist()
     )
 
-    colors = [
-        DEFAULT_COLORS[
-            index
-            % len(DEFAULT_COLORS)
-        ]
+    color_range = [
+        COLORS[index % len(COLORS)]
         for index in range(
             len(order)
         )
@@ -1174,13 +1262,11 @@ def _render_bar_chart(
 
     scale = alt.Scale(
         domain=order,
-        range=colors,
+        range=color_range,
     )
 
     bars = (
-        alt.Chart(
-            chart_df
-        )
+        alt.Chart(chart_df)
         .mark_bar()
         .encode(
             x=alt.X(
@@ -1195,17 +1281,15 @@ def _render_bar_chart(
             y=alt.Y(
                 f"{y_column}:Q",
                 axis=alt.Axis(
-                    title=(
-                        y_title
-                        or y_column
-                    )
+                    title=y_title
                 ),
             ),
             color=alt.Color(
                 f"{x_column}:N",
                 scale=scale,
-                legend=_chart_legend(
-                    x_column
+                legend=_legend(
+                    len(order),
+                    x_column,
                 ),
             ),
             tooltip=[
@@ -1215,10 +1299,7 @@ def _render_bar_chart(
                 ),
                 alt.Tooltip(
                     f"{y_column}:Q",
-                    title=(
-                        y_title
-                        or y_column
-                    ),
+                    title=y_title,
                     format=",.2f",
                 ),
             ],
@@ -1234,9 +1315,7 @@ def _render_bar_chart(
     if data_labels_enabled():
 
         labels = (
-            alt.Chart(
-                chart_df
-            )
+            alt.Chart(chart_df)
             .mark_text(
                 dy=-8,
                 fontSize=DATA_LABEL_FONT_SIZE,
@@ -1270,21 +1349,15 @@ def _render_bar_chart(
     )
 
 
-def _render_multi_line_chart(
+def _render_line_chart(
     dataframe,
     x_column,
     series_column,
     value_column,
     title,
     y_title,
-    height=460,
+    height=450,
 ):
-
-    if (
-        dataframe is None
-        or dataframe.empty
-    ):
-        return
 
     required = {
         x_column,
@@ -1292,36 +1365,31 @@ def _render_multi_line_chart(
         value_column,
     }
 
-    if not required.issubset(
-        dataframe.columns
+    if (
+        dataframe is None
+        or dataframe.empty
+        or not required.issubset(
+            dataframe.columns
+        )
     ):
         return
 
-    chart_df = dataframe.copy()
-
-    chart_df = chart_df[
-        chart_df[
-            value_column
-        ].notna()
-    ]
+    chart_df = dataframe[
+        dataframe[value_column].notna()
+    ].copy()
 
     if chart_df.empty:
         return
 
     series_order = (
-        chart_df[
-            series_column
-        ]
+        chart_df[series_column]
         .astype(str)
         .drop_duplicates()
         .tolist()
     )
 
-    colors = [
-        DEFAULT_COLORS[
-            index
-            % len(DEFAULT_COLORS)
-        ]
+    color_range = [
+        COLORS[index % len(COLORS)]
         for index in range(
             len(series_order)
         )
@@ -1329,13 +1397,11 @@ def _render_multi_line_chart(
 
     scale = alt.Scale(
         domain=series_order,
-        range=colors,
+        range=color_range,
     )
 
     lines = (
-        alt.Chart(
-            chart_df
-        )
+        alt.Chart(chart_df)
         .mark_line(
             point=True,
             strokeWidth=3,
@@ -1360,8 +1426,9 @@ def _render_multi_line_chart(
                 f"{series_column}:N",
                 sort=series_order,
                 scale=scale,
-                legend=_chart_legend(
-                    series_column
+                legend=_legend(
+                    len(series_order),
+                    series_column,
                 ),
             ),
             tooltip=[
@@ -1391,9 +1458,7 @@ def _render_multi_line_chart(
     if data_labels_enabled():
 
         labels = (
-            alt.Chart(
-                chart_df
-            )
+            alt.Chart(chart_df)
             .mark_text(
                 dy=-9,
                 fontSize=DATA_LABEL_FONT_SIZE,
@@ -1428,316 +1493,189 @@ def _render_multi_line_chart(
 
 
 # ============================================================
-# DISEASE / WARD INCIDENCE
+# OBSERVATION HELPERS
 # ============================================================
 
-def _disease_ward_incidence(
-    source,
-    population_long,
-    denominator,
-    selected_diseases=None,
-    selected_wards=None,
+def _observation_box(text):
+
+    if not text:
+        return
+
+    st.info(
+        f"📌 **Chart Observation:** {text}"
+    )
+
+
+def _bar_observation(
+    dataframe,
+    category,
+    value,
+    unit,
 ):
 
-    required = {
-        "Ward Name",
-        "Disease",
-        "Analysis_Year",
-    }
-
     if (
-        source is None
-        or source.empty
-        or not required.issubset(
-            source.columns
-        )
+        dataframe is None
+        or dataframe.empty
+        or category not in dataframe.columns
+        or value not in dataframe.columns
     ):
-        return pd.DataFrame()
+        return None
 
-    temp = source.copy()
-
-    temp["Ward Name"] = (
-        _clean_series(
-            temp["Ward Name"]
-        )
-    )
-
-    temp["Disease"] = (
-        _clean_series(
-            temp["Disease"]
-        )
-    )
-
-    temp = temp[
-        temp["Ward Name"].ne("")
-        & temp["Disease"].ne("")
-        & temp["Ward Name"].ne("nan")
-        & temp["Disease"].ne("nan")
-    ]
-
-    if selected_diseases:
-
-        temp = temp[
-            temp["Disease"].isin(
-                selected_diseases
-            )
-        ]
-
-    if selected_wards:
-
-        temp = temp[
-            temp["Ward Name"].isin(
-                selected_wards
-            )
-        ]
-
-    if temp.empty:
-        return pd.DataFrame()
-
-    grouped = (
-        temp
-        .groupby(
-            [
-                "Ward Name",
-                "Disease",
-                "Analysis_Year",
-            ],
-            observed=True,
-        )
-        .size()
-        .reset_index(
-            name="Cases"
-        )
-    )
-
-    rows = []
-
-    for _, row in grouped.iterrows():
-
-        population, year_used, status = (
-            _population_for_ward_year(
-                population_long,
-                row["Ward Name"],
-                row["Analysis_Year"],
-            )
-        )
-
-        if (
-            pd.notna(population)
-            and population > 0
-        ):
-
-            incidence = (
-                row["Cases"]
-                / population
-                * denominator
-            )
-
-        else:
-
-            incidence = np.nan
-
-        rows.append(
-            {
-                "Ward": row[
-                    "Ward Name"
-                ],
-                "Disease": row[
-                    "Disease"
-                ],
-                "Year": int(
-                    row[
-                        "Analysis_Year"
-                    ]
-                ),
-                "Cases": int(
-                    row["Cases"]
-                ),
-                "Population": population,
-                "Population Year Used": (
-                    year_used
-                ),
-                "Population Match Status": (
-                    status
-                ),
-                "Incidence Rate": (
-                    round(
-                        incidence,
-                        2,
-                    )
-                    if pd.notna(
-                        incidence
-                    )
-                    else np.nan
-                ),
-            }
-        )
-
-    return pd.DataFrame(
-        rows
-    )
-
-
-# ============================================================
-# MONTHLY INCIDENCE
-# ============================================================
-
-def _monthly_incidence(
-    source,
-    population_long,
-    denominator,
-):
-
-    required = {
-        "Ward Name",
-        "Analysis_Year",
-        "Analysis_Month",
-    }
-
-    if (
-        source is None
-        or source.empty
-        or not required.issubset(
-            source.columns
-        )
-    ):
-        return pd.DataFrame()
-
-    temp = source[
-        source[
-            "Analysis_Month"
-        ].between(
-            1,
-            12,
-        )
+    valid = dataframe[
+        dataframe[value].notna()
     ].copy()
 
-    if temp.empty:
-        return pd.DataFrame()
+    if valid.empty:
+        return None
 
-    temp["Ward Name"] = (
-        _clean_series(
-            temp["Ward Name"]
-        )
-    )
-
-    temp = temp[
-        temp["Ward Name"].ne("")
-        & temp["Ward Name"].ne("nan")
+    highest = valid.loc[
+        valid[value].idxmax()
     ]
 
-    grouped = (
-        temp
-        .groupby(
-            [
-                "Ward Name",
-                "Analysis_Year",
-                "Analysis_Month",
-            ],
-            observed=True,
-        )
-        .size()
-        .reset_index(
-            name="Cases"
-        )
-    )
+    lowest = valid.loc[
+        valid[value].idxmin()
+    ]
 
-    rows = []
+    if len(valid) == 1:
 
-    for _, row in grouped.iterrows():
-
-        population, year_used, status = (
-            _population_for_ward_year(
-                population_long,
-                row["Ward Name"],
-                row["Analysis_Year"],
-            )
+        return (
+            f"{highest[category]} recorded "
+            f"{_format_number(highest[value], 2)} {unit}."
         )
 
-        if (
-            pd.notna(population)
-            and population > 0
-        ):
-
-            rate = (
-                row["Cases"]
-                / population
-                * denominator
-            )
-
-        else:
-            rate = np.nan
-
-        month = int(
-            row["Analysis_Month"]
-        )
-
-        year = int(
-            row["Analysis_Year"]
-        )
-
-        rows.append(
-            {
-                "Ward": row[
-                    "Ward Name"
-                ],
-                "Year": year,
-                "Month": month,
-                "Period": (
-                    f"{pd.Timestamp(2000, month, 1).strftime('%b')}"
-                    f"-{year}"
-                ),
-                "Cases": int(
-                    row["Cases"]
-                ),
-                "Population": population,
-                "Population Year Used": (
-                    year_used
-                ),
-                "Population Match Status": (
-                    status
-                ),
-                "Incidence Rate": (
-                    round(
-                        rate,
-                        2,
-                    )
-                    if pd.notna(rate)
-                    else np.nan
-                ),
-            }
-        )
-
-    result = pd.DataFrame(
-        rows
-    )
-
-    if result.empty:
-        return result
-
-    return result.sort_values(
-        [
-            "Year",
-            "Month",
-            "Ward",
-        ]
-    ).reset_index(
-        drop=True
+    return (
+        f"The highest value is observed for "
+        f"{highest[category]} "
+        f"({_format_number(highest[value], 2)} {unit}), "
+        f"while the lowest among the displayed categories is "
+        f"{lowest[category]} "
+        f"({_format_number(lowest[value], 2)} {unit})."
     )
 
 
-# ============================================================
-# STATISTICAL THRESHOLDS
-# ============================================================
-
-def _monthly_case_series(
-    source,
+def _trend_observation(
+    dataframe,
+    period_column,
+    value_column,
 ):
 
     if (
-        source is None
-        or source.empty
+        dataframe is None
+        or dataframe.empty
+        or value_column not in dataframe.columns
     ):
+        return None
+
+    valid = dataframe[
+        dataframe[value_column].notna()
+    ].copy()
+
+    if valid.empty:
+        return None
+
+    peak = valid.loc[
+        valid[value_column].idxmax()
+    ]
+
+    first = valid.iloc[0]
+    last = valid.iloc[-1]
+
+    first_value = float(
+        first[value_column]
+    )
+
+    last_value = float(
+        last[value_column]
+    )
+
+    if last_value > first_value:
+        direction = "higher"
+    elif last_value < first_value:
+        direction = "lower"
+    else:
+        direction = "the same"
+
+    return (
+        f"The highest displayed value occurs in "
+        f"{peak[period_column]} "
+        f"({_format_number(peak[value_column], 2)}). "
+        f"The last displayed value is {direction} than "
+        f"the first displayed value."
+    )
+
+
+# ============================================================
+# METHODOLOGY HELPERS
+# ============================================================
+
+def _methodology_expander(
+    title,
+    lines,
+):
+
+    with st.expander(
+        f"ℹ️ Methodology — {title}",
+        expanded=False,
+    ):
+
+        for line in lines:
+            st.markdown(
+                f"- {line}"
+            )
+
+
+# ============================================================
+# STATISTICAL ANALYSIS
+# ============================================================
+
+def _apply_baseline(
+    source,
+    baseline,
+):
+
+    if source is None or source.empty:
+        return source
+
+    years = sorted(
+        source["Analysis_Year"]
+        .dropna()
+        .astype(int)
+        .unique()
+        .tolist()
+    )
+
+    if not years:
+        return source
+
+    mapping = {
+        "Last 2 Years": 2,
+        "Last 3 Years": 3,
+        "Last 5 Years": 5,
+    }
+
+    if baseline == "All Available Years":
+        return source.copy()
+
+    count = mapping.get(
+        baseline
+    )
+
+    if count is None:
+        return source.copy()
+
+    selected_years = years[
+        -count:
+    ]
+
+    return source[
+        source["Analysis_Year"]
+        .isin(selected_years)
+    ].copy()
+
+
+def _monthly_case_series(source):
+
+    if source is None or source.empty:
         return pd.DataFrame()
 
     required = {
@@ -1753,10 +1691,7 @@ def _monthly_case_series(
     temp = source[
         source[
             "Analysis_Month"
-        ].between(
-            1,
-            12,
-        )
+        ].between(1, 12)
     ].copy()
 
     if temp.empty:
@@ -1789,17 +1724,9 @@ def _monthly_case_series(
         )
     )
 
-    first_date = monthly[
-        "Date"
-    ].min()
-
-    last_date = monthly[
-        "Date"
-    ].max()
-
     complete_dates = pd.date_range(
-        start=first_date,
-        end=last_date,
+        monthly["Date"].min(),
+        monthly["Date"].max(),
         freq="MS",
     )
 
@@ -1809,17 +1736,13 @@ def _monthly_case_series(
         }
     )
 
-    complete[
-        "Analysis_Year"
-    ] = complete[
-        "Date"
-    ].dt.year
+    complete["Analysis_Year"] = (
+        complete["Date"].dt.year
+    )
 
-    complete[
-        "Analysis_Month"
-    ] = complete[
-        "Date"
-    ].dt.month
+    complete["Analysis_Month"] = (
+        complete["Date"].dt.month
+    )
 
     complete = complete.merge(
         monthly[
@@ -1836,22 +1759,14 @@ def _monthly_case_series(
         ],
     )
 
-    complete[
-        "Cases"
-    ] = (
-        complete[
-            "Cases"
-        ]
+    complete["Cases"] = (
+        complete["Cases"]
         .fillna(0)
         .astype(int)
     )
 
-    complete[
-        "Period"
-    ] = (
-        complete[
-            "Date"
-        ]
+    complete["Period"] = (
+        complete["Date"]
         .dt.strftime(
             "%b-%Y"
         )
@@ -1860,67 +1775,9 @@ def _monthly_case_series(
     return complete
 
 
-def _apply_baseline_years(
-    source,
-    option,
-):
+def _threshold_statistics(monthly):
 
-    if (
-        source is None
-        or source.empty
-    ):
-        return source
-
-    years = sorted(
-        source[
-            "Analysis_Year"
-        ]
-        .dropna()
-        .astype(int)
-        .unique()
-        .tolist()
-    )
-
-    if not years:
-        return source
-
-    baseline_map = {
-        "Last 2 Years": 2,
-        "Last 3 Years": 3,
-        "Last 5 Years": 5,
-    }
-
-    if option == "All Available Years":
-        return source.copy()
-
-    count = baseline_map.get(
-        option
-    )
-
-    if count is None:
-        return source.copy()
-
-    selected_years = (
-        years[-count:]
-    )
-
-    return source[
-        source[
-            "Analysis_Year"
-        ].isin(
-            selected_years
-        )
-    ].copy()
-
-
-def _threshold_statistics(
-    monthly,
-):
-
-    if (
-        monthly is None
-        or monthly.empty
-    ):
+    if monthly is None or monthly.empty:
         return None
 
     values = pd.to_numeric(
@@ -1935,29 +1792,22 @@ def _threshold_statistics(
         values.mean()
     )
 
-    if len(values) > 1:
-
-        sd = float(
+    sd = (
+        float(
             values.std(
                 ddof=1
             )
         )
-
-    else:
-        sd = 0.0
+        if len(values) > 1
+        else 0.0
+    )
 
     return {
         "Mean": mean,
         "SD": sd,
-        "Mean + 1 SD": (
-            mean + sd
-        ),
-        "Mean + 2 SD": (
-            mean + 2 * sd
-        ),
-        "Mean + 3 SD": (
-            mean + 3 * sd
-        ),
+        "Mean + 1 SD": mean + sd,
+        "Mean + 2 SD": mean + (2 * sd),
+        "Mean + 3 SD": mean + (3 * sd),
     }
 
 
@@ -1981,34 +1831,19 @@ def _render_threshold_chart(
         ]
     ].copy()
 
-    chart_df[
-        "Mean"
-    ] = statistics[
-        "Mean"
-    ]
+    for key in [
+        "Mean",
+        "Mean + 1 SD",
+        "Mean + 2 SD",
+        "Mean + 3 SD",
+    ]:
 
-    chart_df[
-        "Mean + 1 SD"
-    ] = statistics[
-        "Mean + 1 SD"
-    ]
-
-    chart_df[
-        "Mean + 2 SD"
-    ] = statistics[
-        "Mean + 2 SD"
-    ]
-
-    chart_df[
-        "Mean + 3 SD"
-    ] = statistics[
-        "Mean + 3 SD"
-    ]
+        chart_df[key] = (
+            statistics[key]
+        )
 
     long_df = chart_df.melt(
-        id_vars=[
-            "Period"
-        ],
+        id_vars=["Period"],
         value_vars=[
             "Cases",
             "Mean",
@@ -2028,23 +1863,19 @@ def _render_threshold_chart(
         "Mean + 3 SD",
     ]
 
-    colors = [
-        "#1F77B4",
-        "#2CA02C",
-        "#FFBF00",
-        "#FF7F0E",
-        "#D62728",
-    ]
-
     scale = alt.Scale(
         domain=series_order,
-        range=colors,
+        range=[
+            "#1F77B4",
+            "#2CA02C",
+            "#FFBF00",
+            "#FF7F0E",
+            "#D62728",
+        ],
     )
 
-    lines = (
-        alt.Chart(
-            long_df
-        )
+    chart = (
+        alt.Chart(long_df)
         .mark_line(
             strokeWidth=3,
         )
@@ -2060,16 +1891,15 @@ def _render_threshold_chart(
             ),
             y=alt.Y(
                 "Value:Q",
-                axis=alt.Axis(
-                    title="Cases"
-                ),
+                title="Cases",
             ),
             color=alt.Color(
                 "Series:N",
                 sort=series_order,
                 scale=scale,
-                legend=_chart_legend(
-                    "Series"
+                legend=_legend(
+                    len(series_order),
+                    "Series",
                 ),
             ),
             strokeDash=alt.StrokeDash(
@@ -2078,59 +1908,49 @@ def _render_threshold_chart(
                     domain=series_order,
                     range=[
                         [1, 0],
-                        [8, 4],
-                        [8, 4],
-                        [8, 4],
-                        [8, 4],
+                        [7, 4],
+                        [7, 4],
+                        [7, 4],
+                        [7, 4],
                     ],
                 ),
                 legend=None,
             ),
             tooltip=[
                 alt.Tooltip(
-                    "Period:N",
-                    title="Period",
+                    "Period:N"
                 ),
                 alt.Tooltip(
-                    "Series:N",
-                    title="Series",
+                    "Series:N"
                 ),
                 alt.Tooltip(
                     "Value:Q",
-                    title="Value",
                     format=",.2f",
                 ),
             ],
         )
         .properties(
-            height=470,
+            height=460,
             title=title,
         )
     )
 
-    points_df = long_df[
-        long_df[
-            "Series"
-        ]
-        == "Cases"
+    case_points = long_df[
+        long_df["Series"] == "Cases"
     ]
 
     points = (
-        alt.Chart(
-            points_df
-        )
+        alt.Chart(case_points)
         .mark_point(
             filled=True,
-            size=65,
+            size=70,
         )
         .encode(
             x=alt.X(
                 "Period:N",
                 sort=None,
             ),
-            y=alt.Y(
-                "Value:Q"
-            ),
+            y="Value:Q",
             color=alt.Color(
                 "Series:N",
                 scale=scale,
@@ -2139,20 +1959,15 @@ def _render_threshold_chart(
         )
     )
 
-    chart = (
-        lines
-        + points
-    )
+    chart = chart + points
 
     if data_labels_enabled():
 
         labels = (
-            alt.Chart(
-                points_df
-            )
+            alt.Chart(case_points)
             .mark_text(
                 dy=-10,
-                fontSize=11,
+                fontSize=10,
                 fontWeight="bold",
             )
             .encode(
@@ -2160,25 +1975,15 @@ def _render_threshold_chart(
                     "Period:N",
                     sort=None,
                 ),
-                y=alt.Y(
-                    "Value:Q"
-                ),
+                y="Value:Q",
                 text=alt.Text(
                     "Value:Q",
                     format=",.0f",
                 ),
-                color=alt.Color(
-                    "Series:N",
-                    scale=scale,
-                    legend=None,
-                ),
             )
         )
 
-        chart = (
-            chart
-            + labels
-        )
+        chart = chart + labels
 
     st.altair_chart(
         chart,
@@ -2186,8 +1991,74 @@ def _render_threshold_chart(
     )
 
 
+def _threshold_observation(
+    monthly,
+    statistics,
+):
+
+    if (
+        monthly is None
+        or monthly.empty
+        or statistics is None
+    ):
+        return None
+
+    latest = monthly.iloc[-1]
+
+    latest_cases = float(
+        latest["Cases"]
+    )
+
+    level_2 = statistics[
+        "Mean + 2 SD"
+    ]
+
+    level_3 = statistics[
+        "Mean + 3 SD"
+    ]
+
+    if latest_cases > level_3:
+
+        status = (
+            "above the Mean + 3 SD statistical level"
+        )
+
+    elif latest_cases > level_2:
+
+        status = (
+            "above the Mean + 2 SD statistical level"
+        )
+
+    elif latest_cases > statistics[
+        "Mean + 1 SD"
+    ]:
+
+        status = (
+            "above the Mean + 1 SD statistical level"
+        )
+
+    else:
+
+        status = (
+            "within or below the Mean + 1 SD statistical level"
+        )
+
+    peak = monthly.loc[
+        monthly["Cases"].idxmax()
+    ]
+
+    return (
+        f"The latest period ({latest['Period']}) recorded "
+        f"{int(latest_cases):,} cases and is {status}. "
+        f"The highest monthly count in the displayed baseline "
+        f"was {int(peak['Cases']):,} cases in "
+        f"{peak['Period']}. These are descriptive statistical "
+        f"signals and do not independently confirm an outbreak."
+    )
+
+
 # ============================================================
-# POPULATION AUDIT TABLE
+# POPULATION AUDIT
 # ============================================================
 
 def _population_audit(
@@ -2212,20 +2083,14 @@ def _population_audit(
         .copy()
     )
 
-    combinations[
-        "Ward Name"
-    ] = _clean_series(
-        combinations[
-            "Ward Name"
-        ]
-    )
+    combinations = combinations[
+        _valid_text(
+            combinations["Ward Name"]
+        )
+    ]
 
     combinations = (
-        combinations[
-            combinations[
-                "Ward Name"
-            ].ne("")
-        ]
+        combinations
         .drop_duplicates()
         .sort_values(
             [
@@ -2249,53 +2114,45 @@ def _population_audit(
 
         rows.append(
             {
-                "Ward": row[
-                    "Ward Name"
-                ],
+                "Ward": row["Ward Name"],
                 "Analysis Year": int(
-                    row[
-                        "Analysis_Year"
-                    ]
+                    row["Analysis_Year"]
                 ),
                 "Population": population,
-                "Population Year Used": (
-                    year_used
-                ),
+                "Population Year Used": year_used,
                 "Status": status,
             }
         )
 
-    return pd.DataFrame(
-        rows
-    )
+    return pd.DataFrame(rows)
 
 
 # ============================================================
 # MAIN PAGE
 # ============================================================
 
-def render_incidence(df):
+def render_incidence_analysis(df):
 
     st.subheader(
         "📐 Incidence & Statistical Surveillance"
     )
 
+    st.caption(
+        "Population-based incidence analysis, trend monitoring "
+        "and descriptive statistical surveillance using the "
+        "currently selected Global Dashboard Filters."
+    )
+
     if df is None or df.empty:
 
         st.warning(
-            "No records available for the selected filters."
+            "No records are available for the selected filters."
         )
 
         return
 
-    st.caption(
-        "Population-based incidence analysis and statistical "
-        "surveillance thresholds based on the selected "
-        "Global Dashboard Filters."
-    )
-
     # ========================================================
-    # LOAD CASE DATA
+    # PREPARE CASE DATA ONCE
     # ========================================================
 
     case_df = _prepare_case_data(
@@ -2305,14 +2162,14 @@ def render_incidence(df):
     if case_df.empty:
 
         st.warning(
-            "Valid Year information is required for "
+            "Valid year information is required for "
             "incidence analysis."
         )
 
         return
 
     # ========================================================
-    # LOAD POPULATION DATA
+    # LOAD POPULATION ONCE
     # ========================================================
 
     population_error = None
@@ -2335,58 +2192,44 @@ def render_incidence(df):
 
         population_error = error
 
-        population_raw = (
-            pd.DataFrame()
-        )
-
-        population_wide = (
-            pd.DataFrame()
-        )
-
-        population_long = (
-            pd.DataFrame()
-        )
-
+        population_wide = pd.DataFrame()
+        population_long = pd.DataFrame()
         population_years = []
 
     # ========================================================
-    # 1. POPULATION & INCIDENCE SUMMARY
+    # SECTION 1
+    # POPULATION & INCIDENCE OVERVIEW
     # ========================================================
 
     st.markdown(
-        "### 1. 📊 Population & Incidence Summary"
+        "### 1. 📊 Population & Incidence Overview"
     )
 
     denominator = st.selectbox(
-        "Incidence Rate Per Population",
+        "Incidence Rate Denominator",
         options=DENOMINATOR_OPTIONS,
         index=DENOMINATOR_OPTIONS.index(
             DEFAULT_DENOMINATOR
         ),
-        format_func=lambda value:
-        f"Per {value:,} Population",
-        key=(
-            "phase8b_incidence_denominator"
+        format_func=lambda value: (
+            f"Per {value:,} Population"
         ),
+        key="phase8b_incidence_denominator",
     )
 
     st.caption(
-        f"All incidence rates on this page are currently "
-        f"expressed per {denominator:,} population."
+        f"All incidence rates displayed on this page are "
+        f"currently expressed per {denominator:,} population."
     )
 
     case_years = sorted(
-        case_df[
-            "Analysis_Year"
-        ]
+        case_df["Analysis_Year"]
         .unique()
         .tolist()
     )
 
-    valid_population_wards = (
-        population_long[
-            "WARD"
-        ].nunique()
+    population_wards = (
+        population_long["WARD"].nunique()
         if not population_long.empty
         else 0
     )
@@ -2411,34 +2254,19 @@ def render_incidence(df):
 
         st.metric(
             "Population Wards",
-            f"{valid_population_wards:,}",
+            f"{population_wards:,}",
         )
 
     with c4:
 
-        if population_years:
-
-            st.metric(
-                "Latest Population Year",
-                f"{max(population_years)}",
-            )
-
-        else:
-
-            st.metric(
-                "Latest Population Year",
-                "Unavailable",
-            )
-
-    # ========================================================
-    # 2. POPULATION DATA STATUS
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 2. 👥 Population Data Status"
-    )
+        st.metric(
+            "Latest Population Year",
+            (
+                str(max(population_years))
+                if population_years
+                else "Unavailable"
+            ),
+        )
 
     if population_error is not None:
 
@@ -2447,65 +2275,27 @@ def render_incidence(df):
             "the Population worksheet."
         )
 
-        st.caption(
-            str(
-                population_error
+        with st.expander(
+            "Technical Details",
+            expanded=False,
+        ):
+            st.code(
+                str(population_error)
             )
-        )
 
     elif population_long.empty:
 
         st.warning(
-            "Population data is unavailable or no valid "
-            "population year columns were detected."
+            "No valid population data or population-year "
+            "columns were detected."
         )
 
     else:
 
-        c1, c2, c3, c4 = st.columns(4)
-
-        with c1:
-
-            st.metric(
-                "Population Wards",
-                f"{population_wide['WARD'].nunique():,}",
-            )
-
-        with c2:
-
-            st.metric(
-                "Population Years",
-                f"{len(population_years):,}",
-            )
-
-        with c3:
-
-            st.metric(
-                "First Population Year",
-                str(
-                    min(
-                        population_years
-                    )
-                ),
-            )
-
-        with c4:
-
-            st.metric(
-                "Latest Population Year",
-                str(
-                    max(
-                        population_years
-                    )
-                ),
-            )
-
-        st.write(
-            "**Detected Population Years:** "
-            + ", ".join(
-                str(year)
-                for year in population_years
-            )
+        st.success(
+            "Population dataset loaded successfully. "
+            f"Detected years: "
+            f"{', '.join(str(x) for x in population_years)}"
         )
 
         with st.expander(
@@ -2513,647 +2303,434 @@ def render_incidence(df):
             expanded=False,
         ):
 
-            population_display = (
-                population_wide.copy()
-            )
-
-            for column in (
-                population_display.columns
-            ):
-
-                if column == "WARD":
-                    continue
-
-                population_display[
-                    column
-                ] = (
-                    population_display[
-                        column
-                    ]
-                    .round(0)
-                )
-
             st.dataframe(
-                population_display,
+                population_wide,
                 use_container_width=True,
                 hide_index=True,
             )
 
+    _methodology_expander(
+        "Population & Incidence Overview",
+        [
+            (
+                "Incidence Rate = Cases ÷ Population × "
+                "selected denominator."
+            ),
+            (
+                "The default denominator is 100,000 population."
+            ),
+            (
+                "Population year columns are detected "
+                "automatically from the Population worksheet."
+            ),
+            (
+                "New population year columns can therefore "
+                "be added without changing this module."
+            ),
+        ],
+    )
+
+    if population_long.empty:
+        return
+
     # ========================================================
-    # 3. POPULATION TREND BY WARD
+    # PREPARE COMMON INCIDENCE TABLES ONCE
+    # ========================================================
+
+    ward_incidence = (
+        _build_ward_year_incidence(
+            case_df,
+            population_long,
+            denominator,
+        )
+    )
+
+    disease_ward_incidence = (
+        _build_disease_ward_year_incidence(
+            case_df,
+            population_long,
+            denominator,
+        )
+    )
+
+    monthly_incidence = (
+        _build_monthly_ward_incidence(
+            case_df,
+            population_long,
+            denominator,
+        )
+    )
+
+    yearly_incidence = (
+        _aggregate_year_incidence(
+            ward_incidence,
+            denominator,
+        )
+    )
+
+    audit = (
+        _population_audit(
+            case_df,
+            population_long,
+        )
+    )
+
+    # ========================================================
+    # SECTION 2
+    # POPULATION TREND & MATCHING QUALITY
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 3. 📈 Population Trend by Ward"
+        "### 2. 👥 Population Trend & Matching Quality"
     )
 
-    if not population_long.empty:
+    population_tab, audit_tab = st.tabs(
+        [
+            "📈 Population Trend",
+            "🔍 Population Matching Audit",
+        ]
+    )
 
-        population_wards = (
-            _alphabetical(
-                population_long[
-                    "WARD"
-                ].unique()
-            )
+    # --------------------------------------------------------
+    # POPULATION TREND
+    # --------------------------------------------------------
+
+    with population_tab:
+
+        wards = _alphabetical(
+            population_long[
+                "WARD"
+            ].unique()
         )
 
-        default_count = min(
-            5,
-            len(
-                population_wards
-            ),
-        )
-
-        selected_population_wards = (
-            _checkbox_multiselect(
+        selected_wards = (
+            _compact_multiselect(
                 "Select Ward(s)",
-                population_wards,
-                "phase8b_population_wards",
-                default_count=default_count,
+                wards,
+                default=wards[
+                    :min(5, len(wards))
+                ],
+                key="phase8b_population_wards",
             )
         )
 
-        if selected_population_wards:
+        if selected_wards:
 
-            population_chart = (
-                population_long[
-                    population_long[
-                        "WARD"
-                    ].isin(
-                        selected_population_wards
-                    )
+            chart_df = population_long[
+                population_long["WARD"]
+                .isin(selected_wards)
+            ].copy()
+
+            chart_df = chart_df.sort_values(
+                [
+                    "Population_Year",
+                    "WARD",
                 ]
-                .copy()
             )
 
-            population_chart[
-                "Year"
-            ] = (
-                population_chart[
+            chart_df["Year"] = (
+                chart_df[
                     "Population_Year"
                 ]
                 .astype(int)
                 .astype(str)
             )
 
-            _render_multi_line_chart(
-                dataframe=population_chart,
-                x_column="Year",
-                series_column="WARD",
-                value_column="Population",
-                title=(
-                    "Ward-wise Population Trend"
-                ),
-                y_title="Population",
+            _render_line_chart(
+                chart_df,
+                "Year",
+                "WARD",
+                "Population",
+                "Ward-wise Population Trend",
+                "Population",
                 height=450,
             )
 
-            st.dataframe(
-                population_chart[
-                    [
-                        "WARD",
-                        "Population_Year",
-                        "Population",
+            if not chart_df.empty:
+
+                latest_year = int(
+                    chart_df[
+                        "Population_Year"
+                    ].max()
+                )
+
+                latest_data = chart_df[
+                    chart_df[
+                        "Population_Year"
                     ]
-                ].sort_values(
-                    [
-                        "Population_Year",
-                        "WARD",
+                    == latest_year
+                ]
+
+                if not latest_data.empty:
+
+                    top = latest_data.loc[
+                        latest_data[
+                            "Population"
+                        ].idxmax()
                     ]
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
+
+                    _observation_box(
+                        f"For {latest_year}, the highest "
+                        f"population among the selected wards "
+                        f"is recorded for {top['WARD']} "
+                        f"({_format_number(top['Population'])})."
+                    )
+
+            with st.expander(
+                "📋 View Population Trend Data",
+                expanded=False,
+            ):
+
+                st.dataframe(
+                    chart_df[
+                        [
+                            "WARD",
+                            "Population_Year",
+                            "Population",
+                        ]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         else:
 
             st.info(
-                "Please select at least one ward."
+                "Select at least one ward."
             )
 
-    else:
+        _methodology_expander(
+            "Population Trend",
+            [
+                (
+                    "Population values are read directly "
+                    "from the Population worksheet."
+                ),
+                (
+                    "Each detected population year is "
+                    "displayed chronologically."
+                ),
+                (
+                    "Ward selection changes only the "
+                    "displayed trend and does not modify "
+                    "the source population dataset."
+                ),
+            ],
+        )
 
-        st.info(
-            "Population trend cannot be displayed "
-            "because population data is unavailable."
+    # --------------------------------------------------------
+    # MATCHING AUDIT
+    # --------------------------------------------------------
+
+    with audit_tab:
+
+        if not audit.empty:
+
+            exact_count = int(
+                (
+                    audit["Status"]
+                    == "Exact year"
+                ).sum()
+            )
+
+            previous_count = int(
+                (
+                    audit["Status"]
+                    == "Previous-year fallback"
+                ).sum()
+            )
+
+            future_count = int(
+                (
+                    audit["Status"]
+                    == "Future-year fallback"
+                ).sum()
+            )
+
+            unavailable_count = int(
+                (
+                    audit["Status"]
+                    == "Population unavailable"
+                ).sum()
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            with c1:
+
+                st.metric(
+                    "Exact Matches",
+                    f"{exact_count:,}",
+                )
+
+            with c2:
+
+                st.metric(
+                    "Previous-Year Fallback",
+                    f"{previous_count:,}",
+                )
+
+            with c3:
+
+                st.metric(
+                    "Future-Year Fallback",
+                    f"{future_count:,}",
+                )
+
+            with c4:
+
+                st.metric(
+                    "Unavailable",
+                    f"{unavailable_count:,}",
+                )
+
+            total_matches = len(audit)
+
+            if total_matches > 0:
+
+                exact_percent = (
+                    exact_count
+                    / total_matches
+                    * 100
+                )
+
+                _observation_box(
+                    f"{exact_percent:.1f}% of Ward × Year "
+                    f"population matches use the exact "
+                    f"population year. "
+                    f"{previous_count:,} combinations use a "
+                    f"previous-year fallback and "
+                    f"{future_count:,} use a future-year fallback."
+                )
+
+            st.dataframe(
+                audit,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        _methodology_expander(
+            "Population Matching",
+            [
+                (
+                    "The exact Ward × Year population is "
+                    "used whenever available."
+                ),
+                (
+                    "If the exact year is unavailable, the "
+                    "closest previous available population "
+                    "year for that ward is used."
+                ),
+                (
+                    "If no previous population year exists, "
+                    "the nearest future available year is used."
+                ),
+                (
+                    "Every fallback is explicitly identified "
+                    "in the audit table."
+                ),
+            ],
         )
 
     # ========================================================
-    # 4. OVERALL WARD-WISE INCIDENCE
+    # SECTION 3
+    # WARD-WISE INCIDENCE
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 4. 📍 Overall Ward-wise Incidence Rate"
+        "### 3. 📍 Ward-wise Incidence Analysis"
     )
 
-    if (
-        "Ward Name" in case_df.columns
-        and not population_long.empty
-    ):
+    if not ward_incidence.empty:
 
-        ward_year_cases = (
-            _ward_year_case_counts(
-                case_df
+        available_years = sorted(
+            ward_incidence[
+                "Year"
+            ].unique()
+        )
+
+        selected_year = st.selectbox(
+            "Select Analysis Year",
+            options=available_years,
+            index=len(available_years) - 1,
+            key="phase8b_ward_year",
+        )
+
+        year_df = ward_incidence[
+            ward_incidence["Year"]
+            == selected_year
+        ].copy()
+
+        ward_options = _alphabetical(
+            year_df["Ward"].unique()
+        )
+
+        selected_ward_analysis = (
+            _compact_multiselect(
+                "Select Ward(s)",
+                ward_options,
+                default=ward_options,
+                key="phase8b_ward_analysis_selection",
             )
         )
 
-        ward_incidence = (
-            _attach_population(
-                ward_year_cases,
-                population_long,
-                denominator,
-            )
-        )
+        if selected_ward_analysis:
 
-        if not ward_incidence.empty:
-
-            incidence_years = sorted(
-                ward_incidence[
-                    "Analysis_Year"
-                ]
-                .unique()
-                .tolist()
-            )
-
-            selected_incidence_year = (
-                st.selectbox(
-                    "Select Analysis Year",
-                    options=incidence_years,
-                    index=(
-                        len(
-                            incidence_years
-                        )
-                        - 1
-                    ),
-                    key=(
-                        "phase8b_ward_incidence_year"
-                    ),
+            display_df = year_df[
+                year_df["Ward"]
+                .isin(
+                    selected_ward_analysis
                 )
-            )
+            ].copy()
 
-            selected_year_incidence = (
-                ward_incidence[
-                    ward_incidence[
-                        "Analysis_Year"
-                    ]
-                    == selected_incidence_year
-                ]
-                .copy()
-            )
-
-            selected_year_incidence = (
-                selected_year_incidence
-                .sort_values(
-                    "Incidence Rate",
-                    ascending=False,
-                    na_position="last",
-                )
+            display_df = display_df.sort_values(
+                "Incidence Rate",
+                ascending=False,
+                na_position="last",
             )
 
             _render_bar_chart(
-                dataframe=selected_year_incidence,
-                x_column="Ward Name",
-                y_column="Incidence Rate",
-                title=(
+                display_df,
+                "Ward",
+                "Incidence Rate",
+                (
                     f"Ward-wise Incidence Rate — "
-                    f"{selected_incidence_year}"
+                    f"{selected_year}"
                 ),
-                y_title=(
+                (
                     f"Incidence per "
                     f"{denominator:,}"
                 ),
                 height=460,
             )
 
-            display = (
-                selected_year_incidence[
-                    [
-                        "Ward Name",
-                        "Cases",
-                        "Population",
-                        "Population Year Used",
-                        "Population Match Status",
-                        "Incidence Rate",
-                    ]
-                ]
-                .copy()
-            )
-
-            display = display.rename(
-                columns={
-                    "Ward Name": "Ward",
-                    "Incidence Rate": (
-                        f"Incidence / "
-                        f"{denominator:,}"
-                    ),
-                }
-            )
-
-            st.dataframe(
-                display,
-                use_container_width=True,
-                hide_index=True,
-            )
-
-    else:
-
-        st.info(
-            "Ward and population information is required "
-            "for ward-wise incidence analysis."
-        )
-
-    # ========================================================
-    # 5. DISEASE-WISE INCIDENCE ANALYSIS
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 5. 🦠 Disease-wise Incidence Analysis"
-    )
-
-    if (
-        "Disease" in case_df.columns
-        and "Ward Name" in case_df.columns
-        and not population_long.empty
-    ):
-
-        disease_values = (
-            _clean_series(
-                case_df[
-                    "Disease"
-                ]
-            )
-        )
-
-        disease_values = (
-            disease_values[
-                disease_values.ne("")
-                & disease_values.ne("nan")
-                & disease_values.ne("NaT")
-                & disease_values.ne("None")
-            ]
-        )
-
-        disease_options = (
-            disease_values
-            .value_counts()
-            .index
-            .tolist()
-        )
-
-        selected_diseases = (
-            _checkbox_multiselect(
-                "Select Disease(s)",
-                disease_options,
-                "phase8b_diseases",
-                default_count=min(
-                    5,
-                    len(
-                        disease_options
-                    ),
+            observation = _bar_observation(
+                display_df,
+                "Ward",
+                "Incidence Rate",
+                (
+                    f"cases per "
+                    f"{denominator:,} population"
                 ),
             )
-        )
 
-        if selected_diseases:
-
-            disease_incidence = (
-                _disease_ward_incidence(
-                    case_df,
-                    population_long,
-                    denominator,
-                    selected_diseases=(
-                        selected_diseases
-                    ),
-                )
+            _observation_box(
+                observation
             )
 
-            if not disease_incidence.empty:
-
-                disease_years = sorted(
-                    disease_incidence[
-                        "Year"
-                    ]
-                    .unique()
-                    .tolist()
-                )
-
-                selected_disease_year = (
-                    st.selectbox(
-                        "Disease Analysis Year",
-                        options=disease_years,
-                        index=(
-                            len(
-                                disease_years
-                            )
-                            - 1
-                        ),
-                        key=(
-                            "phase8b_disease_year"
-                        ),
-                    )
-                )
-
-                disease_year_df = (
-                    disease_incidence[
-                        disease_incidence[
-                            "Year"
-                        ]
-                        == selected_disease_year
-                    ]
-                    .copy()
-                )
-
-                # Aggregate ward rates by calculating
-                # cases / summed valid ward populations.
-
-                disease_summary_rows = []
-
-                for disease in (
-                    selected_diseases
-                ):
-
-                    group = (
-                        disease_year_df[
-                            disease_year_df[
-                                "Disease"
-                            ]
-                            == disease
-                        ]
-                    )
-
-                    valid = group[
-                        group[
-                            "Population"
-                        ].notna()
-                        & group[
-                            "Population"
-                        ].gt(0)
-                    ]
-
-                    if valid.empty:
-                        continue
-
-                    cases = int(
-                        valid[
-                            "Cases"
-                        ].sum()
-                    )
-
-                    population = float(
-                        valid[
-                            "Population"
-                        ].sum()
-                    )
-
-                    rate = (
-                        cases
-                        / population
-                        * denominator
-                    )
-
-                    disease_summary_rows.append(
-                        {
-                            "Disease": disease,
-                            "Cases": cases,
-                            "Population": population,
-                            "Incidence Rate": round(
-                                rate,
-                                2,
-                            ),
-                        }
-                    )
-
-                disease_summary = (
-                    pd.DataFrame(
-                        disease_summary_rows
-                    )
-                )
-
-                if not disease_summary.empty:
-
-                    disease_summary = (
-                        disease_summary
-                        .sort_values(
-                            "Incidence Rate",
-                            ascending=False,
-                        )
-                    )
-
-                    _render_bar_chart(
-                        dataframe=disease_summary,
-                        x_column="Disease",
-                        y_column="Incidence Rate",
-                        title=(
-                            "Selected Disease "
-                            "Incidence Comparison"
-                        ),
-                        y_title=(
-                            f"Incidence per "
-                            f"{denominator:,}"
-                        ),
-                        height=450,
-                    )
-
-                    st.dataframe(
-                        disease_summary,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-        else:
-
-            st.info(
-                "Please select at least one disease."
-            )
-
-    else:
-
-        st.info(
-            "Disease, Ward and Population information "
-            "is required for disease-wise incidence analysis."
-        )
-
-    # ========================================================
-    # 6. WARD × DISEASE INCIDENCE COMPARISON
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 6. 📊 Ward × Disease Incidence Comparison"
-    )
-
-    if (
-        "Disease" in case_df.columns
-        and "Ward Name" in case_df.columns
-        and not population_long.empty
-    ):
-
-        ward_options = (
-            _alphabetical(
-                _clean_series(
-                    case_df[
-                        "Ward Name"
-                    ]
-                ).unique()
-            )
-        )
-
-        disease_options_2 = (
-            _clean_series(
-                case_df[
-                    "Disease"
-                ]
-            )
-        )
-
-        disease_options_2 = (
-            disease_options_2[
-                disease_options_2.ne("")
-                & disease_options_2.ne("nan")
-            ]
-            .value_counts()
-            .index
-            .tolist()
-        )
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-
-            selected_compare_wards = (
-                _checkbox_multiselect(
-                    "Select Ward(s) for Comparison",
-                    ward_options,
-                    "phase8b_compare_wards",
-                    default_count=min(
-                        5,
-                        len(
-                            ward_options
-                        ),
-                    ),
-                )
-            )
-
-        with c2:
-
-            selected_compare_diseases = (
-                _checkbox_multiselect(
-                    "Select Disease(s) for Comparison",
-                    disease_options_2,
-                    "phase8b_compare_diseases",
-                    default_count=min(
-                        3,
-                        len(
-                            disease_options_2
-                        ),
-                    ),
-                )
-            )
-
-        if (
-            selected_compare_wards
-            and selected_compare_diseases
-        ):
-
-            comparison = (
-                _disease_ward_incidence(
-                    case_df,
-                    population_long,
-                    denominator,
-                    selected_diseases=(
-                        selected_compare_diseases
-                    ),
-                    selected_wards=(
-                        selected_compare_wards
-                    ),
-                )
-            )
-
-            if not comparison.empty:
-
-                comparison_years = (
-                    sorted(
-                        comparison[
-                            "Year"
-                        ]
-                        .unique()
-                        .tolist()
-                    )
-                )
-
-                selected_compare_year = (
-                    st.selectbox(
-                        "Comparison Year",
-                        options=(
-                            comparison_years
-                        ),
-                        index=(
-                            len(
-                                comparison_years
-                            )
-                            - 1
-                        ),
-                        key=(
-                            "phase8b_compare_year"
-                        ),
-                    )
-                )
-
-                comparison_year_df = (
-                    comparison[
-                        comparison[
-                            "Year"
-                        ]
-                        == selected_compare_year
-                    ]
-                    .copy()
-                )
-
-                comparison_year_df[
-                    "Ward × Disease"
-                ] = (
-                    comparison_year_df[
-                        "Ward"
-                    ]
-                    + " | "
-                    + comparison_year_df[
-                        "Disease"
-                    ]
-                )
-
-                _render_bar_chart(
-                    dataframe=(
-                        comparison_year_df
-                    ),
-                    x_column=(
-                        "Ward × Disease"
-                    ),
-                    y_column=(
-                        "Incidence Rate"
-                    ),
-                    title=(
-                        "Ward × Disease "
-                        "Incidence Comparison"
-                    ),
-                    y_title=(
-                        f"Incidence per "
-                        f"{denominator:,}"
-                    ),
-                    height=500,
-                )
+            with st.expander(
+                "📋 View Ward-wise Incidence Data",
+                expanded=False,
+            ):
 
                 st.dataframe(
-                    comparison_year_df[
+                    display_df[
                         [
                             "Ward",
-                            "Disease",
                             "Year",
                             "Cases",
                             "Population",
@@ -3166,50 +2743,442 @@ def render_incidence(df):
                     hide_index=True,
                 )
 
+            # ------------------------------------------------
+            # SELECTED WARD DISEASE BREAKDOWN
+            # ------------------------------------------------
+
+            if not disease_ward_incidence.empty:
+
+                st.markdown(
+                    "#### 🦠 Disease Profile within Selected Ward(s)"
+                )
+
+                ward_disease = (
+                    disease_ward_incidence[
+                        (
+                            disease_ward_incidence[
+                                "Year"
+                            ]
+                            == selected_year
+                        )
+                        & (
+                            disease_ward_incidence[
+                                "Ward"
+                            ].isin(
+                                selected_ward_analysis
+                            )
+                        )
+                    ]
+                    .copy()
+                )
+
+                if not ward_disease.empty:
+
+                    ward_disease[
+                        "Ward | Disease"
+                    ] = (
+                        ward_disease["Ward"]
+                        + " | "
+                        + ward_disease["Disease"]
+                    )
+
+                    top_ward_disease = (
+                        ward_disease
+                        .sort_values(
+                            "Incidence Rate",
+                            ascending=False,
+                        )
+                        .head(20)
+                    )
+
+                    _render_bar_chart(
+                        top_ward_disease,
+                        "Ward | Disease",
+                        "Incidence Rate",
+                        (
+                            "Disease-specific Incidence "
+                            "within Selected Ward(s)"
+                        ),
+                        (
+                            f"Incidence per "
+                            f"{denominator:,}"
+                        ),
+                        height=500,
+                    )
+
+                    _observation_box(
+                        _bar_observation(
+                            top_ward_disease,
+                            "Ward | Disease",
+                            "Incidence Rate",
+                            (
+                                f"cases per "
+                                f"{denominator:,} population"
+                            ),
+                        )
+                    )
+
+    _methodology_expander(
+        "Ward-wise Incidence",
+        [
+            (
+                "Cases are grouped by Ward and Analysis Year."
+            ),
+            (
+                "Each ward's case count is divided by the "
+                "matched population for that ward and year."
+            ),
+            (
+                f"The result is multiplied by {denominator:,}."
+            ),
+            (
+                "A higher incidence rate indicates more "
+                "reported cases relative to the population "
+                "denominator; it is not simply a count ranking."
+            ),
+        ],
+    )
+
     # ========================================================
-    # 7. MONTHLY INCIDENCE TREND
+    # SECTION 4
+    # DISEASE-WISE INCIDENCE
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 7. 📅 Monthly Incidence Trend"
+        "### 4. 🦠 Disease-wise Incidence Analysis"
     )
 
-    if (
-        "Ward Name" in case_df.columns
-        and not population_long.empty
-    ):
+    if not disease_ward_incidence.empty:
 
-        monthly_incidence = (
-            _monthly_incidence(
-                case_df,
-                population_long,
-                denominator,
-            )
+        disease_years = sorted(
+            disease_ward_incidence[
+                "Year"
+            ].unique()
         )
 
-        if not monthly_incidence.empty:
+        c1, c2 = st.columns(2)
 
-            monthly_wards = (
-                _alphabetical(
-                    monthly_incidence[
-                        "Ward"
-                    ].unique()
+        with c1:
+
+            disease_year = st.selectbox(
+                "Disease Analysis Year",
+                options=disease_years,
+                index=len(disease_years) - 1,
+                key="phase8b_disease_year",
+            )
+
+        disease_source = (
+            disease_ward_incidence[
+                disease_ward_incidence[
+                    "Year"
+                ]
+                == disease_year
+            ]
+            .copy()
+        )
+
+        disease_options = (
+            disease_source[
+                "Disease"
+            ]
+            .value_counts()
+            .index
+            .tolist()
+        )
+
+        with c2:
+
+            selected_diseases = (
+                _compact_multiselect(
+                    "Select Disease(s)",
+                    disease_options,
+                    default=disease_options[
+                        :min(
+                            8,
+                            len(disease_options),
+                        )
+                    ],
+                    key="phase8b_disease_selection",
                 )
             )
 
-            selected_monthly_wards = (
-                _checkbox_multiselect(
-                    "Select Ward(s) for Monthly Trend",
-                    monthly_wards,
-                    "phase8b_monthly_wards",
-                    default_count=min(
-                        5,
-                        len(
-                            monthly_wards
+        if selected_diseases:
+
+            selected_source = disease_source[
+                disease_source["Disease"]
+                .isin(selected_diseases)
+            ].copy()
+
+            summary_rows = []
+
+            for disease, group in (
+                selected_source.groupby(
+                    "Disease",
+                    observed=True,
+                )
+            ):
+
+                valid = group[
+                    group["Population"].notna()
+                    & group["Population"].gt(0)
+                ]
+
+                if valid.empty:
+                    continue
+
+                cases = int(
+                    valid["Cases"].sum()
+                )
+
+                population = float(
+                    valid["Population"].sum()
+                )
+
+                rate = (
+                    cases
+                    / population
+                    * denominator
+                )
+
+                summary_rows.append(
+                    {
+                        "Disease": disease,
+                        "Cases": cases,
+                        "Population": population,
+                        "Incidence Rate": round(
+                            rate,
+                            2,
                         ),
+                    }
+                )
+
+            disease_summary = pd.DataFrame(
+                summary_rows
+            )
+
+            if not disease_summary.empty:
+
+                disease_summary = (
+                    disease_summary
+                    .sort_values(
+                        "Incidence Rate",
+                        ascending=False,
+                    )
+                )
+
+                _render_bar_chart(
+                    disease_summary,
+                    "Disease",
+                    "Incidence Rate",
+                    (
+                        f"Disease-wise Incidence — "
+                        f"{disease_year}"
                     ),
+                    (
+                        f"Incidence per "
+                        f"{denominator:,}"
+                    ),
+                    height=450,
+                )
+
+                _observation_box(
+                    _bar_observation(
+                        disease_summary,
+                        "Disease",
+                        "Incidence Rate",
+                        (
+                            f"cases per "
+                            f"{denominator:,} population"
+                        ),
+                    )
+                )
+
+                with st.expander(
+                    "📋 View Disease-wise Incidence Data",
+                    expanded=False,
+                ):
+
+                    st.dataframe(
+                        disease_summary,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            # ------------------------------------------------
+            # WARD-WISE OPTION INSIDE DISEASE ANALYSIS
+            # ------------------------------------------------
+
+            st.markdown(
+                "#### 📍 Ward-wise Distribution of Selected Disease(s)"
+            )
+
+            disease_ward_options = _alphabetical(
+                selected_source[
+                    "Ward"
+                ].unique()
+            )
+
+            selected_disease_wards = (
+                _compact_multiselect(
+                    "Select Ward(s) for Disease Comparison",
+                    disease_ward_options,
+                    default=disease_ward_options[
+                        :min(
+                            8,
+                            len(
+                                disease_ward_options
+                            ),
+                        )
+                    ],
+                    key="phase8b_disease_ward_selection",
+                )
+            )
+
+            if selected_disease_wards:
+
+                ward_disease_df = (
+                    selected_source[
+                        selected_source[
+                            "Ward"
+                        ].isin(
+                            selected_disease_wards
+                        )
+                    ]
+                    .copy()
+                )
+
+                ward_disease_df[
+                    "Ward | Disease"
+                ] = (
+                    ward_disease_df["Ward"]
+                    + " | "
+                    + ward_disease_df["Disease"]
+                )
+
+                ward_disease_df = (
+                    ward_disease_df
+                    .sort_values(
+                        "Incidence Rate",
+                        ascending=False,
+                    )
+                )
+
+                _render_bar_chart(
+                    ward_disease_df,
+                    "Ward | Disease",
+                    "Incidence Rate",
+                    (
+                        "Ward-wise Disease Incidence Comparison"
+                    ),
+                    (
+                        f"Incidence per "
+                        f"{denominator:,}"
+                    ),
+                    height=500,
+                )
+
+                _observation_box(
+                    _bar_observation(
+                        ward_disease_df,
+                        "Ward | Disease",
+                        "Incidence Rate",
+                        (
+                            f"cases per "
+                            f"{denominator:,} population"
+                        ),
+                    )
+                )
+
+                with st.expander(
+                    "📋 View Ward × Disease Data",
+                    expanded=False,
+                ):
+
+                    st.dataframe(
+                        ward_disease_df[
+                            [
+                                "Ward",
+                                "Disease",
+                                "Year",
+                                "Cases",
+                                "Population",
+                                "Population Year Used",
+                                "Population Match Status",
+                                "Incidence Rate",
+                            ]
+                        ],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+    _methodology_expander(
+        "Disease-wise Incidence",
+        [
+            (
+                "Disease-specific cases are first grouped "
+                "by Ward × Disease × Year."
+            ),
+            (
+                "Each ward uses its corresponding population "
+                "denominator."
+            ),
+            (
+                "For the overall disease comparison, valid "
+                "ward populations are summed and compared "
+                "with the corresponding summed disease cases."
+            ),
+            (
+                "The Ward-wise option shows how the selected "
+                "disease burden varies geographically."
+            ),
+        ],
+    )
+
+    # ========================================================
+    # SECTION 5
+    # INCIDENCE TRENDS
+    # ========================================================
+
+    st.divider()
+
+    st.markdown(
+        "### 5. 📈 Incidence Trends"
+    )
+
+    monthly_tab, yearly_tab = st.tabs(
+        [
+            "📅 Monthly Trend",
+            "🗓️ Year-wise Trend",
+        ]
+    )
+
+    # --------------------------------------------------------
+    # MONTHLY
+    # --------------------------------------------------------
+
+    with monthly_tab:
+
+        if not monthly_incidence.empty:
+
+            monthly_wards = _alphabetical(
+                monthly_incidence[
+                    "Ward"
+                ].unique()
+            )
+
+            selected_monthly_wards = (
+                _compact_multiselect(
+                    "Select Ward(s)",
+                    monthly_wards,
+                    default=monthly_wards[
+                        :min(
+                            5,
+                            len(monthly_wards),
+                        )
+                    ],
+                    key="phase8b_monthly_wards",
                 )
             )
 
@@ -3224,151 +3193,215 @@ def render_incidence(df):
                         )
                     ]
                     .copy()
+                    .sort_values(
+                        [
+                            "Date",
+                            "Ward",
+                        ]
+                    )
                 )
 
-                _render_multi_line_chart(
-                    dataframe=monthly_chart,
-                    x_column="Period",
-                    series_column="Ward",
-                    value_column=(
-                        "Incidence Rate"
+                _render_line_chart(
+                    monthly_chart,
+                    "Period",
+                    "Ward",
+                    "Incidence Rate",
+                    (
+                        "Monthly Ward-wise Incidence Trend"
                     ),
-                    title=(
-                        "Monthly Ward-wise "
-                        "Incidence Trend"
-                    ),
-                    y_title=(
+                    (
                         f"Incidence per "
                         f"{denominator:,}"
                     ),
                     height=480,
                 )
 
-    # ========================================================
-    # 8. YEAR-WISE INCIDENCE TREND
-    # ========================================================
+                overall_monthly = (
+                    monthly_chart
+                    .groupby(
+                        [
+                            "Date",
+                            "Period",
+                        ],
+                        as_index=False,
+                    )[
+                        "Incidence Rate"
+                    ]
+                    .mean()
+                    .sort_values(
+                        "Date"
+                    )
+                )
 
-    st.divider()
+                _observation_box(
+                    _trend_observation(
+                        overall_monthly,
+                        "Period",
+                        "Incidence Rate",
+                    )
+                )
 
-    st.markdown(
-        "### 8. 🗓️ Year-wise Incidence Trend"
-    )
+                with st.expander(
+                    "📋 View Monthly Incidence Data",
+                    expanded=False,
+                ):
 
-    if (
-        "Ward Name" in case_df.columns
-        and not population_long.empty
-    ):
+                    st.dataframe(
+                        monthly_chart[
+                            [
+                                "Ward",
+                                "Year",
+                                "Month",
+                                "Period",
+                                "Cases",
+                                "Population",
+                                "Population Year Used",
+                                "Incidence Rate",
+                            ]
+                        ],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
-        yearly_incidence = (
-            _aggregate_incidence_by_year(
-                case_df,
-                population_long,
-                denominator,
-            )
+        _methodology_expander(
+            "Monthly Incidence Trend",
+            [
+                (
+                    "Monthly cases are grouped by "
+                    "Ward × Year × Month."
+                ),
+                (
+                    "The annual ward population matched to "
+                    "that year is used as the denominator."
+                ),
+                (
+                    "The chart displays chronological "
+                    "Month-Year periods."
+                ),
+            ],
         )
+
+    # --------------------------------------------------------
+    # YEARLY
+    # --------------------------------------------------------
+
+    with yearly_tab:
 
         if not yearly_incidence.empty:
 
-            yearly_chart = (
-                yearly_incidence.copy()
-            )
+            chart_df = yearly_incidence.copy()
 
-            yearly_chart[
-                "Year Label"
-            ] = (
-                yearly_chart[
-                    "Year"
-                ]
-                .astype(int)
+            chart_df["Year Label"] = (
+                chart_df["Year"]
                 .astype(str)
             )
 
-            yearly_chart[
-                "Series"
-            ] = "Overall Incidence"
+            chart_df["Series"] = (
+                "Overall Incidence"
+            )
 
-            _render_multi_line_chart(
-                dataframe=yearly_chart,
-                x_column="Year Label",
-                series_column="Series",
-                value_column=(
-                    "Incidence Rate"
-                ),
-                title=(
-                    "Year-wise Overall "
-                    "Incidence Trend"
-                ),
-                y_title=(
+            _render_line_chart(
+                chart_df,
+                "Year Label",
+                "Series",
+                "Incidence Rate",
+                "Year-wise Overall Incidence Trend",
+                (
                     f"Incidence per "
                     f"{denominator:,}"
                 ),
                 height=430,
             )
 
-            st.dataframe(
-                yearly_incidence,
-                use_container_width=True,
-                hide_index=True,
+            _observation_box(
+                _trend_observation(
+                    chart_df,
+                    "Year Label",
+                    "Incidence Rate",
+                )
             )
 
+            with st.expander(
+                "📋 View Year-wise Incidence Data",
+                expanded=False,
+            ):
+
+                st.dataframe(
+                    yearly_incidence,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        _methodology_expander(
+            "Year-wise Incidence Trend",
+            [
+                (
+                    "Ward-level cases and valid ward "
+                    "populations are aggregated by year."
+                ),
+                (
+                    "Overall yearly incidence is calculated "
+                    "from total valid cases divided by total "
+                    "matched population."
+                ),
+                (
+                    "The calculation does not average "
+                    "individual ward incidence rates."
+                ),
+            ],
+        )
+
     # ========================================================
-    # 9. STATISTICAL THRESHOLD ANALYSIS
+    # SECTION 6
+    # STATISTICAL SURVEILLANCE
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 9. 📐 Statistical Threshold Analysis"
+        "### 6. 📐 Statistical Surveillance Analysis"
     )
 
     st.caption(
-        "Mean and standard-deviation thresholds are "
-        "descriptive statistical surveillance indicators. "
-        "They are not, by themselves, confirmed outbreak thresholds."
+        "Mean and standard-deviation levels are descriptive "
+        "surveillance indicators. They do not independently "
+        "confirm an outbreak."
     )
 
     c1, c2 = st.columns(2)
 
     with c1:
 
-        baseline_option = (
-            st.selectbox(
-                "Statistical Baseline",
-                options=[
-                    "All Available Years",
-                    "Last 2 Years",
-                    "Last 3 Years",
-                    "Last 5 Years",
-                ],
-                index=0,
-                key=(
-                    "phase8b_stat_baseline"
-                ),
-            )
+        baseline = st.selectbox(
+            "Statistical Baseline",
+            options=[
+                "All Available Years",
+                "Last 2 Years",
+                "Last 3 Years",
+                "Last 5 Years",
+            ],
+            index=0,
+            key="phase8b_stat_baseline",
         )
 
     with c2:
 
-        statistical_view = (
-            st.selectbox(
-                "Statistical Analysis",
-                options=[
-                    "Overall",
-                    "Disease",
-                    "Ward",
-                    "Facility",
-                ],
-                index=0,
-                key=(
-                    "phase8b_stat_view"
-                ),
-            )
+        analysis_type = st.selectbox(
+            "Analysis Type",
+            options=[
+                "Overall",
+                "Disease",
+                "Ward",
+                "Facility",
+            ],
+            index=0,
+            key="phase8b_stat_type",
         )
 
     statistical_source = (
-        _apply_baseline_years(
+        _apply_baseline(
             case_df,
-            baseline_option,
+            baseline,
         )
     )
 
@@ -3377,41 +3410,21 @@ def render_incidence(df):
     )
 
     # --------------------------------------------------------
-    # DISEASE FILTER
+    # DISEASE
     # --------------------------------------------------------
 
-    if (
-        statistical_view
-        == "Disease"
-    ):
+    if analysis_type == "Disease":
 
-        if "Disease" not in (
-            statistical_source.columns
-        ):
-
-            st.info(
-                "Disease column is not available."
-            )
-
-            statistical_source = (
-                pd.DataFrame()
-            )
-
-        else:
+        if "Disease" in statistical_source.columns:
 
             options = (
-                _clean_series(
-                    statistical_source[
-                        "Disease"
-                    ]
-                )
-            )
-
-            options = (
-                options[
-                    options.ne("")
-                    & options.ne("nan")
-                ]
+                statistical_source[
+                    _valid_text(
+                        statistical_source[
+                            "Disease"
+                        ]
+                    )
+                ]["Disease"]
                 .value_counts()
                 .index
                 .tolist()
@@ -3419,26 +3432,19 @@ def render_incidence(df):
 
             if options:
 
-                selected = (
-                    st.selectbox(
-                        "Select Disease",
-                        options=options,
-                        key=(
-                            "phase8b_stat_disease"
-                        ),
-                    )
+                selected = st.selectbox(
+                    "Select Disease",
+                    options=options,
+                    key="phase8b_stat_disease",
                 )
 
                 statistical_source = (
                     statistical_source[
-                        _clean_series(
-                            statistical_source[
-                                "Disease"
-                            ]
-                        )
+                        statistical_source[
+                            "Disease"
+                        ]
                         == selected
                     ]
-                    .copy()
                 )
 
                 statistical_title = (
@@ -3446,60 +3452,39 @@ def render_incidence(df):
                 )
 
     # --------------------------------------------------------
-    # WARD FILTER
+    # WARD
     # --------------------------------------------------------
 
-    elif (
-        statistical_view
-        == "Ward"
-    ):
+    elif analysis_type == "Ward":
 
-        if "Ward Name" not in (
-            statistical_source.columns
-        ):
+        if "Ward Name" in statistical_source.columns:
 
-            st.info(
-                "Ward Name column is not available."
-            )
-
-            statistical_source = (
-                pd.DataFrame()
-            )
-
-        else:
-
-            options = (
-                _alphabetical(
-                    _clean_series(
+            options = _alphabetical(
+                statistical_source[
+                    _valid_text(
                         statistical_source[
                             "Ward Name"
                         ]
-                    ).unique()
-                )
+                    )
+                ]["Ward Name"]
+                .unique()
             )
 
             if options:
 
-                selected = (
-                    st.selectbox(
-                        "Select Ward",
-                        options=options,
-                        key=(
-                            "phase8b_stat_ward"
-                        ),
-                    )
+                selected = st.selectbox(
+                    "Select Ward",
+                    options=options,
+                    key="phase8b_stat_ward",
                 )
 
                 statistical_source = (
                     statistical_source[
-                        _clean_series(
-                            statistical_source[
-                                "Ward Name"
-                            ]
-                        )
+                        statistical_source[
+                            "Ward Name"
+                        ]
                         == selected
                     ]
-                    .copy()
                 )
 
                 statistical_title = (
@@ -3507,41 +3492,21 @@ def render_incidence(df):
                 )
 
     # --------------------------------------------------------
-    # FACILITY FILTER
+    # FACILITY
     # --------------------------------------------------------
 
-    elif (
-        statistical_view
-        == "Facility"
-    ):
+    elif analysis_type == "Facility":
 
-        if "Facility Name" not in (
-            statistical_source.columns
-        ):
-
-            st.info(
-                "Facility Name column is not available."
-            )
-
-            statistical_source = (
-                pd.DataFrame()
-            )
-
-        else:
+        if "Facility Name" in statistical_source.columns:
 
             options = (
-                _clean_series(
-                    statistical_source[
-                        "Facility Name"
-                    ]
-                )
-            )
-
-            options = (
-                options[
-                    options.ne("")
-                    & options.ne("nan")
-                ]
+                statistical_source[
+                    _valid_text(
+                        statistical_source[
+                            "Facility Name"
+                        ]
+                    )
+                ]["Facility Name"]
                 .value_counts()
                 .index
                 .tolist()
@@ -3549,33 +3514,26 @@ def render_incidence(df):
 
             if options:
 
-                selected = (
-                    st.selectbox(
-                        "Select Facility",
-                        options=options,
-                        key=(
-                            "phase8b_stat_facility"
-                        ),
-                    )
+                selected = st.selectbox(
+                    "Select Facility",
+                    options=options,
+                    key="phase8b_stat_facility",
                 )
 
                 statistical_source = (
                     statistical_source[
-                        _clean_series(
-                            statistical_source[
-                                "Facility Name"
-                            ]
-                        )
+                        statistical_source[
+                            "Facility Name"
+                        ]
                         == selected
                     ]
-                    .copy()
                 )
 
                 statistical_title = (
                     f"{selected} Monthly Cases"
                 )
 
-    statistical_monthly = (
+    monthly_stats = (
         _monthly_case_series(
             statistical_source
         )
@@ -3583,18 +3541,16 @@ def render_incidence(df):
 
     statistics = (
         _threshold_statistics(
-            statistical_monthly
+            monthly_stats
         )
     )
 
     if (
         statistics is not None
-        and not statistical_monthly.empty
+        and not monthly_stats.empty
     ):
 
-        c1, c2, c3, c4 = (
-            st.columns(4)
-        )
+        c1, c2, c3, c4 = st.columns(4)
 
         with c1:
 
@@ -3631,12 +3587,19 @@ def render_incidence(df):
             )
 
         _render_threshold_chart(
-            monthly=statistical_monthly,
-            statistics=statistics,
-            title=(
+            monthly_stats,
+            statistics,
+            (
                 f"{statistical_title} — "
-                f"Mean / SD Thresholds"
+                f"Statistical Surveillance"
             ),
+        )
+
+        _observation_box(
+            _threshold_observation(
+                monthly_stats,
+                statistics,
+            )
         )
 
         threshold_table = pd.DataFrame(
@@ -3650,15 +3613,11 @@ def render_incidence(df):
                 ],
                 "Value": [
                     round(
-                        statistics[
-                            "Mean"
-                        ],
+                        statistics["Mean"],
                         2,
                     ),
                     round(
-                        statistics[
-                            "SD"
-                        ],
+                        statistics["SD"],
                         2,
                     ),
                     round(
@@ -3683,357 +3642,24 @@ def render_incidence(df):
             }
         )
 
-        st.dataframe(
-            threshold_table,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    else:
-
-        st.info(
-            "Sufficient monthly data is not available "
-            "for the selected statistical analysis."
-        )
-
-    # ========================================================
-    # 10. DISEASE-WISE STATISTICAL TREND
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 10. 🦠 Disease-wise Statistical Trend"
-    )
-
-    if "Disease" in case_df.columns:
-
-        disease_stat_options = (
-            _clean_series(
-                case_df[
-                    "Disease"
-                ]
-            )
-        )
-
-        disease_stat_options = (
-            disease_stat_options[
-                disease_stat_options.ne("")
-                & disease_stat_options.ne("nan")
-            ]
-            .value_counts()
-            .index
-            .tolist()
-        )
-
-        if disease_stat_options:
-
-            selected_stat_disease = (
-                st.selectbox(
-                    "Select Disease for Statistical Trend",
-                    options=(
-                        disease_stat_options
-                    ),
-                    key=(
-                        "phase8b_disease_stat_selector"
-                    ),
-                )
-            )
-
-            source = case_df[
-                _clean_series(
-                    case_df[
-                        "Disease"
-                    ]
-                )
-                == selected_stat_disease
-            ]
-
-            source = (
-                _apply_baseline_years(
-                    source,
-                    baseline_option,
-                )
-            )
-
-            monthly = (
-                _monthly_case_series(
-                    source
-                )
-            )
-
-            stats = (
-                _threshold_statistics(
-                    monthly
-                )
-            )
-
-            _render_threshold_chart(
-                monthly,
-                stats,
-                (
-                    f"{selected_stat_disease} "
-                    "Statistical Trend"
-                ),
-            )
-
-    # ========================================================
-    # 11. WARD-WISE STATISTICAL TREND
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 11. 📍 Ward-wise Statistical Trend"
-    )
-
-    if "Ward Name" in case_df.columns:
-
-        ward_stat_options = (
-            _alphabetical(
-                _clean_series(
-                    case_df[
-                        "Ward Name"
-                    ]
-                ).unique()
-            )
-        )
-
-        if ward_stat_options:
-
-            selected_stat_ward = (
-                st.selectbox(
-                    "Select Ward for Statistical Trend",
-                    options=(
-                        ward_stat_options
-                    ),
-                    key=(
-                        "phase8b_ward_stat_selector"
-                    ),
-                )
-            )
-
-            source = case_df[
-                _clean_series(
-                    case_df[
-                        "Ward Name"
-                    ]
-                )
-                == selected_stat_ward
-            ]
-
-            source = (
-                _apply_baseline_years(
-                    source,
-                    baseline_option,
-                )
-            )
-
-            monthly = (
-                _monthly_case_series(
-                    source
-                )
-            )
-
-            stats = (
-                _threshold_statistics(
-                    monthly
-                )
-            )
-
-            _render_threshold_chart(
-                monthly,
-                stats,
-                (
-                    f"Ward {selected_stat_ward} "
-                    "Statistical Trend"
-                ),
-            )
-
-    # ========================================================
-    # 12. FACILITY-WISE STATISTICAL TREND
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 12. 🏥 Facility-wise Statistical Trend"
-    )
-
-    st.caption(
-        "Facility analysis displays case-volume statistical "
-        "trends. It is not labelled as facility incidence "
-        "because a facility-specific population denominator "
-        "is not available."
-    )
-
-    if "Facility Name" in case_df.columns:
-
-        facility_options = (
-            _clean_series(
-                case_df[
-                    "Facility Name"
-                ]
-            )
-        )
-
-        facility_options = (
-            facility_options[
-                facility_options.ne("")
-                & facility_options.ne("nan")
-            ]
-            .value_counts()
-            .index
-            .tolist()
-        )
-
-        if facility_options:
-
-            selected_stat_facility = (
-                st.selectbox(
-                    "Select Facility for Statistical Trend",
-                    options=(
-                        facility_options
-                    ),
-                    key=(
-                        "phase8b_facility_stat_selector"
-                    ),
-                )
-            )
-
-            source = case_df[
-                _clean_series(
-                    case_df[
-                        "Facility Name"
-                    ]
-                )
-                == selected_stat_facility
-            ]
-
-            source = (
-                _apply_baseline_years(
-                    source,
-                    baseline_option,
-                )
-            )
-
-            monthly = (
-                _monthly_case_series(
-                    source
-                )
-            )
-
-            stats = (
-                _threshold_statistics(
-                    monthly
-                )
-            )
-
-            _render_threshold_chart(
-                monthly,
-                stats,
-                (
-                    f"{selected_stat_facility} "
-                    "Statistical Trend"
-                ),
-            )
-
-    # ========================================================
-    # 13. POPULATION MATCHING / FALLBACK AUDIT
-    # ========================================================
-
-    st.divider()
-
-    st.markdown(
-        "### 13. 🔍 Population Matching & Fallback Audit"
-    )
-
-    st.caption(
-        "This table shows which population year was used "
-        "for each Ward × Analysis Year combination."
-    )
-
-    if not population_long.empty:
-
-        audit = (
-            _population_audit(
-                case_df,
-                population_long,
-            )
-        )
-
-        if not audit.empty:
-
-            exact_count = int(
-                (
-                    audit[
-                        "Status"
-                    ]
-                    == "Exact year"
-                ).sum()
-            )
-
-            previous_count = int(
-                (
-                    audit[
-                        "Status"
-                    ]
-                    == "Previous-year fallback"
-                ).sum()
-            )
-
-            future_count = int(
-                (
-                    audit[
-                        "Status"
-                    ]
-                    == "Future-year fallback"
-                ).sum()
-            )
-
-            unavailable_count = int(
-                (
-                    audit[
-                        "Status"
-                    ]
-                    == "Population unavailable"
-                ).sum()
-            )
-
-            c1, c2, c3, c4 = (
-                st.columns(4)
-            )
-
-            with c1:
-
-                st.metric(
-                    "Exact Matches",
-                    f"{exact_count:,}",
-                )
-
-            with c2:
-
-                st.metric(
-                    "Previous-Year Fallbacks",
-                    f"{previous_count:,}",
-                )
-
-            with c3:
-
-                st.metric(
-                    "Future-Year Fallbacks",
-                    f"{future_count:,}",
-                )
-
-            with c4:
-
-                st.metric(
-                    "Population Unavailable",
-                    f"{unavailable_count:,}",
-                )
+        with st.expander(
+            "📋 View Statistical Data",
+            expanded=False,
+        ):
 
             st.dataframe(
-                audit,
+                monthly_stats[
+                    [
+                        "Period",
+                        "Cases",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.dataframe(
+                threshold_table,
                 use_container_width=True,
                 hide_index=True,
             )
@@ -4041,18 +3667,58 @@ def render_incidence(df):
     else:
 
         st.info(
-            "Population matching audit is unavailable "
-            "because population data could not be loaded."
+            "Sufficient monthly data is not available "
+            "for this statistical analysis."
         )
 
+    _methodology_expander(
+        "Statistical Surveillance",
+        [
+            (
+                "Monthly case counts are calculated for "
+                "the selected Overall, Disease, Ward or "
+                "Facility view."
+            ),
+            (
+                "Missing calendar months between the first "
+                "and last available periods are included "
+                "with zero cases."
+            ),
+            (
+                "Mean is the arithmetic mean of monthly "
+                "case counts in the selected baseline."
+            ),
+            (
+                "SD is the sample standard deviation of "
+                "monthly case counts."
+            ),
+            (
+                "Mean + 1 SD, Mean + 2 SD and Mean + 3 SD "
+                "are descriptive statistical surveillance levels."
+            ),
+            (
+                "Crossing these levels should prompt review "
+                "alongside seasonality, reporting completeness, "
+                "testing practices and epidemiological context."
+            ),
+            (
+                "Facility analysis represents case-volume "
+                "statistical surveillance, not facility incidence, "
+                "because a facility-specific population denominator "
+                "is not available."
+            ),
+        ],
+    )
+
     # ========================================================
-    # 14. METHODOLOGY & INTERPRETATION
+    # SECTION 7
+    # METHODOLOGY & INTERPRETATION
     # ========================================================
 
     st.divider()
 
     st.markdown(
-        "### 14. ℹ️ Methodology & Interpretation"
+        "### 7. ℹ️ Methodology, Interpretation & Data Quality"
     )
 
     methodology = pd.DataFrame(
@@ -4061,11 +3727,14 @@ def render_incidence(df):
                 "Incidence Formula",
                 "Default Denominator",
                 "Available Denominators",
-                "Population Matching",
+                "Population Source",
+                "Exact Population Match",
                 "Missing Population Year",
-                "Future Fallback",
-                "Disease Incidence",
+                "Future Population Fallback",
                 "Ward Incidence",
+                "Disease Incidence",
+                "Monthly Incidence",
+                "Yearly Incidence",
                 "Facility Analysis",
                 "Statistical Mean",
                 "Standard Deviation",
@@ -4074,52 +3743,58 @@ def render_incidence(df):
                 "Mean + 3 SD",
                 "Interpretation",
             ],
-            "Description": [
+            "Methodology": [
                 (
-                    "Cases divided by population multiplied "
-                    "by the selected denominator"
+                    "Cases ÷ Population × selected denominator"
                 ),
                 (
                     "100,000 population"
                 ),
                 (
-                    "1,000; 10,000; 100,000; "
-                    "1,000,000 population"
+                    "1,000; 10,000; 100,000; 1,000,000"
                 ),
                 (
-                    "Exact Ward × Year population is used "
-                    "when available"
+                    "Population worksheet in the configured "
+                    "Google Sheet"
                 ),
                 (
-                    "If exact population year is unavailable, "
-                    "the closest previous available population "
-                    "year for that ward is used"
+                    "Exact Ward × Analysis Year population "
+                    "is used when available"
                 ),
                 (
-                    "If no previous population year exists, "
-                    "the nearest future available year is used "
-                    "and explicitly identified as a fallback"
+                    "Closest previous available population "
+                    "year for the ward is used"
                 ),
                 (
-                    "Disease cases are related to the "
-                    "corresponding ward population"
+                    "If no previous year exists, the nearest "
+                    "future available population year is used"
                 ),
                 (
-                    "Ward cases are related to the "
-                    "corresponding ward population"
+                    "Ward cases divided by the matched "
+                    "ward population"
                 ),
                 (
-                    "Facility-specific incidence is not "
-                    "calculated without a valid "
-                    "facility-specific population denominator"
+                    "Disease cases are calculated using "
+                    "corresponding ward populations"
                 ),
                 (
-                    "Arithmetic mean of monthly case counts "
-                    "within the selected statistical baseline"
+                    "Monthly ward cases use the matched "
+                    "annual ward population denominator"
+                ),
+                (
+                    "Valid ward cases and populations are "
+                    "aggregated before calculating yearly rate"
+                ),
+                (
+                    "Case-volume statistical surveillance only; "
+                    "not labelled as facility incidence"
+                ),
+                (
+                    "Arithmetic mean of monthly case counts"
                 ),
                 (
                     "Sample standard deviation of monthly "
-                    "case counts within the selected baseline"
+                    "case counts"
                 ),
                 (
                     "Mean plus one standard deviation"
@@ -4131,9 +3806,9 @@ def render_incidence(df):
                     "Mean plus three standard deviations"
                 ),
                 (
-                    "Statistical surveillance and programme "
-                    "planning support; thresholds do not by "
-                    "themselves confirm an outbreak"
+                    "Results support surveillance and programme "
+                    "review and should be interpreted with data "
+                    "quality, seasonality and epidemiological context"
                 ),
             ],
         }
@@ -4148,10 +3823,19 @@ def render_incidence(df):
     st.warning(
         "Incidence rates depend on the completeness and "
         "appropriateness of both case and population data. "
-        "Population fallback values are clearly identified "
-        "and should be reviewed before formal reporting. "
-        "Mean and standard-deviation thresholds are descriptive "
-        "statistical indicators and should be interpreted "
-        "alongside seasonality, reporting completeness, testing "
-        "practices, epidemiological investigation and programme context."
+        "Population fallback values should be reviewed before "
+        "formal reporting. Statistical Mean/SD levels are "
+        "descriptive surveillance indicators and do not, by "
+        "themselves, establish or confirm an outbreak."
+    )
+
+
+# ============================================================
+# BACKWARD-COMPATIBLE ENTRY POINT
+# ============================================================
+
+def render_incidence(df):
+
+    return render_incidence_analysis(
+        df
     )
