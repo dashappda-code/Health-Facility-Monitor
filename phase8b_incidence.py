@@ -12,10 +12,7 @@ from chart_helpers import data_labels_enabled
 # CONFIGURATION
 # ============================================================
 
-POPULATION_SHEET_ID = (
-    "18qfha01Czh10i4PDRUpuumtRVwbQv7Pn09jFxGSbXHg"
-)
-
+POPULATION_SHEET_ID = "18qfha01Czh10i4PDRUpuumtRVwbQv7Pn09jFxGSbXHg"
 POPULATION_GID = "846450963"
 
 POPULATION_CSV_URL = (
@@ -49,7 +46,7 @@ COLORS = [
     "#7F7F7F",
     "#BCBD22",
     "#17BECF",
-    "#4C78A8",
+    "#4C78A4",
     "#F58518",
 ]
 
@@ -70,57 +67,10 @@ MONTH_NAMES = {
 
 
 # ============================================================
-# UI HELPERS
+# LOCAL UI HELPERS
+# IMPORTANT:
+# No global CSS is used in this module.
 # ============================================================
-
-def _inject_toggle_css():
-    """
-    Compact segmented-control styling for horizontal radio buttons.
-    """
-
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stRadio"] > div {
-            gap: 0.35rem;
-        }
-
-        div[data-testid="stRadio"] > div[role="radiogroup"] {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
-
-        div[data-testid="stRadio"] label {
-            border: 1px solid #D9DEE7;
-            border-radius: 8px;
-            padding: 5px 13px;
-            background: #F7F8FA;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        div[data-testid="stRadio"] label:hover {
-            border-color: #1F77B4;
-            background: #EEF5FB;
-        }
-
-        div[data-testid="stRadio"] label:has(input:checked) {
-            border-color: #1F77B4;
-            background: #1F77B4;
-            color: white;
-            font-weight: 600;
-        }
-
-        div[data-testid="stRadio"] label p {
-            margin: 0;
-            font-size: 0.88rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
 
 def _smart_toggle(
     label,
@@ -128,27 +78,29 @@ def _smart_toggle(
     default=None,
     key=None,
 ):
+    """
+    Native Streamlit horizontal radio.
+
+    No CSS is injected, so this control cannot affect
+    other dashboard panels/phases.
+    """
 
     options = list(options)
 
     if not options:
         return None
 
-    if default is None:
-        default = options[0]
-
     if default not in options:
         default = options[0]
 
-    index = options.index(default)
+    default_index = options.index(default)
 
     return st.radio(
         label,
         options=options,
-        index=index,
+        index=default_index,
         horizontal=True,
         key=key,
-        label_visibility="visible",
     )
 
 
@@ -158,6 +110,10 @@ def _compact_multiselect(
     default=None,
     key=None,
 ):
+    """
+    Multi-value selections remain multiselect because
+    wards/diseases/facilities can contain many values.
+    """
 
     options = list(options)
 
@@ -165,7 +121,7 @@ def _compact_multiselect(
         return []
 
     if default is None:
-        default = options[:min(5, len(options))]
+        default = options[: min(5, len(options))]
 
     default = [
         value
@@ -361,10 +317,6 @@ def _prepare_case_data(df):
 
     temp = df.copy()
 
-    # --------------------------------------------------------
-    # YEAR
-    # --------------------------------------------------------
-
     if "Year" in temp.columns:
 
         temp["Analysis_Year"] = pd.to_numeric(
@@ -385,10 +337,6 @@ def _prepare_case_data(df):
     else:
 
         temp["Analysis_Year"] = np.nan
-
-    # --------------------------------------------------------
-    # MONTH
-    # --------------------------------------------------------
 
     if "Month" in temp.columns:
 
@@ -446,7 +394,7 @@ def _prepare_case_data(df):
 
 
 # ============================================================
-# POPULATION DATA LOADER
+# POPULATION DATA
 # ============================================================
 
 @st.cache_data(
@@ -707,7 +655,6 @@ def _population_for_ward_year(
         analysis_year = int(
             analysis_year
         )
-
     except Exception:
 
         return (
@@ -808,7 +755,7 @@ def _population_for_ward_year(
 
 
 # ============================================================
-# PREPARED INCIDENCE TABLES
+# INCIDENCE TABLES
 # ============================================================
 
 def _build_ward_year_incidence(
@@ -1051,8 +998,13 @@ def _build_monthly_ward_incidence(
                 * denominator
             )
 
-        year = int(row["Analysis_Year"])
-        month = int(row["Analysis_Month"])
+        year = int(
+            row["Analysis_Year"]
+        )
+
+        month = int(
+            row["Analysis_Month"]
+        )
 
         date_value = pd.Timestamp(
             year,
@@ -1099,7 +1051,7 @@ def _build_monthly_ward_incidence(
 
 
 # ============================================================
-# AGGREGATION HELPERS
+# YEAR AGGREGATION
 # ============================================================
 
 def _aggregate_year_incidence(
@@ -1159,7 +1111,7 @@ def _aggregate_year_incidence(
 
 
 # ============================================================
-# CHART HELPERS
+# LEGEND
 # ============================================================
 
 def _legend_columns(series_count):
@@ -1170,13 +1122,13 @@ def _legend_columns(series_count):
     if series_count <= 8:
         return 4
 
-    if series_count <= 12:
-        return 6
-
     return 6
 
 
-def _legend(series_count, title=None):
+def _legend(
+    series_count,
+    title=None,
+):
 
     return alt.Legend(
         title=title,
@@ -1193,6 +1145,10 @@ def _legend(series_count, title=None):
         rowPadding=5,
     )
 
+
+# ============================================================
+# BAR CHART
+# ============================================================
 
 def _render_bar_chart(
     dataframe,
@@ -1219,14 +1175,21 @@ def _render_bar_chart(
         return
 
     chart_df[x_column] = (
-        chart_df[x_column].astype(str)
+        chart_df[x_column]
+        .astype(str)
     )
 
-    order = chart_df[x_column].tolist()
+    order = (
+        chart_df[x_column]
+        .drop_duplicates()
+        .tolist()
+    )
 
     color_range = [
         COLORS[index % len(COLORS)]
-        for index in range(len(order))
+        for index in range(
+            len(order)
+        )
     ]
 
     scale = alt.Scale(
@@ -1317,6 +1280,10 @@ def _render_bar_chart(
         use_container_width=True,
     )
 
+
+# ============================================================
+# LINE CHART
+# ============================================================
 
 def _render_line_chart(
     dataframe,
@@ -1462,17 +1429,15 @@ def _render_line_chart(
 
 
 # ============================================================
-# OBSERVATION HELPERS
+# OBSERVATIONS
 # ============================================================
 
 def _observation_box(text):
 
-    if not text:
-        return
-
-    st.info(
-        f"📌 **Chart Observation:** {text}"
-    )
+    if text:
+        st.info(
+            f"📌 **Chart Observation:** {text}"
+        )
 
 
 def _bar_observation(
@@ -1560,8 +1525,10 @@ def _trend_observation(
 
     if last_value > first_value:
         direction = "higher"
+
     elif last_value < first_value:
         direction = "lower"
+
     else:
         direction = "the same"
 
@@ -1575,7 +1542,7 @@ def _trend_observation(
 
 
 # ============================================================
-# METHODOLOGY HELPERS
+# METHODOLOGY
 # ============================================================
 
 def _methodology_expander(
@@ -1589,13 +1556,14 @@ def _methodology_expander(
     ):
 
         for line in lines:
+
             st.markdown(
                 f"- {line}"
             )
 
 
 # ============================================================
-# STATISTICAL ANALYSIS
+# STATISTICAL FUNCTIONS
 # ============================================================
 
 def _apply_baseline(
@@ -1607,7 +1575,9 @@ def _apply_baseline(
         return source
 
     years = sorted(
-        source["Analysis_Year"]
+        source[
+            "Analysis_Year"
+        ]
         .dropna()
         .astype(int)
         .unique()
@@ -1636,9 +1606,9 @@ def _apply_baseline(
     selected_years = years[-count:]
 
     return source[
-        source["Analysis_Year"].isin(
-            selected_years
-        )
+        source[
+            "Analysis_Year"
+        ].isin(selected_years)
     ].copy()
 
 
@@ -1755,10 +1725,16 @@ def _threshold_statistics(monthly):
     if values.empty:
         return None
 
-    mean = float(values.mean())
+    mean = float(
+        values.mean()
+    )
 
     sd = (
-        float(values.std(ddof=1))
+        float(
+            values.std(
+                ddof=1
+            )
+        )
         if len(values) > 1
         else 0.0
     )
@@ -1861,23 +1837,13 @@ def _render_threshold_chart(
                     "Series",
                 ),
             ),
-            strokeDash=alt.StrokeDash(
-                "Series:N",
-                scale=alt.Scale(
-                    domain=series_order,
-                    range=[
-                        [1, 0],
-                        [7, 4],
-                        [7, 4],
-                        [7, 4],
-                        [7, 4],
-                    ],
-                ),
-                legend=None,
-            ),
             tooltip=[
-                alt.Tooltip("Period:N"),
-                alt.Tooltip("Series:N"),
+                alt.Tooltip(
+                    "Period:N"
+                ),
+                alt.Tooltip(
+                    "Series:N"
+                ),
                 alt.Tooltip(
                     "Value:Q",
                     format=",.2f",
@@ -1964,21 +1930,17 @@ def _threshold_observation(
         latest["Cases"]
     )
 
-    level_2 = statistics[
-        "Mean + 2 SD"
-    ]
-
-    level_3 = statistics[
+    if latest_cases > statistics[
         "Mean + 3 SD"
-    ]
-
-    if latest_cases > level_3:
+    ]:
 
         status = (
             "above the Mean + 3 SD statistical level"
         )
 
-    elif latest_cases > level_2:
+    elif latest_cases > statistics[
+        "Mean + 2 SD"
+    ]:
 
         status = (
             "above the Mean + 2 SD statistical level"
@@ -2083,12 +2045,10 @@ def _population_audit(
 
 
 # ============================================================
-# MAIN PAGE
+# MAIN INCIDENCE PAGE
 # ============================================================
 
 def render_incidence_analysis(df):
-
-    _inject_toggle_css()
 
     st.subheader(
         "📐 Incidence & Statistical Surveillance"
@@ -2109,7 +2069,7 @@ def render_incidence_analysis(df):
         return
 
     # ========================================================
-    # PREPARE CASE DATA ONCE
+    # CASE PREPARATION
     # ========================================================
 
     case_df = _prepare_case_data(df)
@@ -2124,7 +2084,7 @@ def render_incidence_analysis(df):
         return
 
     # ========================================================
-    # LOAD POPULATION ONCE
+    # POPULATION
     # ========================================================
 
     population_error = None
@@ -2150,15 +2110,14 @@ def render_incidence_analysis(df):
         population_years = []
 
     # ========================================================
-    # SECTION 1
-    # POPULATION & INCIDENCE OVERVIEW
+    # 1. POPULATION & INCIDENCE OVERVIEW
     # ========================================================
 
     st.markdown(
         "### 1. 📊 Population & Incidence Overview"
     )
 
-    denominator = _smart_toggle(
+    denominator_label = _smart_toggle(
         "Incidence Rate Denominator",
         [
             "Per 1,000",
@@ -2167,7 +2126,7 @@ def render_incidence_analysis(df):
             "Per 1,000,000",
         ],
         default="Per 100,000",
-        key="phase8b_incidence_denominator_toggle",
+        key="phase8b_denominator",
     )
 
     denominator_map = {
@@ -2178,17 +2137,19 @@ def render_incidence_analysis(df):
     }
 
     denominator = denominator_map.get(
-        denominator,
+        denominator_label,
         DEFAULT_DENOMINATOR,
     )
 
     st.caption(
-        f"All incidence rates displayed on this page are "
-        f"currently expressed per {denominator:,} population."
+        f"All incidence rates are expressed per "
+        f"{denominator:,} population."
     )
 
     case_years = sorted(
-        case_df["Analysis_Year"]
+        case_df[
+            "Analysis_Year"
+        ]
         .unique()
         .tolist()
     )
@@ -2236,8 +2197,8 @@ def render_incidence_analysis(df):
     if population_error is not None:
 
         st.error(
-            "Population data could not be loaded from "
-            "the Population worksheet."
+            "Population data could not be loaded "
+            "from the Population worksheet."
         )
 
         with st.expander(
@@ -2278,21 +2239,10 @@ def render_incidence_analysis(df):
     _methodology_expander(
         "Population & Incidence Overview",
         [
-            (
-                "Incidence Rate = Cases ÷ Population × "
-                "selected denominator."
-            ),
-            (
-                "The default denominator is 100,000 population."
-            ),
-            (
-                "Population year columns are detected "
-                "automatically from the Population worksheet."
-            ),
-            (
-                "New population year columns can therefore "
-                "be added without changing this module."
-            ),
+            "Incidence Rate = Cases ÷ Population × selected denominator.",
+            "The default denominator is 100,000 population.",
+            "Population year columns are detected automatically.",
+            "Population data is read from the configured Google Sheet.",
         ],
     )
 
@@ -2300,7 +2250,7 @@ def render_incidence_analysis(df):
         return
 
     # ========================================================
-    # PREPARE COMMON INCIDENCE TABLES ONCE
+    # BUILD TABLES
     # ========================================================
 
     ward_incidence = (
@@ -2342,8 +2292,7 @@ def render_incidence_analysis(df):
     )
 
     # ========================================================
-    # SECTION 2
-    # POPULATION TREND & MATCHING QUALITY
+    # 2. POPULATION TREND & MATCHING
     # ========================================================
 
     st.divider()
@@ -2377,9 +2326,9 @@ def render_incidence_analysis(df):
         if selected_wards:
 
             chart_df = population_long[
-                population_long["WARD"].isin(
-                    selected_wards
-                )
+                population_long[
+                    "WARD"
+                ].isin(selected_wards)
             ].copy()
 
             chart_df = chart_df.sort_values(
@@ -2431,8 +2380,8 @@ def render_incidence_analysis(df):
 
                     _observation_box(
                         f"For {latest_year}, the highest "
-                        f"population among the selected wards "
-                        f"is recorded for {top['WARD']} "
+                        f"population among selected wards "
+                        f"is {top['WARD']} "
                         f"({_format_number(top['Population'])})."
                     )
 
@@ -2462,19 +2411,9 @@ def render_incidence_analysis(df):
         _methodology_expander(
             "Population Trend",
             [
-                (
-                    "Population values are read directly "
-                    "from the Population worksheet."
-                ),
-                (
-                    "Each detected population year is "
-                    "displayed chronologically."
-                ),
-                (
-                    "Ward selection changes only the "
-                    "displayed trend and does not modify "
-                    "the source population dataset."
-                ),
+                "Population values are read directly from the Population worksheet.",
+                "Detected population years are displayed chronologically.",
+                "Ward selection changes only the displayed trend.",
             ],
         )
 
@@ -2513,24 +2452,28 @@ def render_incidence_analysis(df):
             c1, c2, c3, c4 = st.columns(4)
 
             with c1:
+
                 st.metric(
                     "Exact Matches",
                     f"{exact_count:,}",
                 )
 
             with c2:
+
                 st.metric(
                     "Previous-Year Fallback",
                     f"{previous_count:,}",
                 )
 
             with c3:
+
                 st.metric(
                     "Future-Year Fallback",
                     f"{future_count:,}",
                 )
 
             with c4:
+
                 st.metric(
                     "Unavailable",
                     f"{unavailable_count:,}",
@@ -2538,7 +2481,7 @@ def render_incidence_analysis(df):
 
             total_matches = len(audit)
 
-            if total_matches > 0:
+            if total_matches:
 
                 exact_percent = (
                     exact_count
@@ -2549,10 +2492,7 @@ def render_incidence_analysis(df):
                 _observation_box(
                     f"{exact_percent:.1f}% of Ward × Year "
                     f"population matches use the exact "
-                    f"population year. "
-                    f"{previous_count:,} combinations use a "
-                    f"previous-year fallback and "
-                    f"{future_count:,} use a future-year fallback."
+                    f"population year."
                 )
 
             st.dataframe(
@@ -2564,29 +2504,15 @@ def render_incidence_analysis(df):
         _methodology_expander(
             "Population Matching",
             [
-                (
-                    "The exact Ward × Year population is "
-                    "used whenever available."
-                ),
-                (
-                    "If the exact year is unavailable, the "
-                    "closest previous available population "
-                    "year for that ward is used."
-                ),
-                (
-                    "If no previous population year exists, "
-                    "the nearest future available year is used."
-                ),
-                (
-                    "Every fallback is explicitly identified "
-                    "in the audit table."
-                ),
+                "Exact Ward × Year population is used whenever available.",
+                "Previous-year population is used when the exact year is unavailable.",
+                "Future-year population is used only when no previous year exists.",
+                "Fallback status is retained in the audit table.",
             ],
         )
 
     # ========================================================
-    # SECTION 3
-    # WARD-WISE INCIDENCE
+    # 3. WARD-WISE INCIDENCE
     # ========================================================
 
     st.divider()
@@ -2607,12 +2533,13 @@ def render_incidence_analysis(df):
             "Select Analysis Year",
             available_years,
             default=available_years[-1],
-            key="phase8b_ward_year_toggle",
+            key="phase8b_ward_year",
         )
 
         year_df = ward_incidence[
-            ward_incidence["Year"]
-            == selected_year
+            ward_incidence[
+                "Year"
+            ] == selected_year
         ].copy()
 
         ward_options = _alphabetical(
@@ -2623,13 +2550,15 @@ def render_incidence_analysis(df):
             "Select Ward(s)",
             ward_options,
             default=ward_options,
-            key="phase8b_ward_analysis_selection",
+            key="phase8b_ward_selection",
         )
 
         if selected_ward_analysis:
 
             display_df = year_df[
-                year_df["Ward"].isin(
+                year_df[
+                    "Ward"
+                ].isin(
                     selected_ward_analysis
                 )
             ].copy()
@@ -2644,14 +2573,8 @@ def render_incidence_analysis(df):
                 display_df,
                 "Ward",
                 "Incidence Rate",
-                (
-                    f"Ward-wise Incidence Rate — "
-                    f"{selected_year}"
-                ),
-                (
-                    f"Incidence per "
-                    f"{denominator:,}"
-                ),
+                f"Ward-wise Incidence Rate — {selected_year}",
+                f"Incidence per {denominator:,}",
                 height=460,
             )
 
@@ -2660,10 +2583,7 @@ def render_incidence_analysis(df):
                     display_df,
                     "Ward",
                     "Incidence Rate",
-                    (
-                        f"cases per "
-                        f"{denominator:,} population"
-                    ),
+                    f"cases per {denominator:,} population",
                 )
             )
 
@@ -2716,9 +2636,13 @@ def render_incidence_analysis(df):
                     ward_disease[
                         "Ward | Disease"
                     ] = (
-                        ward_disease["Ward"]
+                        ward_disease[
+                            "Ward"
+                        ]
                         + " | "
-                        + ward_disease["Disease"]
+                        + ward_disease[
+                            "Disease"
+                        ]
                     )
 
                     top_ward_disease = (
@@ -2734,14 +2658,8 @@ def render_incidence_analysis(df):
                         top_ward_disease,
                         "Ward | Disease",
                         "Incidence Rate",
-                        (
-                            "Disease-specific Incidence "
-                            "within Selected Ward(s)"
-                        ),
-                        (
-                            f"Incidence per "
-                            f"{denominator:,}"
-                        ),
+                        "Disease-specific Incidence within Selected Ward(s)",
+                        f"Incidence per {denominator:,}",
                         height=500,
                     )
 
@@ -2750,37 +2668,22 @@ def render_incidence_analysis(df):
                             top_ward_disease,
                             "Ward | Disease",
                             "Incidence Rate",
-                            (
-                                f"cases per "
-                                f"{denominator:,} population"
-                            ),
+                            f"cases per {denominator:,} population",
                         )
                     )
 
     _methodology_expander(
         "Ward-wise Incidence",
         [
-            (
-                "Cases are grouped by Ward and Analysis Year."
-            ),
-            (
-                "Each ward's case count is divided by the "
-                "matched population for that ward and year."
-            ),
-            (
-                f"The result is multiplied by {denominator:,}."
-            ),
-            (
-                "A higher incidence rate indicates more "
-                "reported cases relative to the population "
-                "denominator; it is not simply a count ranking."
-            ),
+            "Cases are grouped by Ward and Analysis Year.",
+            "Each ward uses its matched population denominator.",
+            f"The incidence rate is expressed per {denominator:,} population.",
+            "Population fallback status is retained for transparency.",
         ],
     )
 
     # ========================================================
-    # SECTION 4
-    # DISEASE-WISE INCIDENCE
+    # 4. DISEASE-WISE INCIDENCE
     # ========================================================
 
     st.divider()
@@ -2801,7 +2704,7 @@ def render_incidence_analysis(df):
             "Disease Analysis Year",
             disease_years,
             default=disease_years[-1],
-            key="phase8b_disease_year_toggle",
+            key="phase8b_disease_year",
         )
 
         disease_source = (
@@ -2850,19 +2753,27 @@ def render_incidence_analysis(df):
             ):
 
                 valid = group[
-                    group["Population"].notna()
-                    & group["Population"].gt(0)
+                    group[
+                        "Population"
+                    ].notna()
+                    & group[
+                        "Population"
+                    ].gt(0)
                 ]
 
                 if valid.empty:
                     continue
 
                 cases = int(
-                    valid["Cases"].sum()
+                    valid[
+                        "Cases"
+                    ].sum()
                 )
 
                 population = float(
-                    valid["Population"].sum()
+                    valid[
+                        "Population"
+                    ].sum()
                 )
 
                 rate = (
@@ -2901,14 +2812,8 @@ def render_incidence_analysis(df):
                     disease_summary,
                     "Disease",
                     "Incidence Rate",
-                    (
-                        f"Disease-wise Incidence — "
-                        f"{disease_year}"
-                    ),
-                    (
-                        f"Incidence per "
-                        f"{denominator:,}"
-                    ),
+                    f"Disease-wise Incidence — {disease_year}",
+                    f"Incidence per {denominator:,}",
                     height=450,
                 )
 
@@ -2917,10 +2822,7 @@ def render_incidence_analysis(df):
                         disease_summary,
                         "Disease",
                         "Incidence Rate",
-                        (
-                            f"cases per "
-                            f"{denominator:,} population"
-                        ),
+                        f"cases per {denominator:,} population",
                     )
                 )
 
@@ -2934,10 +2836,6 @@ def render_incidence_analysis(df):
                         use_container_width=True,
                         hide_index=True,
                     )
-
-            # ------------------------------------------------
-            # WARD-WISE OPTION
-            # ------------------------------------------------
 
             st.markdown(
                 "#### 📍 Ward-wise Distribution of Selected Disease(s)"
@@ -2976,9 +2874,13 @@ def render_incidence_analysis(df):
                 ward_disease_df[
                     "Ward | Disease"
                 ] = (
-                    ward_disease_df["Ward"]
+                    ward_disease_df[
+                        "Ward"
+                    ]
                     + " | "
-                    + ward_disease_df["Disease"]
+                    + ward_disease_df[
+                        "Disease"
+                    ]
                 )
 
                 ward_disease_df = (
@@ -2993,13 +2895,8 @@ def render_incidence_analysis(df):
                     ward_disease_df,
                     "Ward | Disease",
                     "Incidence Rate",
-                    (
-                        "Ward-wise Disease Incidence Comparison"
-                    ),
-                    (
-                        f"Incidence per "
-                        f"{denominator:,}"
-                    ),
+                    "Ward-wise Disease Incidence Comparison",
+                    f"Incidence per {denominator:,}",
                     height=500,
                 )
 
@@ -3008,10 +2905,7 @@ def render_incidence_analysis(df):
                         ward_disease_df,
                         "Ward | Disease",
                         "Incidence Rate",
-                        (
-                            f"cases per "
-                            f"{denominator:,} population"
-                        ),
+                        f"cases per {denominator:,} population",
                     )
                 )
 
@@ -3040,29 +2934,15 @@ def render_incidence_analysis(df):
     _methodology_expander(
         "Disease-wise Incidence",
         [
-            (
-                "Disease-specific cases are first grouped "
-                "by Ward × Disease × Year."
-            ),
-            (
-                "Each ward uses its corresponding population "
-                "denominator."
-            ),
-            (
-                "For the overall disease comparison, valid "
-                "ward populations are summed and compared "
-                "with the corresponding summed disease cases."
-            ),
-            (
-                "The Ward-wise option shows how the selected "
-                "disease burden varies geographically."
-            ),
+            "Disease-specific cases are grouped by Ward × Disease × Year.",
+            "The corresponding ward population is used as denominator.",
+            "The overall disease comparison uses summed valid ward cases and populations.",
+            "The Ward-wise option shows geographic distribution of selected disease(s).",
         ],
     )
 
     # ========================================================
-    # SECTION 5
-    # INCIDENCE TRENDS
+    # 5. INCIDENCE TRENDS
     # ========================================================
 
     st.divider()
@@ -3124,13 +3004,8 @@ def render_incidence_analysis(df):
                     "Period",
                     "Ward",
                     "Incidence Rate",
-                    (
-                        "Monthly Ward-wise Incidence Trend"
-                    ),
-                    (
-                        f"Incidence per "
-                        f"{denominator:,}"
-                    ),
+                    "Monthly Ward-wise Incidence Trend",
+                    f"Incidence per {denominator:,}",
                     height=480,
                 )
 
@@ -3182,18 +3057,9 @@ def render_incidence_analysis(df):
         _methodology_expander(
             "Monthly Incidence Trend",
             [
-                (
-                    "Monthly cases are grouped by "
-                    "Ward × Year × Month."
-                ),
-                (
-                    "The annual ward population matched to "
-                    "that year is used as the denominator."
-                ),
-                (
-                    "The chart displays chronological "
-                    "Month-Year periods."
-                ),
+                "Monthly cases are grouped by Ward × Year × Month.",
+                "The matched annual ward population is used as denominator.",
+                "Month-Year periods are displayed chronologically.",
             ],
         )
 
@@ -3204,7 +3070,9 @@ def render_incidence_analysis(df):
             chart_df = yearly_incidence.copy()
 
             chart_df["Year Label"] = (
-                chart_df["Year"]
+                chart_df[
+                    "Year"
+                ]
                 .astype(str)
             )
 
@@ -3218,10 +3086,7 @@ def render_incidence_analysis(df):
                 "Series",
                 "Incidence Rate",
                 "Year-wise Overall Incidence Trend",
-                (
-                    f"Incidence per "
-                    f"{denominator:,}"
-                ),
+                f"Incidence per {denominator:,}",
                 height=430,
             )
 
@@ -3247,25 +3112,14 @@ def render_incidence_analysis(df):
         _methodology_expander(
             "Year-wise Incidence Trend",
             [
-                (
-                    "Ward-level cases and valid ward "
-                    "populations are aggregated by year."
-                ),
-                (
-                    "Overall yearly incidence is calculated "
-                    "from total valid cases divided by total "
-                    "matched population."
-                ),
-                (
-                    "The calculation does not average "
-                    "individual ward incidence rates."
-                ),
+                "Ward-level cases and valid ward populations are aggregated by year.",
+                "Overall yearly incidence uses total valid cases divided by total matched population.",
+                "Individual ward incidence rates are not averaged to produce the overall rate.",
             ],
         )
 
     # ========================================================
-    # SECTION 6
-    # STATISTICAL SURVEILLANCE
+    # 6. STATISTICAL SURVEILLANCE
     # ========================================================
 
     st.divider()
@@ -3276,7 +3130,7 @@ def render_incidence_analysis(df):
 
     st.caption(
         "Mean and standard-deviation levels are descriptive "
-        "surveillance indicators. They do not independently "
+        "surveillance indicators and do not independently "
         "confirm an outbreak."
     )
 
@@ -3289,7 +3143,7 @@ def render_incidence_analysis(df):
             "Last 5 Years",
         ],
         default="All Available Years",
-        key="phase8b_stat_baseline_toggle",
+        key="phase8b_stat_baseline",
     )
 
     analysis_type = _smart_toggle(
@@ -3301,7 +3155,7 @@ def render_incidence_analysis(df):
             "Facility",
         ],
         default="Overall",
-        key="phase8b_stat_type_toggle",
+        key="phase8b_stat_type",
     )
 
     statistical_source = _apply_baseline(
@@ -3312,10 +3166,6 @@ def render_incidence_analysis(df):
     statistical_title = (
         "Overall Monthly Cases"
     )
-
-    # --------------------------------------------------------
-    # DISEASE
-    # --------------------------------------------------------
 
     if analysis_type == "Disease":
 
@@ -3338,9 +3188,14 @@ def render_incidence_analysis(df):
 
                 selected = _smart_toggle(
                     "Select Disease",
-                    options[:min(10, len(options))],
+                    options[
+                        :min(
+                            10,
+                            len(options),
+                        )
+                    ],
                     default=options[0],
-                    key="phase8b_stat_disease_toggle",
+                    key="phase8b_stat_disease",
                 )
 
                 statistical_source = (
@@ -3354,10 +3209,6 @@ def render_incidence_analysis(df):
                 statistical_title = (
                     f"{selected} Monthly Cases"
                 )
-
-    # --------------------------------------------------------
-    # WARD
-    # --------------------------------------------------------
 
     elif analysis_type == "Ward":
 
@@ -3379,7 +3230,7 @@ def render_incidence_analysis(df):
                     "Select Ward",
                     options,
                     default=options[0],
-                    key="phase8b_stat_ward_toggle",
+                    key="phase8b_stat_ward",
                 )
 
                 statistical_source = (
@@ -3393,10 +3244,6 @@ def render_incidence_analysis(df):
                 statistical_title = (
                     f"Ward {selected} Monthly Cases"
                 )
-
-    # --------------------------------------------------------
-    # FACILITY
-    # --------------------------------------------------------
 
     elif analysis_type == "Facility":
 
@@ -3419,9 +3266,14 @@ def render_incidence_analysis(df):
 
                 selected = _smart_toggle(
                     "Select Facility",
-                    options[:min(10, len(options))],
+                    options[
+                        :min(
+                            10,
+                            len(options),
+                        )
+                    ],
                     default=options[0],
-                    key="phase8b_stat_facility_toggle",
+                    key="phase8b_stat_facility",
                 )
 
                 statistical_source = (
@@ -3462,27 +3314,21 @@ def render_incidence_analysis(df):
 
             st.metric(
                 "Mean + 1 SD",
-                (
-                    f"{statistics['Mean + 1 SD']:,.2f}"
-                ),
+                f"{statistics['Mean + 1 SD']:,.2f}",
             )
 
         with c3:
 
             st.metric(
                 "Mean + 2 SD",
-                (
-                    f"{statistics['Mean + 2 SD']:,.2f}"
-                ),
+                f"{statistics['Mean + 2 SD']:,.2f}",
             )
 
         with c4:
 
             st.metric(
                 "Mean + 3 SD",
-                (
-                    f"{statistics['Mean + 3 SD']:,.2f}"
-                ),
+                f"{statistics['Mean + 3 SD']:,.2f}",
             )
 
         _render_threshold_chart(
@@ -3573,45 +3419,18 @@ def render_incidence_analysis(df):
     _methodology_expander(
         "Statistical Surveillance",
         [
-            (
-                "Monthly case counts are calculated for "
-                "the selected Overall, Disease, Ward or "
-                "Facility view."
-            ),
-            (
-                "Missing calendar months between the first "
-                "and last available periods are included "
-                "with zero cases."
-            ),
-            (
-                "Mean is the arithmetic mean of monthly "
-                "case counts in the selected baseline."
-            ),
-            (
-                "SD is the sample standard deviation of "
-                "monthly case counts."
-            ),
-            (
-                "Mean + 1 SD, Mean + 2 SD and Mean + 3 SD "
-                "are descriptive statistical surveillance levels."
-            ),
-            (
-                "Crossing these levels should prompt review "
-                "alongside seasonality, reporting completeness, "
-                "testing practices and epidemiological context."
-            ),
-            (
-                "Facility analysis represents case-volume "
-                "statistical surveillance, not facility incidence, "
-                "because a facility-specific population denominator "
-                "is not available."
-            ),
+            "Monthly case counts are calculated for the selected analysis type.",
+            "Missing calendar months between the first and last available periods are included as zero.",
+            "Mean is the arithmetic mean of monthly case counts.",
+            "SD is the sample standard deviation.",
+            "Mean + 1 SD, Mean + 2 SD and Mean + 3 SD are descriptive surveillance thresholds.",
+            "Threshold crossing should be interpreted together with seasonality and reporting quality.",
+            "Facility analysis is case-volume surveillance and is not presented as facility incidence.",
         ],
     )
 
     # ========================================================
-    # SECTION 7
-    # METHODOLOGY & INTERPRETATION
+    # 7. METHODOLOGY & DATA QUALITY
     # ========================================================
 
     st.divider()
@@ -3643,72 +3462,24 @@ def render_incidence_analysis(df):
                 "Interpretation",
             ],
             "Methodology": [
-                (
-                    "Cases ÷ Population × selected denominator"
-                ),
-                (
-                    "100,000 population"
-                ),
-                (
-                    "1,000; 10,000; 100,000; 1,000,000"
-                ),
-                (
-                    "Population worksheet in the configured "
-                    "Google Sheet"
-                ),
-                (
-                    "Exact Ward × Analysis Year population "
-                    "is used when available"
-                ),
-                (
-                    "Closest previous available population "
-                    "year for the ward is used"
-                ),
-                (
-                    "If no previous year exists, the nearest "
-                    "future available population year is used"
-                ),
-                (
-                    "Ward cases divided by the matched "
-                    "ward population"
-                ),
-                (
-                    "Disease cases are calculated using "
-                    "corresponding ward populations"
-                ),
-                (
-                    "Monthly ward cases use the matched "
-                    "annual ward population denominator"
-                ),
-                (
-                    "Valid ward cases and populations are "
-                    "aggregated before calculating yearly rate"
-                ),
-                (
-                    "Case-volume statistical surveillance only; "
-                    "not labelled as facility incidence"
-                ),
-                (
-                    "Arithmetic mean of monthly case counts"
-                ),
-                (
-                    "Sample standard deviation of monthly "
-                    "case counts"
-                ),
-                (
-                    "Mean plus one standard deviation"
-                ),
-                (
-                    "Mean plus two standard deviations"
-                ),
-                (
-                    "Mean plus three standard deviations"
-                ),
-                (
-                    "Results support surveillance and programme "
-                    "review and should be interpreted with data "
-                    "quality, seasonality and epidemiological context"
-                ),
+                "Cases ÷ Population × selected denominator",
+                "100,000 population",
+                "1,000; 10,000; 100,000; 1,000,000",
+                "Population worksheet in the configured Google Sheet",
+                "Exact Ward × Analysis Year population when available",
+                "Closest previous available population year",
+                "Nearest future available population year when no previous year exists",
+                "Ward cases divided by matched ward population",
+                "Disease cases calculated using corresponding ward populations",
+                "Monthly ward cases using matched annual ward population",
+                "Valid ward cases and populations aggregated before calculating yearly rate",
+                "Case-volume statistical surveillance only",
+                "Arithmetic mean of monthly case counts",
+                "Sample standard deviation",
+                "Mean plus one standard deviation",
+                "Mean plus two standard deviations",
+                "Mean plus three standard deviations",
+                "Results should be interpreted with data quality, seasonality and epidemiological context",
             ],
         }
     )
@@ -3721,11 +3492,12 @@ def render_incidence_analysis(df):
 
     st.warning(
         "Incidence rates depend on the completeness and "
-        "appropriateness of both case and population data. "
-        "Population fallback values should be reviewed before "
-        "formal reporting. Statistical Mean/SD levels are "
-        "descriptive surveillance indicators and do not, by "
-        "themselves, establish or confirm an outbreak."
+        "appropriateness of case and population data. "
+        "Population fallback values should be reviewed "
+        "before formal reporting. Statistical Mean/SD "
+        "levels are descriptive surveillance indicators "
+        "and do not by themselves establish or confirm "
+        "an outbreak."
     )
 
 
