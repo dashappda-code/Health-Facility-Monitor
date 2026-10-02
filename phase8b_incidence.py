@@ -3788,3 +3788,4 @@ def render_incidence_analysis(df):
 def render_incidence(df):
 
     return render_incidence_analysis(df)
+
