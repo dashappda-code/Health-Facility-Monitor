@@ -3590,6 +3590,15 @@ def render_incidence_analysis(df):
         key="phase8b_stat_baseline",
     )
 
+    # Apply the selected historical baseline BEFORE building the
+    # independent Disease and Ward selector option lists.
+    # This preserves the existing baseline calculation logic while
+    # ensuring statistical_source is always initialized.
+    statistical_source = _apply_baseline(
+        case_df,
+        baseline,
+    )
+
     disease_options = ["All Diseases"]
 
     if "Disease" in statistical_source.columns:
