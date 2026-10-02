@@ -79,12 +79,18 @@ def _single_select(
     options,
     default=None,
     key=None,
+    reset_button_key=None,
+    reset_label="↺ Reset",
+    show_selected=True,
 ):
     """
     Single-choice selector using native Streamlit multiselect.
 
-    The dropdown shows native tick/check boxes.
-    Only one value can be selected.
+    The dropdown uses Streamlit's native checkbox-style options.
+    Only one value can be selected at a time.
+
+    When a reset button key is supplied, the current widget state is
+    reset to the supplied default and the page reruns.
     """
 
     options = list(options)
@@ -94,6 +100,32 @@ def _single_select(
 
     if default not in options:
         default = options[0]
+
+    if key is None:
+        key = f"_single_select_{label}"
+
+    # Keep stale session-state selections from breaking when the
+    # available option list changes after filtering/baseline changes.
+    existing = st.session_state.get(key)
+    if existing is not None:
+        if isinstance(existing, (list, tuple)):
+            valid_existing = [
+                value for value in existing if value in options
+            ]
+            if len(valid_existing) > 1:
+                valid_existing = valid_existing[-1:]
+            st.session_state[key] = valid_existing
+        elif existing not in options:
+            st.session_state[key] = [default]
+
+    if reset_button_key is not None:
+        if st.button(
+            reset_label,
+            key=reset_button_key,
+            help=f"Reset {label} to the default selection.",
+        ):
+            st.session_state[key] = [default]
+            st.rerun()
 
     selected = st.multiselect(
         label,
@@ -106,9 +138,18 @@ def _single_select(
     )
 
     if not selected:
+        if show_selected:
+            st.caption("Selected: None")
         return None
 
-    return selected[0]
+    value = selected[0]
+
+    if show_selected:
+        st.caption(
+            f"Selected: **{value}** · Charts below use this selection."
+        )
+
+    return value
 
 
 def _compact_multiselect(
@@ -116,11 +157,16 @@ def _compact_multiselect(
     options,
     default=None,
     key=None,
+    reset_button_key=None,
+    reset_label="↺ Reset",
+    show_selected=True,
 ):
     """
     Multi-value selection using native Streamlit multiselect.
 
-    Dropdown options display native tick/check boxes.
+    Dropdown options display native tick/check boxes, so the checked
+    state is visible when the dropdown is opened. The current selection
+    is also shown below the widget.
     """
 
     options = list(options)
@@ -137,12 +183,42 @@ def _compact_multiselect(
         if value in options
     ]
 
-    return st.multiselect(
+    if key is None:
+        key = f"_compact_multiselect_{label}"
+
+    existing = st.session_state.get(key)
+    if existing is not None:
+        if isinstance(existing, (list, tuple)):
+            st.session_state[key] = [
+                value for value in existing if value in options
+            ]
+
+    if reset_button_key is not None:
+        if st.button(
+            reset_label,
+            key=reset_button_key,
+            help=f"Reset {label} to its default selections.",
+        ):
+            st.session_state[key] = list(default)
+            st.rerun()
+
+    selected = st.multiselect(
         label,
         options=options,
         default=default,
         key=key,
     )
+
+    if show_selected:
+        if selected:
+            display = ", ".join(str(value) for value in selected)
+            st.caption(
+                f"Selected: **{display}** · The chart uses all checked selections."
+            )
+        else:
+            st.caption("Selected: None")
+
+    return selected
 
 
 def _chart_title(
@@ -2147,6 +2223,44 @@ def _render_threshold_chart(
     chart = chart + points
 
     # --------------------------------------------------------
+    # OBSERVED CASE DATA LABELS
+    # --------------------------------------------------------
+
+    # The global dashboard "Show Data Labels" toggle controls the
+    # month-by-month observed case labels. Statistical threshold labels
+    # are added separately below so their reference values remain clear.
+    if data_labels_enabled():
+
+        case_labels = (
+            alt.Chart(case_points)
+            .mark_text(
+                dy=-10,
+                fontSize=DATA_LABEL_FONT_SIZE,
+                fontWeight="bold",
+            )
+            .encode(
+                x=alt.X(
+                    "Period:N",
+                    sort=None,
+                ),
+                y=alt.Y(
+                    "Value:Q"
+                ),
+                text=alt.Text(
+                    "Value:Q",
+                    format=",.1f",
+                ),
+                color=alt.Color(
+                    "Series:N",
+                    scale=scale,
+                    legend=None,
+                ),
+            )
+        )
+
+        chart = chart + case_labels
+
+    # --------------------------------------------------------
     # END-OF-LINE STATISTICAL LABELS
     # --------------------------------------------------------
 
@@ -2183,7 +2297,11 @@ def _render_threshold_chart(
     # Keep the line labels visually close to the
     # corresponding statistical lines.
     latest_labels["Label"] = latest_labels.apply(
-        lambda row: f"{row['Series']} = {row['Value']:,.1f}",
+        lambda row: (
+            f"Observed = {row['Value']:,.1f}"
+            if row["Series"] == "Cases"
+            else f"{row['Series']} = {row['Value']:,.1f}"
+        ),
         axis=1,
     )
 
@@ -2227,7 +2345,8 @@ def _render_threshold_chart(
         "green line = Mean; "
         "yellow/orange/red lines = Mean + 1 SD, "
         "Mean + 2 SD and Mean + 3 SD respectively. "
-        "The statistical lines are descriptive surveillance thresholds."
+        "The statistical lines are descriptive surveillance thresholds. "
+        "When Show Data Labels is enabled, observed monthly case values are labelled on the chart."
     )
 
     st.altair_chart(
@@ -2670,6 +2789,7 @@ def render_incidence_analysis(df):
                 :min(5, len(wards))
             ],
             key="phase8b_population_wards",
+            reset_button_key="phase8b_population_wards_reset_v1",
         )
 
         st.caption(
@@ -2914,6 +3034,7 @@ def render_incidence_analysis(df):
                 ward_options,
                 default=ward_options,
                 key="phase8b_ward_selection",
+                reset_button_key="phase8b_ward_selection_reset_v1",
             )
 
             st.caption(
@@ -3108,6 +3229,7 @@ def render_incidence_analysis(df):
                     :min(8, len(disease_options))
                 ],
                 key="phase8b_disease_selection",
+                reset_button_key="phase8b_disease_selection_reset_v1",
             )
 
             st.caption(
@@ -3239,6 +3361,7 @@ def render_incidence_analysis(df):
                         )
                     ],
                     key="phase8b_disease_ward_selection",
+                    reset_button_key="phase8b_disease_ward_selection_reset_v1",
                 )
 
                 if selected_disease_wards:
@@ -3366,11 +3489,26 @@ def render_incidence_analysis(df):
         trend_disease_options,
         default="All Diseases",
         key="phase8b_incidence_trend_disease_v3",
+        reset_button_key="phase8b_incidence_trend_disease_reset_v1",
+    )
+
+    if selected_trend_disease is None:
+        selected_trend_disease = "All Diseases"
+
+    trend_basis = (
+        "All diseases across all available wards; incidence is calculated "
+        f"as valid reported cases ÷ matched population × {denominator:,}."
+        if selected_trend_disease == "All Diseases"
+        else
+        f"Disease = {selected_trend_disease}; all available wards are included; "
+        f"incidence is calculated as valid reported cases ÷ matched population × {denominator:,}."
     )
 
     st.caption(
-        "Native checkbox-style dropdown. Select All Diseases or exactly one disease at a time. "
-        "Changing the disease updates both monthly and yearly incidence trends."
+        "Selection: the checked option is active. Select All Diseases or exactly one disease."
+    )
+    st.info(
+        f"**Chart basis:** {trend_basis}"
     )
 
     monthly_tab, yearly_tab = st.tabs(
@@ -3578,6 +3716,22 @@ def render_incidence_analysis(df):
         "Each allows All or exactly one specific value at a time."
     )
 
+    if st.button(
+        "↺ Reset Statistical Selection to Default",
+        key="phase8b_stat_all_reset_v1",
+        help="Reset baseline, disease and ward to their default selections.",
+    ):
+        st.session_state["phase8b_stat_baseline"] = [
+            "All Available Years"
+        ]
+        st.session_state["phase8b_stat_disease_v3"] = [
+            "All Diseases"
+        ]
+        st.session_state["phase8b_stat_ward_v3"] = [
+            "All Wards"
+        ]
+        st.rerun()
+
     baseline = _single_select(
         "Statistical Baseline",
         [
@@ -3588,6 +3742,7 @@ def render_incidence_analysis(df):
         ],
         default="All Available Years",
         key="phase8b_stat_baseline",
+        reset_button_key="phase8b_stat_baseline_reset_v1",
     )
 
     # Apply the selected historical baseline BEFORE building the
@@ -3628,6 +3783,7 @@ def render_incidence_analysis(df):
             disease_options,
             default="All Diseases",
             key="phase8b_stat_disease_v3",
+            reset_button_key="phase8b_stat_disease_reset_v1",
         )
 
     with stat_ward_col:
@@ -3637,6 +3793,7 @@ def render_incidence_analysis(df):
             ward_options,
             default="All Wards",
             key="phase8b_stat_ward_v3",
+            reset_button_key="phase8b_stat_ward_reset_v1",
         )
 
     if (
@@ -3656,6 +3813,23 @@ def render_incidence_analysis(df):
         ]
 
     statistical_title = "Monthly Cases"
+
+    stat_disease_basis = (
+        "All Diseases"
+        if selected_stat_disease in (None, "All Diseases")
+        else selected_stat_disease
+    )
+    stat_ward_basis = (
+        "All Wards"
+        if selected_stat_ward in (None, "All Wards")
+        else selected_stat_ward
+    )
+
+    st.info(
+        f"**Chart basis:** Disease = {stat_disease_basis} · Ward = {stat_ward_basis} · "
+        f"Baseline = {baseline}. The graph shows monthly case counts for this exact selection; "
+        "Mean and SD thresholds are calculated from the displayed monthly series."
+    )
 
     if selected_stat_disease != "All Diseases":
         statistical_title += f" — {selected_stat_disease}"
