@@ -82,7 +82,7 @@ def _single_select(
     """
     Single-choice selector using native Streamlit multiselect.
 
-    The dropdown shows native tick/check selection.
+    The dropdown shows native tick/check boxes.
     Only one value can be selected.
     """
 
@@ -139,6 +139,42 @@ def _compact_multiselect(
         options=options,
         default=default,
         key=key,
+    )
+
+
+def _chart_title(
+    title,
+    x_title,
+    y_title,
+    interpretation=None,
+):
+    """
+    Creates a self-explanatory Altair title.
+
+    The main title explains WHAT is being shown.
+    The subtitle explicitly explains X-axis and Y-axis.
+    """
+
+    subtitle_parts = [
+        f"X-axis: {x_title}",
+        f"Y-axis: {y_title}",
+    ]
+
+    if interpretation:
+        subtitle_parts.append(
+            f"Interpretation: {interpretation}"
+        )
+
+    return alt.TitleParams(
+        text=title,
+        subtitle=" | ".join(subtitle_parts),
+        anchor="start",
+        fontSize=16,
+        fontWeight="bold",
+        subtitleFontSize=11,
+        subtitleFontWeight="normal",
+        subtitlePadding=6,
+        limit=1000,
     )
 
 
@@ -1119,18 +1155,21 @@ def _aggregate_year_incidence(
 
 
 # ============================================================
-# LEGEND
+# LEGEND & CHART CONFIGURATION
 # ============================================================
 
 def _legend_columns(series_count):
 
-    if series_count <= 4:
+    if series_count <= 2:
         return series_count
 
-    if series_count <= 8:
-        return 4
+    if series_count <= 5:
+        return 3
 
-    return 6
+    if series_count <= 10:
+        return 5
+
+    return 5
 
 
 def _legend(
@@ -1149,20 +1188,24 @@ def _legend(
         titleFontSize=10,
         symbolSize=65,
         labelLimit=180,
-        columnPadding=10,
-        rowPadding=5,
+        columnPadding=12,
+        rowPadding=6,
         padding=8,
     )
 
 
-def _finalize_chart(chart):
+def _finalize_chart(
+    chart,
+    series_count=1,
+):
 
     """
     Chart-local configuration only.
 
     No CSS and no global Streamlit selectors.
-    This keeps legend below the chart without
-    affecting any other dashboard phase.
+
+    Legend is explicitly forced to the bottom and
+    arranged into a compact multi-row layout.
     """
 
     return (
@@ -1170,7 +1213,23 @@ def _finalize_chart(chart):
         .configure_legend(
             orient="bottom",
             direction="horizontal",
+            columns=_legend_columns(
+                max(1, series_count)
+            ),
+            labelFontSize=9,
+            titleFontSize=10,
+            symbolSize=65,
+            labelLimit=180,
+            columnPadding=12,
+            rowPadding=6,
             padding=8,
+            offset=8,
+        )
+        .configure_title(
+            anchor="start",
+            fontSize=16,
+            subtitleFontSize=11,
+            subtitlePadding=6,
         )
         .configure_view(
             stroke=None
@@ -1270,7 +1329,11 @@ def _render_bar_chart(
         )
         .properties(
             height=height,
-            title=title,
+            title=_chart_title(
+                title,
+                x_column,
+                y_title,
+            ),
         )
     )
 
@@ -1307,7 +1370,10 @@ def _render_bar_chart(
 
         chart = bars + labels
 
-    chart = _finalize_chart(chart)
+    chart = _finalize_chart(
+        chart,
+        series_count=len(order),
+    )
 
     st.altair_chart(
         chart,
@@ -1419,7 +1485,11 @@ def _render_line_chart(
         )
         .properties(
             height=height,
-            title=title,
+            title=_chart_title(
+                title,
+                x_column,
+                y_title,
+            ),
         )
     )
 
@@ -1456,7 +1526,10 @@ def _render_line_chart(
 
         chart = lines + labels
 
-    chart = _finalize_chart(chart)
+    chart = _finalize_chart(
+        chart,
+        series_count=len(series_order),
+    )
 
     st.altair_chart(
         chart,
@@ -1862,7 +1935,7 @@ def _render_threshold_chart(
             ),
             y=alt.Y(
                 "Value:Q",
-                title="Cases",
+                title="Monthly Cases",
             ),
             color=alt.Color(
                 "Series:N",
@@ -1870,25 +1943,33 @@ def _render_threshold_chart(
                 scale=scale,
                 legend=_legend(
                     len(series_order),
-                    "Series",
+                    "Statistical Series",
                 ),
             ),
             tooltip=[
                 alt.Tooltip(
-                    "Period:N"
+                    "Period:N",
+                    title="Period",
                 ),
                 alt.Tooltip(
-                    "Series:N"
+                    "Series:N",
+                    title="Series",
                 ),
                 alt.Tooltip(
                     "Value:Q",
+                    title="Value",
                     format=",.2f",
                 ),
             ],
         )
         .properties(
             height=460,
-            title=title,
+            title=_chart_title(
+                title,
+                "Period",
+                "Monthly Cases",
+                "Observed monthly cases are compared with descriptive Mean and SD thresholds.",
+            ),
         )
     )
 
@@ -1942,7 +2023,84 @@ def _render_threshold_chart(
 
         chart = chart + labels
 
-    chart = _finalize_chart(chart)
+    # --------------------------------------------------------
+    # END-OF-LINE STATISTICAL LABELS
+    # --------------------------------------------------------
+
+    latest_period = (
+        chart_df["Period"].iloc[-1]
+    )
+
+    latest_labels = pd.DataFrame(
+        {
+            "Period": [latest_period] * len(
+                series_order
+            ),
+            "Series": series_order,
+            "Value": [
+                statistics.get(
+                    series,
+                    chart_df.loc[
+                        chart_df["Period"]
+                        == latest_period,
+                        "Cases",
+                    ].iloc[0],
+                )
+                if series != "Cases"
+                else chart_df.loc[
+                    chart_df["Period"]
+                    == latest_period,
+                    "Cases",
+                ].iloc[0]
+                for series in series_order
+            ],
+        }
+    )
+
+    # Keep the line labels visually close to the
+    # corresponding statistical lines.
+    line_labels = (
+        alt.Chart(latest_labels)
+        .mark_text(
+            align="left",
+            dx=8,
+            fontSize=10,
+            fontWeight="bold",
+        )
+        .encode(
+            x=alt.X(
+                "Period:N",
+                sort=None,
+            ),
+            y=alt.Y(
+                "Value:Q"
+            ),
+            text=alt.Text(
+                "Series:N"
+            ),
+            color=alt.Color(
+                "Series:N",
+                scale=scale,
+                legend=None,
+            ),
+        )
+    )
+
+    chart = chart + line_labels
+
+    chart = _finalize_chart(
+        chart,
+        series_count=len(series_order),
+    )
+
+    st.caption(
+        "How to read this chart: "
+        "blue line = observed monthly cases; "
+        "green line = Mean; "
+        "yellow/orange/red lines = Mean + 1 SD, "
+        "Mean + 2 SD and Mean + 3 SD respectively. "
+        "The statistical lines are descriptive surveillance thresholds."
+    )
 
     st.altair_chart(
         chart,
@@ -2093,9 +2251,11 @@ def render_incidence_analysis(df):
     )
 
     st.caption(
-        "Population-based incidence analysis, trend monitoring "
-        "and descriptive statistical surveillance using the "
-        "currently selected Global Dashboard Filters."
+        "This section answers three management questions: "
+        "1) What is the disease burden relative to population? "
+        "2) Where and when is incidence higher? "
+        "3) Are recent monthly case counts above the historical "
+        "descriptive statistical baseline?"
     )
 
     if df is None or df.empty:
@@ -2155,6 +2315,13 @@ def render_incidence_analysis(df):
         "### 1. 📊 Population & Incidence Overview"
     )
 
+    st.info(
+        "Purpose: Incidence does not simply count cases. "
+        "It relates the number of cases to the population of the "
+        "corresponding ward. This allows wards of different population "
+        "sizes to be compared on a common rate scale."
+    )
+
     denominator_label = _single_select(
         "Incidence Rate Denominator",
         [
@@ -2180,8 +2347,9 @@ def render_incidence_analysis(df):
     )
 
     st.caption(
-        f"All incidence rates are expressed per "
-        f"{denominator:,} population."
+        f"Selected denominator: "
+        f"{denominator_label}. "
+        f"Formula = Cases ÷ Population × {denominator:,}."
     )
 
     case_years = sorted(
@@ -2339,6 +2507,13 @@ def render_incidence_analysis(df):
         "### 2. 👥 Population Trend & Matching Quality"
     )
 
+    st.caption(
+        "This section checks the denominator used in incidence "
+        "calculation. First view the population trend, then use the "
+        "audit to confirm whether the case year had an exact population "
+        "value or required a fallback."
+    )
+
     population_tab, audit_tab = st.tabs(
         [
             "📈 Population Trend",
@@ -2359,6 +2534,11 @@ def render_incidence_analysis(df):
                 :min(5, len(wards))
             ],
             key="phase8b_population_wards",
+        )
+
+        st.caption(
+            "Tick one or more wards. "
+            "The chart compares population size over the available population years."
         )
 
         if selected_wards:
@@ -2559,6 +2739,13 @@ def render_incidence_analysis(df):
         "### 3. 📍 Ward-wise Incidence Analysis"
     )
 
+    st.info(
+        "Purpose: Identify which selected wards have higher or lower "
+        "population-adjusted disease incidence for the selected year. "
+        "A higher rate means more cases relative to the ward population; "
+        "it is not simply a higher case count."
+    )
+
     if not ward_incidence.empty:
 
         available_years = sorted(
@@ -2591,6 +2778,11 @@ def render_incidence_analysis(df):
                 ward_options,
                 default=ward_options,
                 key="phase8b_ward_selection",
+            )
+
+            st.caption(
+                "Tick the wards you want to compare. "
+                "The bars are incidence rates, not raw case counts."
             )
 
             if selected_ward_analysis:
@@ -2732,6 +2924,13 @@ def render_incidence_analysis(df):
         "### 4. 🦠 Disease-wise Incidence Analysis"
     )
 
+    st.info(
+        "Purpose: Compare diseases using population-adjusted incidence "
+        "rather than simply comparing the number of reported cases. "
+        "The second chart shows where the selected disease(s) are "
+        "distributed across selected wards."
+    )
+
     if not disease_ward_incidence.empty:
 
         disease_years = sorted(
@@ -2773,6 +2972,11 @@ def render_incidence_analysis(df):
                     :min(8, len(disease_options))
                 ],
                 key="phase8b_disease_selection",
+            )
+
+            st.caption(
+                "Tick the disease(s) you want to study. "
+                "The chart ranks their population-adjusted incidence."
             )
 
             if selected_diseases:
@@ -2993,6 +3197,12 @@ def render_incidence_analysis(df):
         "### 5. 📈 Incidence Trends"
     )
 
+    st.info(
+        "Purpose: Trends answer WHEN incidence is increasing, decreasing "
+        "or fluctuating. Monthly trends show short-term changes, while "
+        "the year-wise trend provides the broader long-term pattern."
+    )
+
     monthly_tab, yearly_tab = st.tabs(
         [
             "📅 Monthly Trend",
@@ -3020,6 +3230,10 @@ def render_incidence_analysis(df):
                     )
                 ],
                 key="phase8b_monthly_wards",
+            )
+
+            st.caption(
+                "Tick one or more wards to compare their monthly incidence trajectories."
             )
 
             if selected_monthly_wards:
@@ -3170,10 +3384,11 @@ def render_incidence_analysis(df):
         "### 6. 📐 Statistical Surveillance Analysis"
     )
 
-    st.caption(
-        "Mean and standard-deviation levels are descriptive "
-        "surveillance indicators and do not independently "
-        "confirm an outbreak."
+    st.info(
+        "Purpose: This analysis compares monthly case counts with their "
+        "historical mean and standard-deviation levels. It is useful for "
+        "screening unusual increases in reporting volume, but a statistical "
+        "threshold crossing alone does not establish an outbreak."
     )
 
     baseline = _single_select(
@@ -3349,7 +3564,11 @@ def render_incidence_analysis(df):
         and not monthly_stats.empty
     ):
 
-        c1, c2, c3, c4 = st.columns(4)
+        # ----------------------------------------------------
+        # STATISTICAL SUMMARY
+        # ----------------------------------------------------
+
+        c1, c2, c3, c4, c5 = st.columns(5)
 
         with c1:
 
@@ -3361,18 +3580,25 @@ def render_incidence_analysis(df):
         with c2:
 
             st.metric(
+                "SD",
+                f"{statistics['SD']:,.2f}",
+            )
+
+        with c3:
+
+            st.metric(
                 "Mean + 1 SD",
                 f"{statistics['Mean + 1 SD']:,.2f}",
             )
 
-        with c3:
+        with c4:
 
             st.metric(
                 "Mean + 2 SD",
                 f"{statistics['Mean + 2 SD']:,.2f}",
             )
 
-        with c4:
+        with c5:
 
             st.metric(
                 "Mean + 3 SD",
@@ -3485,6 +3711,12 @@ def render_incidence_analysis(df):
 
     st.markdown(
         "### 7. ℹ️ Methodology, Interpretation & Data Quality"
+    )
+
+    st.caption(
+        "Use this section when the dashboard is being used for formal "
+        "programme review, reporting or interpretation. It documents "
+        "how the incidence and statistical indicators were calculated."
     )
 
     methodology = pd.DataFrame(
