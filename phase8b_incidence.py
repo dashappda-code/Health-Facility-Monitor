@@ -1169,9 +1169,16 @@ def render_incidence_analysis(df):
     # --------------------------------------------------------
     # PDF EXPORT
     # --------------------------------------------------------
-    elif report_format == "PDF":
+
+elif report_format == "PDF":
         try:
             from fpdf import FPDF
+            
+            # Helper function to remove unsupported Unicode characters for FPDF
+            def clean_text(text):
+                # Replace Em-dash and En-dash with normal hyphen to avoid latin-1 errors
+                return str(text).replace("—", "-").replace("–", "-").encode('latin-1', 'replace').decode('latin-1')
+
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", 'B', 16)
@@ -1187,7 +1194,10 @@ def render_incidence_analysis(df):
                 pdf.cell(0, 10, txt="Visualizations", ln=True)
                 for chart_title, chart_obj in st.session_state["export_charts"].items():
                     pdf.set_font("Arial", 'B', 10)
-                    pdf.cell(0, 10, txt=chart_title, ln=True)
+                    
+                    # Apply clean_text to chart titles
+                    pdf.cell(0, 10, txt=clean_text(chart_title), ln=True)
+                    
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                         chart_obj.save(tmp.name, format="png", engine="vl-convert")
                         pdf.image(tmp.name, w=180) 
@@ -1204,19 +1214,21 @@ def render_incidence_analysis(df):
                 pdf.ln()
                 pdf.set_font("Arial", size=10)
                 for _, row in ward_incidence.head(30).iterrows(): 
-                    pdf.cell(60, 10, str(row['Ward']), border=1)
+                    # Apply clean_text to Ward names just in case they have unicode chars
+                    pdf.cell(60, 10, clean_text(row['Ward']), border=1)
                     pdf.cell(40, 10, str(row['Cases']), border=1)
                     pdf.cell(40, 10, str(row['Incidence Rate']), border=1)
                     pdf.ln()
                     
             pdf_bytes = pdf.output(dest='S').encode('latin1')
-            st.download_button(label="📥 Download PDF Report", data=pdf_bytes, file_name="Incidence_Report.pdf", mime="application/pdf")
+            st.download_button(label="📥 Download PDF Report (With Charts)", data=pdf_bytes, file_name="Incidence_Report.pdf", mime="application/pdf")
         except Exception as e:
             st.error(f"PDF generation failed. Ensure fpdf and vl-convert-python are installed. Error: {e}")
 
-# ============================================================
-# BACKWARD-COMPATIBLE ENTRY POINT
-# ============================================================
+
+ # ============================================================
+ # BACKWARD-COMPATIBLE ENTRY POINT
+ # ============================================================
 
 def render_incidence(df):
     return render_incidence_analysis(df)
