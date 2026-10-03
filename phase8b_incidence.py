@@ -146,7 +146,8 @@ def _single_select(
 
     if show_selected:
         st.caption(
-            f"Selected: **{value}** · Charts below use this selection."
+            f"✅ **Selected:** {value} · Charts below use this selection. "
+            "Open the dropdown to see the checked option."
         )
 
     return value
@@ -160,13 +161,18 @@ def _compact_multiselect(
     reset_button_key=None,
     reset_label="↺ Reset",
     show_selected=True,
+    defer=False,
+    apply_label="Apply Selection",
 ):
     """
     Multi-value selection using native Streamlit multiselect.
 
-    Dropdown options display native tick/check boxes, so the checked
-    state is visible when the dropdown is opened. The current selection
-    is also shown below the widget.
+    The dropdown itself is the native Streamlit checkbox-style control:
+    checked options remain visibly checked when the dropdown is opened.
+
+    When defer=True, the widget is placed inside a form so selecting several
+    checkboxes does not rerun the complete dashboard after every click.
+    The chart updates once Apply Selection is pressed.
     """
 
     options = list(options)
@@ -193,30 +199,61 @@ def _compact_multiselect(
                 value for value in existing if value in options
             ]
 
-    if reset_button_key is not None:
-        if st.button(
-            reset_label,
-            key=reset_button_key,
-            help=f"Reset {label} to its default selections.",
-        ):
+    if defer:
+        form_key = f"{key}__form"
+
+        with st.form(form_key, clear_on_submit=False):
+            selected = st.multiselect(
+                label,
+                options=options,
+                default=default,
+                key=key,
+            )
+
+            apply_col, reset_col = st.columns(2)
+
+            with apply_col:
+                st.form_submit_button(
+                    f"✓ {apply_label}",
+                    use_container_width=True,
+                )
+
+            with reset_col:
+                reset_clicked = st.form_submit_button(
+                    reset_label,
+                    use_container_width=True,
+                )
+
+        if reset_clicked:
             st.session_state[key] = list(default)
             st.rerun()
 
-    selected = st.multiselect(
-        label,
-        options=options,
-        default=default,
-        key=key,
-    )
+    else:
+        if reset_button_key is not None:
+            if st.button(
+                reset_label,
+                key=reset_button_key,
+                help=f"Reset {label} to its default selections.",
+            ):
+                st.session_state[key] = list(default)
+                st.rerun()
+
+        selected = st.multiselect(
+            label,
+            options=options,
+            default=default,
+            key=key,
+        )
 
     if show_selected:
         if selected:
             display = ", ".join(str(value) for value in selected)
             st.caption(
-                f"Selected: **{display}** · The chart uses all checked selections."
+                f"✅ **Selected:** {display} · The chart uses all checked selections. "
+                "Open the dropdown to see the checked boxes."
             )
         else:
-            st.caption("Selected: None")
+            st.caption("☐ **Selected:** None")
 
     return selected
 
@@ -1375,6 +1412,69 @@ def _aggregate_year_incidence(
         pd.DataFrame(rows)
         .sort_values("Year")
         .reset_index(drop=True)
+    )
+
+
+# ============================================================
+# CACHED INCIDENCE BUILD
+# ============================================================
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _build_incidence_bundle(
+    case_df,
+    population_long,
+    denominator,
+):
+    """
+    Cache the expensive incidence tables across Streamlit reruns.
+
+    Selector changes do not alter these tables, so the existing incidence
+    calculations are performed once for the same filtered data,
+    population data and denominator. This improves response time without
+    changing the formulas or population matching/fallback logic.
+    """
+
+    ward_incidence = _build_ward_year_incidence(
+        case_df,
+        population_long,
+        denominator,
+    )
+
+    disease_ward_incidence = _build_disease_ward_year_incidence(
+        case_df,
+        population_long,
+        denominator,
+    )
+
+    monthly_incidence = _build_monthly_ward_incidence(
+        case_df,
+        population_long,
+        denominator,
+    )
+
+    monthly_disease_incidence = _build_monthly_disease_ward_incidence(
+        case_df,
+        population_long,
+        denominator,
+    )
+
+    yearly_incidence = _aggregate_year_incidence(
+        ward_incidence,
+        denominator,
+    )
+
+    audit = _population_audit(
+        case_df,
+        population_long,
+    )
+
+    return (
+        ward_incidence,
+        disease_ward_incidence,
+        monthly_incidence,
+        monthly_disease_incidence,
+        yearly_incidence,
+        audit,
     )
 
 
@@ -2706,50 +2806,17 @@ def render_incidence_analysis(df):
     # BUILD TABLES
     # ========================================================
 
-    ward_incidence = (
-        _build_ward_year_incidence(
-            case_df,
-            population_long,
-            denominator,
-        )
-    )
-
-    disease_ward_incidence = (
-        _build_disease_ward_year_incidence(
-            case_df,
-            population_long,
-            denominator,
-        )
-    )
-
-    monthly_incidence = (
-        _build_monthly_ward_incidence(
-            case_df,
-            population_long,
-            denominator,
-        )
-    )
-
-    monthly_disease_incidence = (
-        _build_monthly_disease_ward_incidence(
-            case_df,
-            population_long,
-            denominator,
-        )
-    )
-
-    yearly_incidence = (
-        _aggregate_year_incidence(
-            ward_incidence,
-            denominator,
-        )
-    )
-
-    audit = (
-        _population_audit(
-            case_df,
-            population_long,
-        )
+    (
+        ward_incidence,
+        disease_ward_incidence,
+        monthly_incidence,
+        monthly_disease_incidence,
+        yearly_incidence,
+        audit,
+    ) = _build_incidence_bundle(
+        case_df,
+        population_long,
+        denominator,
     )
 
     # ========================================================
@@ -2790,6 +2857,7 @@ def render_incidence_analysis(df):
             ],
             key="phase8b_population_wards",
             reset_button_key="phase8b_population_wards_reset_v1",
+            defer=True,
         )
 
         st.caption(
@@ -3035,6 +3103,7 @@ def render_incidence_analysis(df):
                 default=ward_options,
                 key="phase8b_ward_selection",
                 reset_button_key="phase8b_ward_selection_reset_v1",
+                defer=True,
             )
 
             st.caption(
@@ -3230,6 +3299,7 @@ def render_incidence_analysis(df):
                 ],
                 key="phase8b_disease_selection",
                 reset_button_key="phase8b_disease_selection_reset_v1",
+                defer=True,
             )
 
             st.caption(
@@ -3362,6 +3432,7 @@ def render_incidence_analysis(df):
                     ],
                     key="phase8b_disease_ward_selection",
                     reset_button_key="phase8b_disease_ward_selection_reset_v1",
+                    defer=True,
                 )
 
                 if selected_disease_wards:
@@ -3488,8 +3559,8 @@ def render_incidence_analysis(df):
         "Select Disease",
         trend_disease_options,
         default="All Diseases",
-        key="phase8b_incidence_trend_disease_v3",
-        reset_button_key="phase8b_incidence_trend_disease_reset_v1",
+        key="phase8b_incidence_trend_disease_v5",
+        reset_button_key="phase8b_incidence_trend_disease_reset_v3",
     )
 
     if selected_trend_disease is None:
@@ -3505,7 +3576,8 @@ def render_incidence_analysis(df):
     )
 
     st.caption(
-        "Selection: the checked option is active. Select All Diseases or exactly one disease."
+        f"✅ **Selected:** {selected_trend_disease} · "
+        "The checked option is active; the chart below uses this selection."
     )
     st.info(
         f"**Chart basis:** {trend_basis}"
@@ -3718,16 +3790,16 @@ def render_incidence_analysis(df):
 
     if st.button(
         "↺ Reset Statistical Selection to Default",
-        key="phase8b_stat_all_reset_v1",
+        key="phase8b_stat_all_reset_v3",
         help="Reset baseline, disease and ward to their default selections.",
     ):
         st.session_state["phase8b_stat_baseline"] = [
             "All Available Years"
         ]
-        st.session_state["phase8b_stat_disease_v3"] = [
+        st.session_state["phase8b_stat_disease_v5"] = [
             "All Diseases"
         ]
-        st.session_state["phase8b_stat_ward_v3"] = [
+        st.session_state["phase8b_stat_ward_v5"] = [
             "All Wards"
         ]
         st.rerun()
@@ -3782,8 +3854,8 @@ def render_incidence_analysis(df):
             "Select Disease",
             disease_options,
             default="All Diseases",
-            key="phase8b_stat_disease_v3",
-            reset_button_key="phase8b_stat_disease_reset_v1",
+            key="phase8b_stat_disease_v5",
+            reset_button_key="phase8b_stat_disease_reset_v3",
         )
 
     with stat_ward_col:
@@ -3792,8 +3864,8 @@ def render_incidence_analysis(df):
             "Select Ward",
             ward_options,
             default="All Wards",
-            key="phase8b_stat_ward_v3",
-            reset_button_key="phase8b_stat_ward_reset_v1",
+            key="phase8b_stat_ward_v5",
+            reset_button_key="phase8b_stat_ward_reset_v3",
         )
 
     if (
