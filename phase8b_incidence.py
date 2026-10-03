@@ -74,6 +74,25 @@ MONTH_NAMES = {
 # All selection controls are native Streamlit widgets.
 # ============================================================
 
+def _set_widget_state(widget_key, values):
+    """Set a widget state from a Streamlit callback before the next rerun."""
+    st.session_state[widget_key] = list(values)
+
+
+def _reset_selection(widget_key, applied_key, default_values):
+    """Reset both the visible widget and its applied-selection state."""
+    defaults = list(default_values)
+    st.session_state[widget_key] = defaults
+    st.session_state[applied_key] = defaults
+
+
+def _apply_multiselect(widget_key, applied_key):
+    """Copy a form widget's current selection into the applied state."""
+    st.session_state[applied_key] = list(
+        st.session_state.get(widget_key, [])
+    )
+
+
 def _single_select(
     label,
     options,
@@ -83,14 +102,11 @@ def _single_select(
     reset_label="↺ Reset",
     show_selected=True,
 ):
-    """
-    Single-choice selector using native Streamlit multiselect.
+    """Native checkbox-style single-selection dropdown.
 
-    The dropdown uses Streamlit's native checkbox-style options.
-    Only one value can be selected at a time.
-
-    When a reset button key is supplied, the current widget state is
-    reset to the supplied default and the page reruns.
+    The visible Streamlit widget uses a dedicated widget key. The applied
+    selection is stored under ``key`` so reset/selection bookkeeping never
+    mutates the widget's own session-state key after instantiation.
     """
 
     options = list(options)
@@ -104,53 +120,57 @@ def _single_select(
     if key is None:
         key = f"_single_select_{label}"
 
-    # Keep stale session-state selections from breaking when the
-    # available option list changes after filtering/baseline changes.
-    existing = st.session_state.get(key)
-    if existing is not None:
-        if isinstance(existing, (list, tuple)):
-            valid_existing = [
-                value for value in existing if value in options
-            ]
-            if len(valid_existing) > 1:
-                valid_existing = valid_existing[-1:]
-            st.session_state[key] = valid_existing
-        elif existing not in options:
-            st.session_state[key] = [default]
+    widget_key = f"{key}__widget"
+
+    applied = st.session_state.get(key)
+    if isinstance(applied, (list, tuple)):
+        applied = [value for value in applied if value in options][:1]
+    elif applied in options:
+        applied = [applied]
+    else:
+        applied = [default]
+
+    if not applied:
+        applied = [default]
+
+    # Initialise the separate widget key only when it does not yet exist.
+    # Never overwrite it after the widget has been instantiated.
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = list(applied)
 
     if reset_button_key is not None:
-        if st.button(
+        st.button(
             reset_label,
             key=reset_button_key,
             help=f"Reset {label} to the default selection.",
-        ):
-            st.session_state[key] = [default]
-            st.rerun()
+            on_click=_reset_selection,
+            args=(widget_key, key, (default,)),
+        )
 
     selected = st.multiselect(
         label,
         options=options,
-        default=[default],
         max_selections=1,
         select_all=False,
         placeholder="Select one option",
-        key=key,
+        key=widget_key,
     )
 
-    if not selected:
-        if show_selected:
-            st.caption("Selected: None")
-        return None
-
-    value = selected[0]
+    # Store the applied value under the non-widget key.
+    applied_value = selected[0] if selected else None
+    if applied_value is not None:
+        st.session_state[key] = [applied_value]
 
     if show_selected:
-        st.caption(
-            f"✅ **Selected:** {value} · Charts below use this selection. "
-            "Open the dropdown to see the checked option."
-        )
+        if applied_value is None:
+            st.caption("☐ **Selected:** None")
+        else:
+            st.caption(
+                f"✅ **Selected:** {applied_value} · Charts below use this selection. "
+                "Open the dropdown to see the checked option."
+            )
 
-    return value
+    return applied_value
 
 
 def _compact_multiselect(
@@ -164,15 +184,12 @@ def _compact_multiselect(
     defer=False,
     apply_label="Apply Selection",
 ):
-    """
-    Multi-value selection using native Streamlit multiselect.
+    """Native checkbox-style multi-selection dropdown.
 
-    The dropdown itself is the native Streamlit checkbox-style control:
-    checked options remain visibly checked when the dropdown is opened.
-
-    When defer=True, the widget is placed inside a form so selecting several
-    checkboxes does not rerun the complete dashboard after every click.
-    The chart updates once Apply Selection is pressed.
+    A separate widget key prevents StreamlitWidgetAlreadyInstantiatedError.
+    With ``defer=True`` the native checkboxes are inside a form, so selecting
+    several items does not rerun the complete dashboard after every click.
+    The chart refreshes only after Apply Selection.
     """
 
     options = list(options)
@@ -183,21 +200,22 @@ def _compact_multiselect(
     if default is None:
         default = options[: min(5, len(options))]
 
-    default = [
-        value
-        for value in default
-        if value in options
-    ]
+    default = [value for value in default if value in options]
 
     if key is None:
         key = f"_compact_multiselect_{label}"
 
-    existing = st.session_state.get(key)
-    if existing is not None:
-        if isinstance(existing, (list, tuple)):
-            st.session_state[key] = [
-                value for value in existing if value in options
-            ]
+    widget_key = f"{key}__widget"
+    applied = st.session_state.get(key)
+
+    if isinstance(applied, (list, tuple)):
+        applied = [value for value in applied if value in options]
+    else:
+        applied = list(default)
+
+    # Initialise the widget from the applied state only on first creation.
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = list(applied)
 
     if defer:
         form_key = f"{key}__form"
@@ -206,8 +224,7 @@ def _compact_multiselect(
             selected = st.multiselect(
                 label,
                 options=options,
-                default=default,
-                key=key,
+                key=widget_key,
             )
 
             apply_col, reset_col = st.columns(2)
@@ -216,34 +233,44 @@ def _compact_multiselect(
                 st.form_submit_button(
                     f"✓ {apply_label}",
                     use_container_width=True,
+                    on_click=_apply_multiselect,
+                    args=(widget_key, key),
                 )
 
             with reset_col:
-                reset_clicked = st.form_submit_button(
+                st.form_submit_button(
                     reset_label,
                     use_container_width=True,
+                    on_click=_reset_selection,
+                    args=(widget_key, key, tuple(default)),
                 )
 
-        if reset_clicked:
-            st.session_state[key] = list(default)
-            st.rerun()
+        # The applied state is the source used by charts/tables. During the
+        # initial render it falls back to the default; after Apply it contains
+        # exactly the checked values from the native dropdown.
+        selected = st.session_state.get(
+            key,
+            list(default),
+        )
 
     else:
         if reset_button_key is not None:
-            if st.button(
+            st.button(
                 reset_label,
                 key=reset_button_key,
-                help=f"Reset {label} to its default selections.",
-            ):
-                st.session_state[key] = list(default)
-                st.rerun()
+                help=f"Reset {label} to the default selections.",
+                on_click=_reset_selection,
+                args=(widget_key, key, tuple(default)),
+            )
 
         selected = st.multiselect(
             label,
             options=options,
-            default=default,
-            key=key,
+            key=widget_key,
         )
+        st.session_state[key] = list(selected)
+
+    selected = [value for value in selected if value in options]
 
     if show_selected:
         if selected:
@@ -256,7 +283,6 @@ def _compact_multiselect(
             st.caption("☐ **Selected:** None")
 
     return selected
-
 
 def _chart_title(
     title,
@@ -467,6 +493,7 @@ def _format_number(value, decimals=0):
 # CASE DATA PREPARATION
 # ============================================================
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def _prepare_case_data(df):
 
     if df is None or df.empty:
@@ -3788,21 +3815,32 @@ def render_incidence_analysis(df):
         "Each allows All or exactly one specific value at a time."
     )
 
-    if st.button(
-        "↺ Reset Statistical Selection to Default",
-        key="phase8b_stat_all_reset_v3",
-        help="Reset baseline, disease and ward to their default selections.",
-    ):
+    def _reset_statistical_defaults():
         st.session_state["phase8b_stat_baseline"] = [
+            "All Available Years"
+        ]
+        st.session_state["phase8b_stat_baseline__widget"] = [
             "All Available Years"
         ]
         st.session_state["phase8b_stat_disease_v5"] = [
             "All Diseases"
         ]
+        st.session_state["phase8b_stat_disease_v5__widget"] = [
+            "All Diseases"
+        ]
         st.session_state["phase8b_stat_ward_v5"] = [
             "All Wards"
         ]
-        st.rerun()
+        st.session_state["phase8b_stat_ward_v5__widget"] = [
+            "All Wards"
+        ]
+
+    st.button(
+        "↺ Reset Statistical Selection to Default",
+        key="phase8b_stat_all_reset_v4",
+        help="Reset baseline, disease and ward to their default selections.",
+        on_click=_reset_statistical_defaults,
+    )
 
     baseline = _single_select(
         "Statistical Baseline",
