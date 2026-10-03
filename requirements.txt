@@ -13,3 +13,5 @@ python-pptx
 pydeck
 matplotlib>=3.8,<4
 vl-convert-python
+python-docx
+fpdf
