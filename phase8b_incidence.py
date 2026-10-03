@@ -3586,6 +3586,139 @@ def render_incidence_analysis(df):
         "an outbreak."
     )
 
+# ========================================================
+    # 8. DOWNLOAD REPORTS (Excel, Word, PDF)
+    # ========================================================
+    st.divider()
+    st.markdown("### 8. 📥 Download Reports & Data")
+    st.caption("Generate a formatted report of the displayed page with or without data tables.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        report_format = st.radio("Select Report Format:", ["Excel", "Word", "PDF"], horizontal=True)
+    with col2:
+        include_tables = st.radio("Include Data Tables?:", ["With Tables", "Without Tables (Summary Only)"], horizontal=True)
+    
+    import io
+    
+    # --------------------------------------------------------
+    # 1. EXCEL EXPORT
+    # --------------------------------------------------------
+    if report_format == "Excel":
+        output = io.BytesIO()
+        try:
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                # Summary Sheet
+                pd.DataFrame({
+                    "Metric": ["Total Records Analyzed", "Wards Analyzed", "Denominator Used"],
+                    "Value": [len(case_df), population_wards, f"Per {denominator:,}"]
+                }).to_excel(writer, sheet_name="Summary", index=False)
+                
+                # Tables Sheet
+                if include_tables == "With Tables":
+                    if not ward_incidence.empty: 
+                        ward_incidence.to_excel(writer, sheet_name="Ward Incidence", index=False)
+                    if not disease_ward_incidence.empty: 
+                        disease_ward_incidence.to_excel(writer, sheet_name="Disease Incidence", index=False)
+                    if not monthly_incidence.empty: 
+                        monthly_incidence.to_excel(writer, sheet_name="Monthly Trend", index=False)
+            
+            st.download_button(
+                label="📥 Download Excel Report",
+                data=output.getvalue(),
+                file_name="Incidence_Surveillance_Report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.error(f"Excel generation failed. Please run in terminal: pip install openpyxl | Error: {e}")
+            
+    # --------------------------------------------------------
+    # 2. WORD (DOCX) EXPORT
+    # --------------------------------------------------------
+    elif report_format == "Word":
+        try:
+            from docx import Document
+            doc = Document()
+            doc.add_heading('Public Health Incidence & Surveillance Report', 0)
+            
+            doc.add_heading('Executive Summary', level=1)
+            doc.add_paragraph(f"• Total Records Analyzed: {len(case_df):,}")
+            doc.add_paragraph(f"• Denominator Used: Per {denominator:,} Population")
+            doc.add_paragraph(f"• Total Wards Analyzed: {population_wards}")
+            
+            if include_tables == "With Tables" and not ward_incidence.empty:
+                doc.add_heading('Ward Incidence Data (Top Records)', level=2)
+                table = doc.add_table(rows=1, cols=3)
+                table.style = 'Table Grid'
+                hdr_cells = table.rows[0].cells
+                hdr_cells[0].text = 'Ward'
+                hdr_cells[1].text = 'Cases'
+                hdr_cells[2].text = 'Incidence Rate'
+                
+                # Limit to 50 rows in Word to keep document clean
+                for _, row in ward_incidence.head(50).iterrows(): 
+                    row_cells = table.add_row().cells
+                    row_cells[0].text = str(row['Ward'])
+                    row_cells[1].text = str(row['Cases'])
+                    row_cells[2].text = str(row['Incidence Rate'])
+                doc.add_paragraph("* Table is limited to top 50 rows for preview.")
+                
+            output = io.BytesIO()
+            doc.save(output)
+            st.download_button(
+                label="📥 Download Word Report", 
+                data=output.getvalue(), 
+                file_name="Incidence_Report.docx", 
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+        except ImportError:
+            st.error("Word report generation requires 'python-docx'. Please run in terminal: pip install python-docx")
+
+    # --------------------------------------------------------
+    # 3. PDF EXPORT
+    # --------------------------------------------------------
+    elif report_format == "PDF":
+        try:
+            from fpdf import FPDF
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 16)
+            pdf.cell(0, 10, txt="Public Health Incidence & Surveillance Report", ln=True, align='C')
+            pdf.ln(10)
+            
+            pdf.set_font("Arial", size=12)
+            pdf.cell(0, 10, txt=f"Total Records Analyzed: {len(case_df):,}", ln=True)
+            pdf.cell(0, 10, txt=f"Denominator Used: Per {denominator:,} Population", ln=True)
+            
+            if include_tables == "With Tables" and not ward_incidence.empty:
+                pdf.ln(10)
+                pdf.set_font("Arial", 'B', 10)
+                pdf.cell(60, 10, "Ward", border=1)
+                pdf.cell(40, 10, "Cases", border=1)
+                pdf.cell(40, 10, "Incidence Rate", border=1)
+                pdf.ln()
+                
+                pdf.set_font("Arial", size=10)
+                # Limit to 30 rows in PDF to avoid page overflow issues
+                for _, row in ward_incidence.head(30).iterrows(): 
+                    pdf.cell(60, 10, str(row['Ward']), border=1)
+                    pdf.cell(40, 10, str(row['Cases']), border=1)
+                    pdf.cell(40, 10, str(row['Incidence Rate']), border=1)
+                    pdf.ln()
+                    
+            # Output PDF
+            pdf_bytes = pdf.output(dest='S').encode('latin1')
+            st.download_button(
+                label="📥 Download PDF Report", 
+                data=pdf_bytes, 
+                file_name="Incidence_Report.pdf", 
+                mime="application/pdf"
+            )
+        except ImportError:
+            st.error("PDF generation requires 'fpdf'. Please run in terminal: pip install fpdf")
+        except Exception as e:
+            st.error(f"PDF generation error: {e}")
+
 
 # ============================================================
 # BACKWARD-COMPATIBLE ENTRY POINT
