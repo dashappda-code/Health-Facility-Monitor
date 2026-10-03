@@ -1170,7 +1170,7 @@ def render_incidence_analysis(df):
     # PDF EXPORT
     # --------------------------------------------------------
 
-elif report_format == "PDF":
+     elif report_format == "PDF":
         try:
             from fpdf import FPDF
             
